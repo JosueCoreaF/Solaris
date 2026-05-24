@@ -484,3 +484,28 @@ CREATE TABLE public.usuarios_roles (
   CONSTRAINT usuarios_roles_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner),
   CONSTRAINT usuarios_roles_id_hotel_fkey FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel)
 );
+
+CREATE TABLE public.planes_suscripcion (
+  id_plan character varying NOT NULL,
+  nombre character varying NOT NULL,
+  stripe_price_id character varying,
+  limite_negocios integer NOT NULL DEFAULT 1,
+  precio_mensual numeric NOT NULL DEFAULT 0.00,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT planes_suscripcion_pkey PRIMARY KEY (id_plan)
+);
+
+CREATE TABLE public.suscripciones_owner (
+  id_suscripcion uuid NOT NULL DEFAULT gen_random_uuid(),
+  owner_id uuid NOT NULL,
+  id_plan character varying NOT NULL,
+  stripe_customer_id character varying,
+  stripe_subscription_id character varying,
+  estado character varying NOT NULL DEFAULT 'inactiva'::character varying CHECK (estado::text = ANY (ARRAY['activa'::character varying, 'inactiva'::character varying, 'cancelada'::character varying, 'impaga'::character varying]::text[])),
+  current_period_end timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT suscripciones_owner_pkey PRIMARY KEY (id_suscripcion),
+  CONSTRAINT suscripciones_owner_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner) ON DELETE CASCADE,
+  CONSTRAINT suscripciones_owner_id_plan_fkey FOREIGN KEY (id_plan) REFERENCES public.planes_suscripcion(id_plan)
+);

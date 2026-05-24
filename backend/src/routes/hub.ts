@@ -145,8 +145,10 @@ router.get(['/business', '/businesses'], async (req, res) => {
   }
 });
 
+import { checkPlanLimits } from '../middlewares/checkPlanLimits.js';
+
 // POST - Crear nuevo negocio genérico
-router.post(['/business', '/businesses'], async (req, res) => {
+router.post(['/business', '/businesses'], checkPlanLimits, async (req, res) => {
   try {
     const {
       tipo_modulo = 'hotel',

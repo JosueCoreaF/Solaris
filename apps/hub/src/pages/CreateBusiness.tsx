@@ -13,6 +13,16 @@ export const CreateBusiness = () => {
   const [error, setError] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const stepParam = params.get('step');
+    const moduleParam = params.get('module');
+    if (stepParam === '3' && moduleParam) {
+      setStep(3);
+      setFormData(prev => ({ ...prev, tipo_modulo: moduleParam }));
+    }
+  }, []);
+
   const [formData, setFormData] = useState({
     tipo_modulo: 'hotel',
     plan_id: '',
@@ -28,9 +38,30 @@ export const CreateBusiness = () => {
     setStep(2);
   };
 
-  const handleSelectPlan = (planId: string) => {
+  const handleSelectPlan = async (planId: string) => {
     setFormData({ ...formData, plan_id: planId });
-    setStep(3);
+    setError('');
+    
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+      const returnUrl = `${window.location.origin}/create-business?step=3&module=${formData.tipo_modulo}`;
+
+      const response = await axios.post(`${API_BASE_URL}/hub/billing/checkout`, {
+        plan_id: planId,
+        return_url: returnUrl
+      }, {
+        headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
+      });
+
+      if (response.data.url && response.data.url !== returnUrl) {
+        window.location.href = response.data.url;
+      } else {
+        setStep(3);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Error al procesar la suscripción.');
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
