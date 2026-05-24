@@ -1,20 +1,19 @@
-import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { useDashboard } from '../hooks/useDashboard';
-import { 
-  LayoutDashboard, 
-  BarChart3, 
-  Wallet, 
-  Building2, 
-  Dumbbell, 
-  Settings, 
-  CreditCard, 
-  Search, 
-  Bell, 
-  LogOut, 
-  Sparkles, 
-  TrendingUp, 
+import {
+  LayoutDashboard,
+  BarChart3,
+  Wallet,
+  Building2,
+  Dumbbell,
+  Settings,
+  CreditCard,
+  Search,
+  Bell,
+  LogOut,
+  Sparkles,
+  TrendingUp,
   CheckCircle2,
   Users,
   Plus,
@@ -24,18 +23,63 @@ import { motion } from 'framer-motion';
 
 export const Dashboard = () => {
   const navigate = useNavigate();
-  const { data, loading: dataLoading, error } = useDashboard();
+  const { session } = useAuth();
+  const [modules, setModules] = useState<any[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const fetchHotels = async () => {
+      try {
+        setDataLoading(true);
+        if (!session?.user?.id) return;
+
+        // Según schema.sql: vinculación mediante usuarios_roles
+        const { data, error: err } = await supabase
+          .from('usuarios_roles')
+          .select('id_hotel, hoteles(*)')
+          .eq('usuario_id', session.user.id)
+          .eq('rol', 'PROPIETARIO');
+
+        if (err) throw err;
+
+        // Mapeamos a la estructura esperada por la UI
+        const mappedModules = data?.filter(r => r.hoteles).map(r => ({
+          id: r.hoteles.id_hotel,
+          type: 'HOTEL',
+          reference_id: r.hoteles.id_hotel,
+          is_active: r.hoteles.estado === 'activo',
+          name: r.hoteles.nombre_hotel,
+          ciudad: r.hoteles.ciudad,
+        })) || [];
+
+        setModules(mappedModules);
+      } catch (err: any) {
+        console.error('Error fetching hotels:', err);
+        setError(err.message);
+      } finally {
+        setDataLoading(false);
+      }
+    };
+    fetchHotels();
+  }, [session]);
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    // App.tsx AuthContext will automatically detect the signout and redirect to /login
   };
 
-  const handleEnterBusiness = (moduleId: string, referenceId: string) => {
-    // Guardar el ID real del hotel en LocalStorage para PartnerCentral
-    localStorage.setItem('solaris_active_business_id', referenceId);
-    // Redirigir a la app de PartnerCentral
-    window.location.href = 'http://localhost:5174'; 
+  const handleEnterBusiness = async (_moduleId: string, referenceId: string) => {
+    try {
+      if (session) {
+        const accessToken = session.access_token;
+        const refreshToken = session.refresh_token;
+        window.location.href = `http://localhost:5174/?access_token=${encodeURIComponent(accessToken)}&refresh_token=${encodeURIComponent(refreshToken)}&business_id=${encodeURIComponent(referenceId)}`;
+      } else {
+        window.location.href = `http://localhost:5174/?business_id=${encodeURIComponent(referenceId)}`;
+      }
+    } catch (err) {
+      console.error('Error sharing session:', err);
+      window.location.href = `http://localhost:5174/?business_id=${encodeURIComponent(referenceId)}`;
+    }
   };
 
   const containerVariants = {
@@ -48,14 +92,21 @@ export const Dashboard = () => {
 
   const itemVariants = {
     hidden: { opacity: 0, y: 20 },
-    show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+    show: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 300, damping: 24 } }
   };
 
-  const showEmptyState = !dataLoading && !error && (!data?.modules || data.modules.length === 0);
+  const showEmptyState = !dataLoading && !error && modules.length === 0;
+
+  // Polyfill para la variable data que se usaba en el HTML original
+  const data = {
+    owner: { nombre: session?.user?.email?.split('@')[0] || 'Usuario', plan: 'Profesional' },
+    modules: modules,
+    kpis: { ingresos: 0, negocios_activos: modules.length, ocupacion: 0, tareas: 0 }
+  };
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
-      
+
       {/* Sidebar */}
       <aside className="w-64 bg-slate-950 text-slate-300 flex flex-col hidden md:flex shrink-0">
         <div className="p-6">
@@ -63,7 +114,7 @@ export const Dashboard = () => {
             Solaris
           </h2>
         </div>
-        
+
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-8 scrollbar-hide">
           {/* General Section */}
           <div>
@@ -95,8 +146,8 @@ export const Dashboard = () => {
                 </div>
               ) : data?.modules && data.modules.length > 0 ? (
                 data.modules.map(mod => (
-                  <button 
-                    key={mod.id} 
+                  <button
+                    key={mod.id}
                     onClick={() => handleEnterBusiness(mod.id, mod.reference_id)}
                     className="flex items-center justify-between w-full px-4 py-2 hover:bg-slate-800 hover:text-white rounded-lg transition-colors text-left"
                   >
@@ -128,10 +179,10 @@ export const Dashboard = () => {
             </nav>
           </div>
         </div>
-        
+
         {/* User / Logout */}
         <div className="p-4 border-t border-slate-800/50">
-          <button 
+          <button
             onClick={handleLogout}
             className="flex items-center gap-3 px-4 py-2 w-full text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
           >
@@ -143,7 +194,7 @@ export const Dashboard = () => {
 
       {/* Main Area */}
       <main className="flex-1 flex flex-col relative overflow-hidden">
-        
+
         {/* Top Header Flotante */}
         <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 h-16 flex items-center justify-between px-8 shrink-0 z-20">
           <div className="flex-1 max-w-md">
@@ -151,14 +202,14 @@ export const Dashboard = () => {
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Search className="h-4 w-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
               </div>
-              <input 
-                type="text" 
-                placeholder="Buscar clientes, reservas o transacciones..." 
+              <input
+                type="text"
+                placeholder="Buscar clientes, reservas o transacciones..."
                 className="w-full pl-10 pr-4 py-2 bg-slate-100 border-transparent rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all outline-none"
               />
             </div>
           </div>
-          
+
           <div className="flex items-center gap-6">
             <button className="relative text-slate-500 hover:text-slate-700 transition-colors">
               <Bell size={20} />
@@ -184,7 +235,7 @@ export const Dashboard = () => {
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-8 z-10 relative">
-          
+
           {dataLoading ? (
             // Skeleton Loader Completo
             <div className="max-w-6xl animate-pulse">
@@ -227,7 +278,7 @@ export const Dashboard = () => {
                   <Building2 className="w-20 h-20 text-slate-300 mb-6" />
                   <h2 className="text-2xl font-bold text-slate-900 mb-2">Aún no tienes negocios registrados</h2>
                   <p className="text-slate-500 max-w-md mx-auto mb-8">Comienza creando tu primer hotel o sucursal para ver tus métricas aquí.</p>
-                  <button 
+                  <button
                     onClick={() => navigate('/create-business')}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-bold transition-all shadow-lg hover:shadow-indigo-500/30"
                   >
@@ -235,7 +286,7 @@ export const Dashboard = () => {
                   </button>
                 </motion.div>
               ) : (
-                <motion.div 
+                <motion.div
                   variants={containerVariants}
                   initial="hidden"
                   animate="show"
@@ -243,7 +294,7 @@ export const Dashboard = () => {
                 >
                   {/* Grid de KPIs */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    
+
                     {/* KPI 1 */}
                     <motion.div variants={itemVariants} whileHover={{ y: -4 }} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 transition-all hover:shadow-md">
                       <div className="flex items-center justify-between mb-4">
@@ -255,7 +306,7 @@ export const Dashboard = () => {
                         </span>
                       </div>
                       <h3 className="text-slate-500 text-sm font-medium mb-1">Ingresos Mensuales</h3>
-                      <p className="text-2xl font-bold text-slate-900">${data?.kpis?.ingresos?.toLocaleString('en-US', {minimumFractionDigits: 2}) || '0.00'}</p>
+                      <p className="text-2xl font-bold text-slate-900">${data?.kpis?.ingresos?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}</p>
                     </motion.div>
 
                     {/* KPI 2 (Negocios Activos con Botón +) */}
@@ -273,9 +324,9 @@ export const Dashboard = () => {
                           <h3 className="text-slate-500 text-sm font-medium mb-1">Negocios Activos</h3>
                           <p className="text-2xl font-bold text-slate-900">{data?.kpis?.negocios_activos || 0}</p>
                         </div>
-                        <button 
+                        <button
                           onClick={() => navigate('/create-business')}
-                          className="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg transition-colors group relative" 
+                          className="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg transition-colors group relative"
                           title="Registrar Nuevo Negocio"
                         >
                           <Plus size={20} />
@@ -315,7 +366,7 @@ export const Dashboard = () => {
                   {/* Sección: Tus Negocios (Acceso a PartnerCentral) */}
                   <motion.div variants={itemVariants} className="mt-12">
                     <h2 className="text-xl font-bold text-slate-900 mb-6">Tus Negocios</h2>
-                    
+
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {data?.modules?.map((mod: any) => (
                         <div key={mod.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col transition-all hover:shadow-md">
@@ -329,11 +380,11 @@ export const Dashboard = () => {
                               </span>
                             )}
                           </div>
-                          
+
                           <h3 className="text-lg font-bold text-slate-900 mb-1">{mod.name || 'Módulo Hotel'}</h3>
                           <p className="text-sm text-slate-500 mb-6 flex-1">Gestión operativa del sistema central.</p>
-                          
-                          <button 
+
+                          <button
                             onClick={() => handleEnterBusiness(mod.id, mod.reference_id)}
                             className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-colors shadow-sm"
                           >

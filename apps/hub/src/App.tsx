@@ -1,8 +1,10 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { CreateBusiness } from './pages/CreateBusiness';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import apiClient from './services/api';
 import './index.css';
 
 const AppRoutes = () => {
@@ -19,6 +21,12 @@ const AppRoutes = () => {
 };
 
 function App() {
+  useEffect(() => {
+    apiClient.get('/health-check')
+      .then(res => console.log('🏥 [Health Check]:', res))
+      .catch(err => console.error('🏥 [Health Check Error]:', err));
+  }, []);
+
   return (
     <AuthProvider>
       <BrowserRouter>

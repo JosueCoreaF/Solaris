@@ -12,6 +12,7 @@ export interface DashboardData {
     type: string;
     reference_id: string;
     is_active: boolean;
+    name?: string;
   }>;
   kpis: {
     ingresos: number;
@@ -37,8 +38,9 @@ export const useDashboard = () => {
         }
 
         const token = sessionData.session.access_token;
+        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
         
-        const response = await axios.get('http://localhost:4000/api/hub/dashboard-summary', {
+        const response = await axios.get(`${API_BASE_URL}/hub/dashboard-summary`, {
           headers: {
             Authorization: `Bearer ${token}`
           }
