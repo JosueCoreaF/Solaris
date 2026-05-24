@@ -24,24 +24,11 @@ import { motion } from 'framer-motion';
 
 export const Dashboard = () => {
   const navigate = useNavigate();
-  const [authLoading, setAuthLoading] = useState(true);
   const { data, loading: dataLoading, error } = useDashboard();
-
-  useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate('/login');
-      } else {
-        setAuthLoading(false);
-      }
-    };
-    checkSession();
-  }, [navigate]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    navigate('/login');
+    // App.tsx AuthContext will automatically detect the signout and redirect to /login
   };
 
   const handleEnterBusiness = (moduleId: string, referenceId: string) => {
@@ -50,14 +37,6 @@ export const Dashboard = () => {
     // Redirigir a la app de PartnerCentral
     window.location.href = 'http://localhost:5174'; 
   };
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-      </div>
-    );
-  }
 
   const containerVariants = {
     hidden: { opacity: 0 },
