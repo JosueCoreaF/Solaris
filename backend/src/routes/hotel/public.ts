@@ -799,11 +799,21 @@ router.get('/config', async (req: Request, res: Response) => {
 // GET /api/public/hoteles
 router.get('/hoteles', async (req: Request, res: Response) => {
   try {
-    const { data, error } = await db()
+    const hotelId = req.query.hotel_id as string | undefined;
+    const ownerId = req.query.owner_id as string | undefined;
+
+    let query = db()
       .from('hoteles')
-      .select('id_hotel, nombre_hotel, direccion, telefono, correo_contacto, ciudad, estado')
+      .select('id_hotel, nombre_hotel, direccion, telefono, correo_contacto, ciudad, estado, owner_id')
       .eq('estado', 'activo');
-    
+
+    if (hotelId) {
+      query = query.eq('id_hotel', hotelId);
+    } else if (ownerId) {
+      query = query.eq('owner_id', ownerId);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
 
     // Mapear al modelo HotelPublic del frontend

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { supabase } from './supabaseClient';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
@@ -8,6 +9,21 @@ export const axiosInstance = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: true,
+});
+
+axiosInstance.interceptors.request.use(async (config) => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      config.headers = {
+        ...config.headers,
+        Authorization: `Bearer ${session.access_token}`,
+      };
+    }
+  } catch (error) {
+    console.warn('🌐 [API] No se pudo obtener sesión de Supabase', error);
+  }
+  return config;
 });
 
 axiosInstance.interceptors.response.use(

@@ -1,12 +1,15 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabaseClient';
-import { useDashboard } from '../hooks/useDashboard';
+import apiClient from '../services/api';
 import {
   LayoutDashboard,
   BarChart3,
   Wallet,
   Building2,
   Dumbbell,
+  Coffee,
   Settings,
   CreditCard,
   Search,
@@ -25,60 +28,68 @@ export const Dashboard = () => {
   const navigate = useNavigate();
   const { session } = useAuth();
   const [modules, setModules] = useState<any[]>([]);
+  const [kpis, setKpis] = useState({ ingresos: 0, negocios_activos: 0, ocupacion: 0, tareas: 0 });
+  const [ownerNombre, setOwnerNombre] = useState('');
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchHotels = async () => {
+    const fetchDashboard = async () => {
       try {
         setDataLoading(true);
-        if (!session?.user?.id) return;
-
-        // Según schema.sql: vinculación mediante usuarios_roles
-        const { data, error: err } = await supabase
-          .from('usuarios_roles')
-          .select('id_hotel, hoteles(*)')
-          .eq('usuario_id', session.user.id)
-          .eq('rol', 'PROPIETARIO');
-
-        if (err) throw err;
-
-        // Mapeamos a la estructura esperada por la UI
-        const mappedModules = data?.filter(r => r.hoteles).map(r => ({
-          id: r.hoteles.id_hotel,
-          type: 'HOTEL',
-          reference_id: r.hoteles.id_hotel,
-          is_active: r.hoteles.estado === 'activo',
-          name: r.hoteles.nombre_hotel,
-          ciudad: r.hoteles.ciudad,
-        })) || [];
-
-        setModules(mappedModules);
+        const d = await apiClient.get('/hub/dashboard-summary');
+        // Si el backend nos dice que no hay perfil owner, redirigir al setup
+        if (d?.needsOwnerSetup) {
+          navigate('/setup-owner', { replace: true });
+          return;
+        }
+        setModules(d?.modules || []);
+        setKpis(d?.kpis || { ingresos: 0, negocios_activos: 0, ocupacion: 0, tareas: 0 });
+        setOwnerNombre(d?.owner?.nombre || session?.user?.email?.split('@')[0] || 'Usuario');
       } catch (err: any) {
-        console.error('Error fetching hotels:', err);
-        setError(err.message);
+        if (err.response?.data?.needsOwnerSetup) {
+          navigate('/setup-owner', { replace: true });
+          return;
+        }
+        setError(err.response?.data?.error || err.message || 'Error al cargar el dashboard.');
       } finally {
         setDataLoading(false);
       }
     };
-    fetchHotels();
-  }, [session]);
+    if (session) fetchDashboard();
+  }, [session, navigate]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
   };
 
-  const handleEnterBusiness = async (_moduleId: string, referenceId: string) => {
+  const routeByModuleType = (type: string) => {
+    const normalized = type?.toLowerCase?.() ?? 'hotel';
+    switch (normalized) {
+      case 'gym':
+        return 5175;
+      case 'restaurant':
+        return 5176;
+      case 'store':
+        return 5177;
+      case 'hotel':
+      default:
+        return 5174;
+    }
+  };
+
+  const handleEnterBusiness = (moduleType: string, referenceId: string) => {
+    const port = routeByModuleType(moduleType);
     try {
       if (session) {
         const accessToken = session.access_token;
         const refreshToken = session.refresh_token;
-        window.location.href = `http://localhost:5174/?access_token=${encodeURIComponent(accessToken)}&refresh_token=${encodeURIComponent(refreshToken)}&business_id=${encodeURIComponent(referenceId)}`;
+        window.location.href = `http://localhost:${port}/?access_token=${encodeURIComponent(accessToken)}&refresh_token=${encodeURIComponent(refreshToken)}&business_id=${encodeURIComponent(referenceId)}`;
       } else {
-        window.location.href = `http://localhost:5174/?business_id=${encodeURIComponent(referenceId)}`;
+        window.location.href = `http://localhost:${port}/?business_id=${encodeURIComponent(referenceId)}`;
       }
-    } catch (err) {
-      console.error('Error sharing session:', err);
-      window.location.href = `http://localhost:5174/?business_id=${encodeURIComponent(referenceId)}`;
+    } catch {
+      window.location.href = `http://localhost:${port}/?business_id=${encodeURIComponent(referenceId)}`;
     }
   };
 
@@ -96,13 +107,6 @@ export const Dashboard = () => {
   };
 
   const showEmptyState = !dataLoading && !error && modules.length === 0;
-
-  // Polyfill para la variable data que se usaba en el HTML original
-  const data = {
-    owner: { nombre: session?.user?.email?.split('@')[0] || 'Usuario', plan: 'Profesional' },
-    modules: modules,
-    kpis: { ingresos: 0, negocios_activos: modules.length, ocupacion: 0, tareas: 0 }
-  };
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
@@ -144,16 +148,24 @@ export const Dashboard = () => {
                   <div className="w-4 h-4 bg-slate-800 rounded-full"></div>
                   <div className="h-3 bg-slate-800 rounded w-24"></div>
                 </div>
-              ) : data?.modules && data.modules.length > 0 ? (
-                data.modules.map(mod => (
+              ) : modules.length > 0 ? (
+                modules.map(mod => (
                   <button
                     key={mod.id}
-                    onClick={() => handleEnterBusiness(mod.id, mod.reference_id)}
+                    onClick={() => handleEnterBusiness(mod.type, mod.reference_id)}
                     className="flex items-center justify-between w-full px-4 py-2 hover:bg-slate-800 hover:text-white rounded-lg transition-colors text-left"
                   >
                     <div className="flex items-center gap-3">
-                      {mod.type === 'HOTEL' ? <Building2 size={18} className="text-emerald-400" /> : <Dumbbell size={18} className="text-blue-400" />}
-                      <span className="font-medium text-sm truncate">{mod.name || 'Módulo Hotel'}</span>
+                      {mod.type === 'hotel' ? (
+                    <Building2 size={18} className="text-emerald-400" />
+                  ) : mod.type === 'gym' ? (
+                    <Dumbbell size={18} className="text-blue-400" />
+                  ) : mod.type === 'restaurant' ? (
+                    <Coffee size={18} className="text-orange-400" />
+                  ) : (
+                    <Sparkles size={18} className="text-violet-400" />
+                  )}
+                      <span className="font-medium text-sm truncate">{mod.name || `Módulo ${mod.type?.toUpperCase()}`}</span>
                     </div>
                     {mod.is_active && <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 ml-2"></div>}
                   </button>
@@ -219,12 +231,12 @@ export const Dashboard = () => {
             <div className="flex items-center gap-3 cursor-pointer group">
               <div className="text-right hidden md:block">
                 <p className="text-sm font-semibold text-slate-900">
-                  {dataLoading ? <span className="animate-pulse bg-slate-200 h-4 w-20 block rounded"></span> : data?.owner?.nombre || 'Usuario'}
+                  {dataLoading ? <span className="animate-pulse bg-slate-200 h-4 w-20 block rounded"></span> : ownerNombre || 'Usuario'}
                 </p>
-                <p className="text-xs text-slate-500">{data?.owner?.plan || 'Propietario'}</p>
+                <p className="text-xs text-slate-500">Propietario</p>
               </div>
               <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm shadow-sm ring-2 ring-transparent group-hover:ring-indigo-100 transition-all">
-                {data?.owner?.nombre ? data.owner.nombre.charAt(0).toUpperCase() : 'U'}
+                {ownerNombre ? ownerNombre.charAt(0).toUpperCase() : 'U'}
               </div>
             </div>
             <button onClick={handleLogout} className="md:hidden text-slate-500">
@@ -261,7 +273,7 @@ export const Dashboard = () => {
             <>
               {/* Encabezado de Página */}
               <div className="mb-8">
-                <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Bienvenido, {data?.owner?.nombre || 'Usuario'} <span className="inline-block origin-bottom-right hover:animate-wave">👋</span></h1>
+                <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Bienvenido, {ownerNombre || 'Usuario'} <span className="inline-block origin-bottom-right hover:animate-wave">👋</span></h1>
                 <p className="text-slate-500 mt-2 text-sm">Aquí tienes el resumen de tus operaciones de hoy.</p>
               </div>
 
@@ -306,7 +318,7 @@ export const Dashboard = () => {
                         </span>
                       </div>
                       <h3 className="text-slate-500 text-sm font-medium mb-1">Ingresos Mensuales</h3>
-                      <p className="text-2xl font-bold text-slate-900">${data?.kpis?.ingresos?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}</p>
+                      <p className="text-2xl font-bold text-slate-900">${kpis.ingresos.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                     </motion.div>
 
                     {/* KPI 2 (Negocios Activos con Botón +) */}
@@ -322,7 +334,7 @@ export const Dashboard = () => {
                       <div className="flex items-end justify-between">
                         <div>
                           <h3 className="text-slate-500 text-sm font-medium mb-1">Negocios Activos</h3>
-                          <p className="text-2xl font-bold text-slate-900">{data?.kpis?.negocios_activos || 0}</p>
+                          <p className="text-2xl font-bold text-slate-900">{kpis.negocios_activos}</p>
                         </div>
                         <button
                           onClick={() => navigate('/create-business')}
@@ -345,7 +357,7 @@ export const Dashboard = () => {
                         </span>
                       </div>
                       <h3 className="text-slate-500 text-sm font-medium mb-1">Ocupación / Capacidad</h3>
-                      <p className="text-2xl font-bold text-slate-900">{data?.kpis?.ocupacion || 0}%</p>
+                      <p className="text-2xl font-bold text-slate-900">{kpis.ocupacion}%</p>
                     </motion.div>
 
                     {/* KPI 4 */}
@@ -359,7 +371,7 @@ export const Dashboard = () => {
                         </span>
                       </div>
                       <h3 className="text-slate-500 text-sm font-medium mb-1">Tareas Pendientes</h3>
-                      <p className="text-2xl font-bold text-slate-900">{data?.kpis?.tareas || 0}</p>
+                      <p className="text-2xl font-bold text-slate-900">{kpis.tareas}</p>
                     </motion.div>
                   </div>
 
@@ -368,7 +380,7 @@ export const Dashboard = () => {
                     <h2 className="text-xl font-bold text-slate-900 mb-6">Tus Negocios</h2>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {data?.modules?.map((mod: any) => (
+                      {modules.map((mod: any) => (
                         <div key={mod.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col transition-all hover:shadow-md">
                           <div className="flex justify-between items-start mb-6">
                             <div className="bg-indigo-50 p-3 rounded-xl">

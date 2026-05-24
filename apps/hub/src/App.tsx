@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { CreateBusiness } from './pages/CreateBusiness';
+import { SetupOwner } from './pages/SetupOwner';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import apiClient from './services/api';
 import './index.css';
@@ -14,6 +15,7 @@ const AppRoutes = () => {
     <Routes>
       <Route path="/login" element={session ? <Navigate to="/dashboard" replace /> : <Login />} />
       <Route path="/dashboard" element={session ? <Dashboard /> : <Navigate to="/login" replace />} />
+      <Route path="/setup-owner" element={session ? <SetupOwner /> : <Navigate to="/login" replace />} />
       <Route path="/create-business" element={session ? <CreateBusiness /> : <Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to={session ? "/dashboard" : "/login"} replace />} />
     </Routes>

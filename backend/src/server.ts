@@ -17,6 +17,8 @@ import tarifasRouter from './routes/hotel/tarifas.js';
 import reportesRouter from './routes/hotel/reportes.js';
 import finanzasRouter from './routes/hotel/finanzas.js';
 import chatRouter, { setIO } from './routes/hotel/chat.js';
+import gymRouter from './routes/gym/index.js';
+import restaurantRouter from './routes/restaurant/index.js';
 import { startExchangeRateScheduler } from './utils/exchangeRateUpdater.js';
 
 config();
@@ -77,6 +79,8 @@ app.use('/api/hub', hubRouter);
 app.use('/api', auditRouter);
 // Hotel routes (todas bajo /api/hotel/*)
 app.use('/api/hotel', hotelRouter);
+app.use('/api/gym', gymRouter);
+app.use('/api/restaurant', restaurantRouter);
 // Compat aliases (mantener URLs antiguas funcionando durante la migración)
 app.use('/api/config', configRouter);
 app.use('/api/bookings', bookingsRouter);

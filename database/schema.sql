@@ -80,9 +80,24 @@ CREATE TABLE public.chat_messages (
   file_url text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  sender_avatar text,
+  file_name text,
+  edited_at timestamp with time zone,
+  is_deleted boolean NOT NULL DEFAULT false,
+  metadata jsonb DEFAULT '{}'::jsonb,
   CONSTRAINT chat_messages_pkey PRIMARY KEY (id),
   CONSTRAINT chat_messages_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner),
   CONSTRAINT chat_messages_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.chat_channels(id)
+);
+CREATE TABLE public.chat_read_status (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  owner_id uuid,
+  user_id character varying NOT NULL,
+  channel_id uuid NOT NULL,
+  unread_count integer NOT NULL DEFAULT 0,
+  last_read_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT chat_read_status_pkey PRIMARY KEY (id),
+  CONSTRAINT chat_read_status_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.chat_channels(id)
 );
 CREATE TABLE public.chat_references (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -91,6 +106,7 @@ CREATE TABLE public.chat_references (
   entity_type character varying NOT NULL CHECK (entity_type::text = ANY (ARRAY['reserva'::character varying, 'pago'::character varying, 'huesped'::character varying, 'habitacion'::character varying, 'factura'::character varying]::text[])),
   entity_id uuid NOT NULL,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
+  entity_data jsonb DEFAULT '{}'::jsonb,
   CONSTRAINT chat_references_pkey PRIMARY KEY (id),
   CONSTRAINT chat_references_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner),
   CONSTRAINT chat_references_message_id_fkey FOREIGN KEY (message_id) REFERENCES public.chat_messages(id)
@@ -467,68 +483,4 @@ CREATE TABLE public.usuarios_roles (
   CONSTRAINT usuarios_roles_pkey PRIMARY KEY (id),
   CONSTRAINT usuarios_roles_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner),
   CONSTRAINT usuarios_roles_id_hotel_fkey FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel)
-);
-
--- ═══════════════════════════════════════════════════════════
--- MÓDULO CHAT OPERATIVO
--- ═══════════════════════════════════════════════════════════
-
-CREATE TABLE public.chat_channels (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  owner_id uuid NOT NULL,
-  name character varying NOT NULL,
-  description text,
-  channel_type character varying DEFAULT 'general'::character varying,
-  id_huesped uuid,
-  created_by character varying NOT NULL,
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
-  updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  metadata jsonb DEFAULT '{}'::jsonb,
-  CONSTRAINT chat_channels_pkey PRIMARY KEY (id),
-  CONSTRAINT chat_channels_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner),
-  CONSTRAINT chat_channels_id_huesped_fkey FOREIGN KEY (id_huesped) REFERENCES public.huespedes(id_huesped)
-);
-
-CREATE TABLE public.chat_messages (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  owner_id uuid NOT NULL,
-  channel_id uuid NOT NULL,
-  sender_id character varying NOT NULL,
-  sender_name character varying NOT NULL,
-  sender_avatar text,
-  content text NOT NULL,
-  message_type character varying,
-  file_url text,
-  file_name text,
-  metadata jsonb DEFAULT '{}'::jsonb,
-  edited_at timestamp with time zone,
-  is_deleted boolean NOT NULL DEFAULT false,
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
-  updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  CONSTRAINT chat_messages_pkey PRIMARY KEY (id),
-  CONSTRAINT chat_messages_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner),
-  CONSTRAINT chat_messages_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.chat_channels(id) ON DELETE CASCADE
-);
-
-CREATE TABLE public.chat_references (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  owner_id uuid,
-  message_id uuid NOT NULL,
-  entity_type character varying NOT NULL,
-  entity_id uuid NOT NULL,
-  entity_data jsonb DEFAULT '{}'::jsonb,
-  CONSTRAINT chat_references_pkey PRIMARY KEY (id),
-  CONSTRAINT chat_references_message_id_fkey FOREIGN KEY (message_id) REFERENCES public.chat_messages(id) ON DELETE CASCADE
-);
-
-CREATE TABLE public.chat_read_status (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  owner_id uuid,
-  user_id character varying NOT NULL,
-  channel_id uuid NOT NULL,
-  unread_count integer NOT NULL DEFAULT 0,
-  last_read_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT chat_read_status_pkey PRIMARY KEY (id),
-  CONSTRAINT chat_read_status_user_channel_unique UNIQUE (user_id, channel_id),
-  CONSTRAINT chat_read_status_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.chat_channels(id) ON DELETE CASCADE
 );

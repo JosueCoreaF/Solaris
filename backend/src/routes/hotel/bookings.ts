@@ -1,6 +1,7 @@
 import express from 'express';
 import { supabaseAdmin, supabase, crearClienteUsuario } from '../../config/supabase.js';
 import { extractToken, getInfoFromToken, patchAuditUser } from '../../utils/auditHelper.js';
+import { getAuthUser, getOwnerHotelIdsForUser, getOwnerIdsFromHotelId } from '../../utils/tenantHelper.js';
 
 const router = express.Router();
 const db = () => supabaseAdmin ?? supabase;
@@ -280,13 +281,51 @@ router.post('/empresas', async (req, res) => {
 // ─── Hoteles ─────────────────────────────────────────────────────────────────
 
 // GET /api/bookings/hoteles
-router.get('/hoteles', async (_req, res) => {
-  const { data, error } = await db()
-    .from('hoteles')
-    .select('id_hotel, nombre_hotel, ciudad, direccion, telefono, enlace_google_maps, estado')
-    .order('nombre_hotel');
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json(data ?? []);
+router.get('/hoteles', async (req, res) => {
+  try {
+    let ownerIds: string[] = [];
+    let hotelIds: string[] = [];
+    const user = await getAuthUser(req);
+
+    if (user) {
+      const result = await getOwnerHotelIdsForUser(user);
+      if (result.error) {
+        return res.status(400).json({ error: result.error.message || 'Error al resolver permisos del usuario.' });
+      }
+      ownerIds = result.ownerIds;
+      hotelIds = result.hotelIds;
+    } else {
+      const activeHotelId = req.headers['x-hotel-id'];
+      if (typeof activeHotelId === 'string' && activeHotelId !== 'all') {
+        ownerIds = await getOwnerIdsFromHotelId(activeHotelId);
+      }
+    }
+
+    if (ownerIds.length === 0 && hotelIds.length === 0) {
+      return res.json([]);
+    }
+
+    let query = supabaseAdmin!
+      .from('hoteles')
+      .select('id_hotel, nombre_hotel, ciudad, direccion, telefono, enlace_google_maps, estado')
+      .eq('estado', 'activo');
+
+    if (ownerIds.length > 0 && hotelIds.length > 0) {
+      const ownerIdsCsv = ownerIds.join(',');
+      const hotelIdsCsv = hotelIds.join(',');
+      query = query.or(`owner_id.in.(${ownerIdsCsv}),id_hotel.in.(${hotelIdsCsv})`);
+    } else if (ownerIds.length > 0) {
+      query = query.in('owner_id', ownerIds);
+    } else if (hotelIds.length > 0) {
+      query = query.in('id_hotel', hotelIds);
+    }
+
+    const { data, error } = await query.order('nombre_hotel');
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data ?? []);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Error al obtener hoteles' });
+  }
 });
 
 // ─── Habitaciones ─────────────────────────────────────────────────────────────

@@ -44,7 +44,12 @@ export const CreateBusiness = () => {
       if (sessionError || !sessionData.session) throw new Error('No hay sesión activa');
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
-      await axios.post(`${API_BASE_URL}/hub/businesses`, formData, {
+      const payload = {
+        ...formData,
+        nombre_modulo: formData.nombre_hotel,
+      };
+
+      await axios.post(`${API_BASE_URL}/hub/businesses`, payload, {
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`
         }

@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import { supabase, supabaseAdmin } from '../../config/supabase.js';
+import { getAuthUser, getOwnerHotelIdsForUser, getOwnerIdsFromHotelId } from '../../utils/tenantHelper.js';
 
 const router = express.Router();
 
@@ -671,11 +672,44 @@ router.post('/dev/reset-tarifas', async (req: Request, res: Response) => {
 // GET - Obtener todos los hoteles (para que el propietario los liste en el selector)
 router.get('/hoteles', async (req: Request, res: Response) => {
   try {
-    const { data, error } = await supabaseAdmin
+    let ownerIds: string[] = [];
+    let hotelIds: string[] = [];
+    const user = await getAuthUser(req);
+
+    if (user) {
+      const result = await getOwnerHotelIdsForUser(user);
+      if (result.error) {
+        return res.status(400).json({ error: result.error.message || 'Error al resolver permisos del usuario.' });
+      }
+      ownerIds = result.ownerIds;
+      hotelIds = result.hotelIds;
+    } else {
+      const activeHotelId = req.headers['x-hotel-id'];
+      if (typeof activeHotelId === 'string' && activeHotelId !== 'all') {
+        ownerIds = await getOwnerIdsFromHotelId(activeHotelId);
+      }
+    }
+
+    if (ownerIds.length === 0 && hotelIds.length === 0) {
+      return res.json([]);
+    }
+
+    let query = supabaseAdmin!
       .from('hoteles')
       .select('*')
       .order('nombre_hotel', { ascending: true });
 
+    if (ownerIds.length > 0 && hotelIds.length > 0) {
+      const ownerIdsCsv = ownerIds.join(',');
+      const hotelIdsCsv = hotelIds.join(',');
+      query = query.or(`owner_id.in.(${ownerIdsCsv}),id_hotel.in.(${hotelIdsCsv})`);
+    } else if (ownerIds.length > 0) {
+      query = query.in('owner_id', ownerIds);
+    } else if (hotelIds.length > 0) {
+      query = query.in('id_hotel', hotelIds);
+    }
+
+    const { data, error } = await query;
     if (error) {
       return res.status(400).json({ error: error.message });
     }
