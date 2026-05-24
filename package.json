@@ -1,0 +1,19 @@
+{
+  "name": "solaris-hub",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "backend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:hub": "npm run dev --workspace=apps/hub",
+    "dev:hotel": "npm run dev --workspace=apps/hotel",
+    "dev": "concurrently -c \"cyan,magenta,yellow\" \"npm run dev:backend\" \"npm run dev:hub\" \"npm run dev:hotel\"",
+    "install:all": "npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
