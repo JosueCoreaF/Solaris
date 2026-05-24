@@ -24,7 +24,6 @@ export const CreateBusiness = () => {
   });
 
   const handleSelectModule = (type: string) => {
-    if (type !== 'hotel') return;
     setFormData({ ...formData, tipo_modulo: type });
     setStep(2);
   };
@@ -72,26 +71,29 @@ export const CreateBusiness = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
         <div 
           onClick={() => handleSelectModule('hotel')}
-          className="bg-white border-2 border-indigo-500 rounded-2xl p-6 cursor-pointer shadow-sm hover:shadow-md transition-all relative overflow-hidden"
+          className="bg-white border-2 border-slate-200 hover:border-indigo-500 rounded-2xl p-6 cursor-pointer shadow-sm hover:shadow-md transition-all relative overflow-hidden"
         >
-          <div className="absolute top-0 right-0 bg-indigo-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">Activo</div>
           <Building2 size={32} className="text-indigo-600 mb-4" />
           <h3 className="text-lg font-bold text-slate-900">Sistema Hotelero</h3>
           <p className="text-sm text-slate-500 mt-2">Gestión de reservas, habitaciones, limpieza y facturación.</p>
         </div>
 
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 opacity-50 cursor-not-allowed relative">
-          <div className="absolute top-0 right-0 bg-slate-200 text-slate-600 text-xs font-bold px-3 py-1 rounded-bl-lg">Próximamente</div>
-          <Dumbbell size={32} className="text-slate-400 mb-4" />
-          <h3 className="text-lg font-bold text-slate-400">Gimnasio FitHub</h3>
-          <p className="text-sm text-slate-400 mt-2">Control de accesos, membresías y entrenadores.</p>
+        <div 
+          onClick={() => handleSelectModule('gym')}
+          className="bg-white border-2 border-slate-200 hover:border-blue-500 rounded-2xl p-6 cursor-pointer shadow-sm hover:shadow-md transition-all relative overflow-hidden"
+        >
+          <Dumbbell size={32} className="text-blue-600 mb-4" />
+          <h3 className="text-lg font-bold text-slate-900">Gimnasio FitHub</h3>
+          <p className="text-sm text-slate-500 mt-2">Control de accesos, membresías y entrenadores.</p>
         </div>
 
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 opacity-50 cursor-not-allowed relative">
-          <div className="absolute top-0 right-0 bg-slate-200 text-slate-600 text-xs font-bold px-3 py-1 rounded-bl-lg">Próximamente</div>
-          <Utensils size={32} className="text-slate-400 mb-4" />
-          <h3 className="text-lg font-bold text-slate-400">Restaurante POS</h3>
-          <p className="text-sm text-slate-400 mt-2">Punto de venta, comandas de cocina e inventario.</p>
+        <div 
+          onClick={() => handleSelectModule('restaurant')}
+          className="bg-white border-2 border-slate-200 hover:border-orange-500 rounded-2xl p-6 cursor-pointer shadow-sm hover:shadow-md transition-all relative overflow-hidden"
+        >
+          <Utensils size={32} className="text-orange-600 mb-4" />
+          <h3 className="text-lg font-bold text-slate-900">Restaurante POS</h3>
+          <p className="text-sm text-slate-500 mt-2">Punto de venta, comandas de cocina e inventario.</p>
         </div>
       </div>
     </motion.div>
@@ -105,7 +107,7 @@ export const CreateBusiness = () => {
         </button>
 
         <div className="text-center mb-10">
-          <h2 className="text-3xl font-bold text-slate-900">Selecciona el plan para tu Hotel</h2>
+          <h2 className="text-3xl font-bold text-slate-900">Selecciona el plan para tu {formData.tipo_modulo.charAt(0).toUpperCase() + formData.tipo_modulo.slice(1)}</h2>
           <p className="text-slate-500 mt-2">Escoge las características que mejor se adapten a la escala de tu operación.</p>
         </div>
 
@@ -122,7 +124,7 @@ export const CreateBusiness = () => {
 
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2"><Building2 className="text-indigo-600" /> Información del Establecimiento</h2>
-        <p className="text-slate-500 mt-1">Ingresa los detalles principales de tu hotel. Podrás editarlos después.</p>
+        <p className="text-slate-500 mt-1">Ingresa los detalles principales de tu negocio. Podrás editarlos después.</p>
       </div>
 
       {error && (

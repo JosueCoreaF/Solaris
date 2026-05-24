@@ -25,6 +25,13 @@ El proyecto está dividido en un monorepo (o estructura de múltiples carpetas) 
   - **`schema.sql`**: **FUENTE ÚNICA DE VERDAD** de la estructura de datos. Aquí se definen todas las tablas y relaciones.
   - **`rls_*.sql`**: Scripts para aplicar políticas de seguridad Row-Level Security (Ej. `rls_hoteles.sql`).
 
+### 🔌 Puertos de Desarrollo (Frontend)
+Para ejecutar el ecosistema en un entorno local, cada módulo tiene su propio puerto asignado para evitar colisiones:
+- 🏢 **Hotel** (`apps/hotel`): **Puerto 5173**
+- 🏠 **Hub** (`apps/hub`): **Puerto 5174** *(Panel central / Dashboard)*
+- 🏋️‍♂️ **Gimnasio** (`apps/gym`): **Puerto 5175**
+- 🍽️ **Restaurante** (`apps/restaurant`): **Puerto 5176**
+
 ---
 
 ## 🛠️ Cómo Agregar un Nuevo Modelo de Negocio

@@ -74,7 +74,7 @@ export const Dashboard = () => {
         return 5177;
       case 'hotel':
       default:
-        return 5174;
+        return 5173;
     }
   };
 
@@ -397,7 +397,7 @@ export const Dashboard = () => {
                           <p className="text-sm text-slate-500 mb-6 flex-1">Gestión operativa del sistema central.</p>
 
                           <button
-                            onClick={() => handleEnterBusiness(mod.id, mod.reference_id)}
+                            onClick={() => handleEnterBusiness(mod.type, mod.reference_id)}
                             className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-colors shadow-sm"
                           >
                             Entrar al Panel <ArrowRight size={16} />
