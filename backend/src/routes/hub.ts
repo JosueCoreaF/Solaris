@@ -24,6 +24,7 @@ async function getOwnerIdsFromRoles(user: any) {
     .from('usuarios_roles')
     .select('owner_id')
     .eq('usuario_id', user.id)
+    .eq('rol', 'PROPIETARIO')
     .eq('estado', 'activo')
     .not('owner_id', 'is', null);
 
@@ -95,7 +96,7 @@ router.post('/owner', async (req, res) => {
       if (checkRole) {
         return res.status(400).json({ error: 'Ya tienes un perfil de propietario con este correo.' });
       }
-      // Si no tiene el rol pero el owner existe (ej. error parcial en el pasado), se lo enlazamos.
+      return res.status(400).json({ error: 'Esta empresa ya está registrada por otro usuario. Si eres el dueño, inicia sesión con la cuenta original.' });
     } else {
       // Crear el nuevo owner
       const { data: owner, error: ownerErr } = await supabaseAdmin

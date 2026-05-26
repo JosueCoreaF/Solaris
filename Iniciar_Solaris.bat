@@ -1,3 +1,3 @@
 @echo off
-cd "C:\Users\Zyros RK\Desktop\Solaris"
+cd /d "%~dp0"
 node panel.js
