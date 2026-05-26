@@ -1,0 +1,455 @@
+import React, { useState, useEffect } from 'react';
+import { NavLink } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { useRole } from '../hooks/useRole';
+import { fetchHoteles } from '../api/bookingsService';
+import { useSync } from '../context/SyncContext';
+
+/* ── Iconos SVG ─────────────────────────────────────────── */
+const IconPanel = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z" fill="currentColor" />
+  </svg>
+);
+const IconServices = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M5 7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 5 16.5zm3 1.5h8m-8 3h8m-8 3h5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+);
+const IconReservations = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M7 4v3M17 4v3M5 9h14M6.5 6h11A1.5 1.5 0 0 1 19 7.5v10a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 17.5v-10A1.5 1.5 0 0 1 6.5 6z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+const IconCleaning = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <polyline points="14 2 14 8 20 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <line x1="16" y1="13" x2="8" y2="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    <line x1="16" y1="17" x2="8" y2="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+);
+const IconPayments = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5zm0 3.5h16M8 14h3m2 0h3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+const IconRates = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M5 7h14M5 12h9M5 17h14M18 5l2 2-2 2M15 15l2 2-2 2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+const IconSettings = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+  </svg>
+);
+const IconChart = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <line x1="18" y1="20" x2="18" y2="10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <line x1="12" y1="20" x2="12" y2="4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <line x1="6" y1="20" x2="6" y2="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+const IconUsers = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M16 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+const IconWallet = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M20 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    <circle cx="16" cy="13" r="1" fill="currentColor" />
+  </svg>
+);
+
+const IconChat = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const IconClients = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" fill="currentColor" />
+  </svg>
+);
+const IconChevron = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+);
+const IconCheck = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+const getSidebarSections = (role: string) => {
+  const sections: Array<{
+    title: string;
+    items: Array<{ to: string; label: string; icon: () => JSX.Element; roles?: string[] }>;
+  }> = [
+      {
+        title: 'Operativos',
+        items: [
+          { to: '/', label: 'Panel', icon: IconPanel, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'] },
+          { to: '/habitaciones', label: 'Habitaciones', icon: IconServices, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'] },
+          { to: '/reservas', label: 'Reservas', icon: IconReservations, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'] },
+          { to: '/pagos', label: 'Pagos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
+          { to: '/clientes', label: 'Clientes', icon: IconClients, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
+          { to: '/estado-cuenta', label: 'Estado de Cuenta', icon: IconWallet, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
+          { to: '/limpieza', label: 'Limpieza', icon: IconCleaning, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'] },
+          { to: '/chat', label: 'Chat', icon: IconChat, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'] },
+        ],
+      },
+      {
+        title: 'Administración',
+        items: [
+          { to: '/finanzas', label: 'Ingresos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
+          { to: '/tarifas', label: 'Tarifas', icon: IconRates, roles: ['PROPIETARIO', 'ADMIN'] },
+          { to: '/config', label: 'Configuración', icon: IconSettings, roles: ['PROPIETARIO', 'ADMIN'] },
+          { to: '/gestionar-roles', label: 'Roles y Permisos', icon: IconUsers, roles: ['PROPIETARIO'] },
+        ],
+      },
+      {
+        title: 'Reportes',
+        items: [
+          { to: '/reportes', label: 'Reportes', icon: IconChart, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
+        ],
+      },
+    ];
+
+  // Filtrar secciones y items según el rol
+  return sections
+    .map(section => ({
+      ...section,
+      items: section.items.filter(item => !item.roles || item.roles.includes(role)),
+    }))
+    .filter(section => section.items.length > 0);
+};
+
+/* ── Items para rail (todos los items filtrados) ──────────── */
+const getAllItems = (role: string) => {
+  const sections = getSidebarSections(role);
+  return sections.flatMap(s => s.items);
+};
+
+/* ── Componente ─────────────────────────────────────────── */
+export const Sidebar: React.FC = () => {
+  const { user, signOut } = useAuth();
+  const { role } = useRole();
+  const { hotel: syncHotel } = useSync();
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [hoteles, setHoteles] = useState<any[]>([]);
+  const [activeHotelId, setActiveHotelId] = useState(localStorage.getItem('active_hotel_id') || 'all');
+  const [modalOpen, setModalOpen] = useState(false);
+
+  useEffect(() => {
+    fetchHoteles()
+      .then(data => {
+        if (data && Array.isArray(data)) {
+          setHoteles(data);
+        }
+      })
+      .catch(err => console.error('Error loading hotels in sidebar:', err));
+  }, []);
+
+  const handleHotelChange = (val: string) => {
+    localStorage.setItem('active_hotel_id', val);
+    setActiveHotelId(val);
+    setModalOpen(false);
+    window.location.reload();
+  };
+
+  useEffect(() => {
+    const handleUnreadUpdate = (ev: Event) => {
+      const ce = ev as CustomEvent<number>;
+      setUnreadCount(ce.detail ?? 0);
+    };
+    window.addEventListener('chat-unread-update', handleUnreadUpdate);
+
+    // Carga inicial desde sessionStorage
+    try {
+      const cached = sessionStorage.getItem('chat-unread-count');
+      if (cached) setUnreadCount(parseInt(cached, 10));
+    } catch { }
+
+    return () => {
+      window.removeEventListener('chat-unread-update', handleUnreadUpdate);
+    };
+  }, []);
+
+  const sidebarSections = getSidebarSections(role);
+  const allItems = getAllItems(role);
+
+  return (
+    <div className="sidebar-cluster">
+      {/* Rail compacto (visible por defecto) */}
+      <aside className="sidebar-rail">
+        <div className="sidebar-rail-head">
+          <div className="brand-badge" style={{ width: 38, height: 38, fontSize: 11, borderRadius: 12 }}>PC</div>
+          <div
+            style={{
+              marginTop: 10,
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              backgroundColor: 'rgba(56, 189, 248, 0.12)',
+              border: '1px solid rgba(56, 189, 248, 0.22)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 14,
+              cursor: 'pointer'
+            }}
+            title={activeHotelId === 'all' ? 'Modo Consolidado (Todos)' : 'Hotel Individual Activo'}
+          >
+            {activeHotelId === 'all' ? '🌍' : '🏢'}
+          </div>
+        </div>
+
+        <nav className="sidebar-rail-menu">
+          {allItems.map(item => (
+            <NavLink
+              key={`rail-${item.to}`}
+              to={item.to}
+              end={item.to === '/'}
+              className={({ isActive }) => isActive ? 'sidebar-rail-item active' : 'sidebar-rail-item'}
+              title={item.label}
+            >
+              <div className="sidebar-rail-icon" style={{ position: 'relative' }}>
+                <item.icon />
+                {item.to === '/chat' && unreadCount > 0 && (
+                  <span className="sidebar-unread-badge-rail">{unreadCount}</span>
+                )}
+              </div>
+            </NavLink>
+          ))}
+        </nav>
+
+        <div style={{ marginTop: 'auto', paddingBottom: 10 }}>
+          <button
+            className="sidebar-rail-item"
+            title="Cerrar sesión"
+            style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}
+            onClick={() => signOut()}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+            </svg>
+          </button>
+        </div>
+      </aside>
+
+      {/* Sidebar completo (aparece en hover) */}
+      <aside className="sidebar">
+        <div className="sidebar-top">
+          <div className="brand-lockup sidebar-brand-lockup">
+            <div className="brand-badge" style={{ width: 40, height: 40, borderRadius: 12 }}>PC</div>
+            <div className="brand-copy">
+              <strong className="brand">Partner Central</strong>
+              <span>Sistema hotelero</span>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ padding: '4px 8px', marginTop: 2 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>
+            🏨 Propiedad Activa
+          </label>
+          <button
+            onClick={() => setModalOpen(true)}
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              borderRadius: '12px',
+              border: '1px solid var(--shell-border-strong)',
+              backgroundColor: 'rgba(0, 0, 0, 0.03)',
+              color: 'var(--text-h)',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
+            onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--shell-border-strong)'}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {activeHotelId === 'all' ? '🌍 Consolidado (Todos)' : `🏢 ${syncHotel ? syncHotel.nombre_hotel : (hoteles.find(h => h.id_hotel === activeHotelId)?.nombre_hotel || 'Cargando...')}`}
+            </div>
+            <div style={{ color: 'var(--muted)', display: 'flex', flexShrink: 0 }}>
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </div>
+          </button>
+        </div>
+
+        <nav className="menu">
+          {sidebarSections.map((section, idx) => (
+            <div
+              key={section.title}
+              className="sidebar-group"
+              style={{ marginTop: idx === 0 ? 0 : 18 }}
+            >
+              <div className="sidebar-group-title">{section.title}</div>
+              <div className="sidebar-group-items">
+                {section.items.map((item, i) => (
+                  <NavLink
+                    key={`full-${item.to}`}
+                    to={item.to}
+                    end={item.to === '/'}
+                    className={({ isActive }) => isActive ? 'menu-item active' : 'menu-item'}
+                    style={{
+                      animation: `fadeInUp 0.4s ${i * 0.04 + idx * 0.08}s both`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      width: '100%',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span className="menu-icon"><item.icon /></span>
+                      <span className="menu-label">{item.label}</span>
+                    </div>
+                    {item.to === '/chat' && unreadCount > 0 && (
+                      <span className="sidebar-unread-badge-full">{unreadCount}</span>
+                    )}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        <footer className="sidebar-footer">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingBottom: 4 }}>
+            <strong>{user?.email?.split('@')[0] ?? 'Usuario'}</strong>
+            <span>{user?.email ?? 'Partner Central'}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{role}</span>
+          </div>
+          <NavLink
+            to="/perfil"
+            className={({ isActive }) => isActive ? 'logout-button active' : 'logout-button'}
+            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" />
+            </svg>
+            Mi Perfil
+          </NavLink>
+          <button className="logout-button" onClick={() => signOut()}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+            </svg>
+            Cerrar Sesión
+          </button>
+        </footer>
+      </aside>
+
+
+      {/* MODAL DE SELECCIÓN DE PROPIEDAD */}
+      {modalOpen && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.4)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999,
+          animation: 'fadeIn 0.2s ease-out'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--shell-panel-strong)',
+            border: '1px solid var(--shell-border-strong)',
+            borderRadius: '16px',
+            width: '90%', maxWidth: '450px',
+            boxShadow: 'var(--shadow)',
+            overflow: 'hidden',
+            display: 'flex', flexDirection: 'column',
+            animation: 'fadeInUp 0.3s ease-out'
+          }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--shell-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, color: 'var(--text-h)', fontSize: 18, fontWeight: 700 }}>Cambiar Propiedad</h3>
+                <p style={{ margin: '4px 0 0 0', color: 'var(--muted)', fontSize: 13 }}>Selecciona el entorno de trabajo activo</p>
+              </div>
+              <button
+                onClick={() => setModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 4 }}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <div style={{ padding: '12px', maxHeight: '60vh', overflowY: 'auto' }}>
+              <div
+                onClick={() => handleHotelChange('all')}
+                style={{
+                  padding: '14px 16px',
+                  borderRadius: '10px',
+                  marginBottom: 8,
+                  backgroundColor: activeHotelId === 'all' ? 'var(--accent-bg)' : 'transparent',
+                  border: activeHotelId === 'all' ? '1px solid var(--accent-border)' : '1px solid transparent',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                }}
+                onMouseEnter={(e) => { if (activeHotelId !== 'all') e.currentTarget.style.backgroundColor = 'var(--sidebar-item-hover)' }}
+                onMouseLeave={(e) => { if (activeHotelId !== 'all') e.currentTarget.style.backgroundColor = 'transparent' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: '8px', background: 'var(--sidebar-item-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🌍</div>
+                  <div>
+                    <div style={{ color: 'var(--text-h)', fontWeight: 600, fontSize: 15 }}>Consolidado Total</div>
+                    <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>Ver métricas de todos los hoteles</div>
+                  </div>
+                </div>
+                {activeHotelId === 'all' && <span style={{ color: 'var(--accent)' }}><IconCheck /></span>}
+              </div>
+
+              {hoteles.map((h: any) => (
+                <div
+                  key={h.id_hotel}
+                  onClick={() => handleHotelChange(h.id_hotel)}
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: '10px',
+                    marginBottom: 8,
+                    backgroundColor: activeHotelId === h.id_hotel ? 'var(--accent-bg)' : 'transparent',
+                    border: activeHotelId === h.id_hotel ? '1px solid var(--accent-border)' : '1px solid transparent',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                  }}
+                  onMouseEnter={(e) => { if (activeHotelId !== h.id_hotel) e.currentTarget.style.backgroundColor = 'var(--sidebar-item-hover)' }}
+                  onMouseLeave={(e) => { if (activeHotelId !== h.id_hotel) e.currentTarget.style.backgroundColor = 'transparent' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: '8px', background: 'var(--sidebar-item-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🏢</div>
+                    <div>
+                      <div style={{ color: 'var(--text-h)', fontWeight: 600, fontSize: 15 }}>{h.nombre_hotel}</div>
+                      <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>{h.ciudad || 'Operación regular'}</div>
+                    </div>
+                  </div>
+                  {activeHotelId === h.id_hotel && <span style={{ color: 'var(--accent)' }}><IconCheck /></span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Sidebar;
