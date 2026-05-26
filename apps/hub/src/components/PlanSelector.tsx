@@ -7,16 +7,18 @@ const plans = [
     id: 'basico',
     name: 'Básico',
     description: 'Perfecto para empezar a gestionar un solo local.',
-    price: 'Gratis',
+    priceMonthly: 'Gratis',
+    priceAnnual: 'Gratis',
     icon: <Star className="w-6 h-6 text-slate-400" />,
-    features: ['1 Negocio Activo', 'Funciones operativas base', 'Dashboard consolidado'],
+    features: ['1 Negocio Activo', 'Funciones operativas base', 'Dashboard consolidado', '14 días de prueba Estándar'],
     popular: false,
   },
   {
     id: 'estandar',
     name: 'Estándar',
     description: 'Para negocios en crecimiento que necesitan más control.',
-    price: '$49/mes',
+    priceMonthly: '$49/mes',
+    priceAnnual: '$490/año',
     icon: <Zap className="w-6 h-6 text-indigo-500" />,
     features: ['Hasta 2 Negocios', 'Asistente IA (Consultas)', 'Soporte Multi-moneda', 'Chat Operativo'],
     popular: true, // Este resaltará
@@ -25,7 +27,8 @@ const plans = [
     id: 'premium',
     name: 'Premium',
     description: 'Control total con inteligencia artificial avanzada.',
-    price: '$99/mes',
+    priceMonthly: '$99/mes',
+    priceAnnual: '$990/año',
     icon: <Star className="w-6 h-6 text-amber-500" fill="currentColor" />,
     features: ['Hasta 5 Negocios', 'Asistente IA (Acceso Total)', 'Auditoría Cruzada', 'Soporte Prioritario 24/7'],
     popular: false,
@@ -48,21 +51,43 @@ const cardVariants = {
 
 export default function PlanSelector({ onSelectPlan }: { onSelectPlan: (planId: string) => void }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [isAnnual, setIsAnnual] = useState(false);
 
   const handleSelect = (id: string) => {
     setSelectedId(id);
-    onSelectPlan(id);
+    onSelectPlan(isAnnual && id !== 'basico' ? `${id}_anual` : id);
   };
 
   return (
-    <motion.div 
-      variants={containerVariants} 
-      initial="hidden" 
-      animate="show" 
-      className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl mx-auto mt-8"
-    >
-      {plans.map((plan) => {
-        const isSelected = selectedId === plan.id;
+    <div className="flex flex-col items-center w-full">
+      {/* Toggle Mensual/Anual */}
+      <div className="flex items-center justify-center gap-4 mt-4 mb-8 bg-slate-100 p-1.5 rounded-full">
+        <button
+          onClick={() => setIsAnnual(false)}
+          className={`px-6 py-2 rounded-full text-sm font-semibold transition-colors ${
+            !isAnnual ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Mensual
+        </button>
+        <button
+          onClick={() => setIsAnnual(true)}
+          className={`px-6 py-2 rounded-full text-sm font-semibold transition-colors ${
+            isAnnual ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Anual <span className="ml-1 text-xs text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">-15%</span>
+        </button>
+      </div>
+
+      <motion.div 
+        variants={containerVariants} 
+        initial="hidden" 
+        animate="show" 
+        className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl mx-auto"
+      >
+        {plans.map((plan) => {
+          const isSelected = selectedId === plan.id;
 
         return (
           <motion.div
@@ -106,7 +131,9 @@ export default function PlanSelector({ onSelectPlan }: { onSelectPlan: (planId: 
             <p className="text-sm text-slate-500 mb-6 min-h-[40px]">{plan.description}</p>
             
             <div className="mb-8">
-              <span className="text-4xl font-extrabold text-slate-900">{plan.price}</span>
+              <span className="text-4xl font-extrabold text-slate-900">
+                {isAnnual ? plan.priceAnnual : plan.priceMonthly}
+              </span>
             </div>
 
             <ul className="space-y-4">
@@ -128,5 +155,6 @@ export default function PlanSelector({ onSelectPlan }: { onSelectPlan: (planId: 
         );
       })}
     </motion.div>
+    </div>
   );
 }

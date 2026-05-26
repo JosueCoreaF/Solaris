@@ -404,6 +404,15 @@ CREATE TABLE public.reservas_hotel (
   CONSTRAINT reservas_hotel_id_habitacion_fkey FOREIGN KEY (id_habitacion) REFERENCES public.habitaciones(id_habitacion),
   CONSTRAINT reservas_hotel_id_empresa_fkey FOREIGN KEY (id_empresa) REFERENCES public.empresas(id_empresa)
 );
+CREATE TABLE public.restaurante (
+  id_restaurante bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  nombre_restaurante text NOT NULL,
+  ciudad text NOT NULL,
+  direccion_restaurante text NOT NULL,
+  correo_restaurante character varying NOT NULL,
+  telefono_restaurante character varying NOT NULL,
+  CONSTRAINT restaurante_pkey PRIMARY KEY (id_restaurante)
+);
 CREATE TABLE public.saldos_clientes (
   id_saldo uuid NOT NULL DEFAULT gen_random_uuid(),
   owner_id uuid NOT NULL,
@@ -487,10 +496,15 @@ CREATE TABLE public.usuarios_roles (
 
 CREATE TABLE public.planes_suscripcion (
   id_plan character varying NOT NULL,
+  tipo_modulo character varying NOT NULL DEFAULT 'hotel',
   nombre character varying NOT NULL,
-  stripe_price_id character varying,
+  descripcion text,
+  features jsonb DEFAULT '[]'::jsonb,
+  stripe_price_id_mensual character varying,
+  stripe_price_id_anual character varying,
   limite_negocios integer NOT NULL DEFAULT 1,
   precio_mensual numeric NOT NULL DEFAULT 0.00,
+  precio_anual numeric NOT NULL DEFAULT 0.00,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT planes_suscripcion_pkey PRIMARY KEY (id_plan)
 );
@@ -498,14 +512,30 @@ CREATE TABLE public.planes_suscripcion (
 CREATE TABLE public.suscripciones_owner (
   id_suscripcion uuid NOT NULL DEFAULT gen_random_uuid(),
   owner_id uuid NOT NULL,
+  tipo_modulo character varying NOT NULL DEFAULT 'hotel',
   id_plan character varying NOT NULL,
   stripe_customer_id character varying,
   stripe_subscription_id character varying,
-  estado character varying NOT NULL DEFAULT 'inactiva'::character varying CHECK (estado::text = ANY (ARRAY['activa'::character varying, 'inactiva'::character varying, 'cancelada'::character varying, 'impaga'::character varying]::text[])),
+  estado character varying NOT NULL DEFAULT 'inactiva'::character varying CHECK (estado::text = ANY (ARRAY['activa'::character varying, 'inactiva'::character varying, 'cancelada'::character varying, 'impaga'::character varying, 'trial'::character varying]::text[])),
+  trial_end timestamp with time zone,
   current_period_end timestamp with time zone,
+  negocios_extra integer NOT NULL DEFAULT 0,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT suscripciones_owner_pkey PRIMARY KEY (id_suscripcion),
   CONSTRAINT suscripciones_owner_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner) ON DELETE CASCADE,
-  CONSTRAINT suscripciones_owner_id_plan_fkey FOREIGN KEY (id_plan) REFERENCES public.planes_suscripcion(id_plan)
+  CONSTRAINT suscripciones_owner_id_plan_fkey FOREIGN KEY (id_plan) REFERENCES public.planes_suscripcion(id_plan),
+  CONSTRAINT suscripciones_owner_unica UNIQUE (owner_id, tipo_modulo)
+);
+
+CREATE TABLE public.historial_pagos (
+  id_pago uuid NOT NULL DEFAULT gen_random_uuid(),
+  owner_id uuid NOT NULL,
+  monto numeric NOT NULL,
+  concepto character varying NOT NULL,
+  metodo_pago character varying NOT NULL DEFAULT 'tarjeta',
+  estado character varying NOT NULL DEFAULT 'completado',
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT historial_pagos_pkey PRIMARY KEY (id_pago),
+  CONSTRAINT historial_pagos_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner) ON DELETE CASCADE
 );

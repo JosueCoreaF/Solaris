@@ -8,6 +8,12 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import apiClient from './services/api';
 import './index.css';
 
+import Support from './pages/Support';
+import Billing from './pages/Billing';
+import { UpgradePlan } from './pages/UpgradePlan';
+import Notifications from './pages/Notifications';
+import ChatHub from './pages/ChatHub';
+
 const AppRoutes = () => {
   const { session } = useAuth();
 
@@ -17,6 +23,11 @@ const AppRoutes = () => {
       <Route path="/dashboard" element={session ? <Dashboard /> : <Navigate to="/login" replace />} />
       <Route path="/setup-owner" element={session ? <SetupOwner /> : <Navigate to="/login" replace />} />
       <Route path="/create-business" element={session ? <CreateBusiness /> : <Navigate to="/login" replace />} />
+      <Route path="/support" element={session ? <Support /> : <Navigate to="/login" replace />} />
+      <Route path="/billing" element={session ? <Billing /> : <Navigate to="/login" replace />} />
+      <Route path="/upgrade" element={session ? <UpgradePlan /> : <Navigate to="/login" replace />} />
+      <Route path="/notifications" element={session ? <Notifications /> : <Navigate to="/login" replace />} />
+      <Route path="/chat" element={session ? <ChatHub /> : <Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to={session ? "/dashboard" : "/login"} replace />} />
     </Routes>
   );

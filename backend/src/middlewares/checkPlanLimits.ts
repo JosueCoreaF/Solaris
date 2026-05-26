@@ -36,16 +36,29 @@ export const checkPlanLimits = async (req: Request, res: Response, next: NextFun
     }
     const owner_id = roles[0].owner_id;
 
-    // Obtener la suscripción actual y el plan
+    // El tipo_modulo viene en el body o default a 'hotel'
+    const tipo_modulo = (req.body.tipo_modulo || req.query.tipo_modulo || 'hotel').toLowerCase();
+
+    // Obtener la suscripción actual y el plan para ese módulo
     const { data: suscripcion } = await supabaseAdmin
       .from('suscripciones_owner')
-      .select('id_plan, estado')
+      .select('id_plan, estado, trial_end, negocios_extra')
       .eq('owner_id', owner_id)
-      .single();
+      .eq('tipo_modulo', tipo_modulo)
+      .maybeSingle();
 
-    let plan_id = 'basico'; // Default a básico si no hay registro
-    if (suscripcion && suscripcion.estado === 'activa') {
-      plan_id = suscripcion.id_plan;
+    if (!suscripcion) {
+      res.status(403).json({ error: 'SUBSCRIPTION_REQUIRED', message: `Debes suscribirte primero al módulo de ${tipo_modulo.toUpperCase()} para poder crear negocios.` });
+      return;
+    }
+
+    let plan_id = suscripcion.id_plan;
+    let negociosExtra = suscripcion.negocios_extra || 0;
+    
+    const isTrialActive = suscripcion.estado === 'trial' && suscripcion.trial_end && new Date(suscripcion.trial_end) > new Date();
+    if (suscripcion.estado !== 'activa' && !isTrialActive) {
+      res.status(403).json({ error: 'Tu periodo de prueba ha expirado o tu suscripción está inactiva. Por favor, actualiza tu plan para continuar.' });
+      return;
     }
 
     const { data: plan } = await supabaseAdmin
@@ -54,13 +67,14 @@ export const checkPlanLimits = async (req: Request, res: Response, next: NextFun
       .eq('id_plan', plan_id)
       .single();
 
-    const limiteNegocios = plan?.limite_negocios || 1;
+    const limiteNegocios = (plan?.limite_negocios || 1) + negociosExtra;
 
-    // Contar cuántos negocios activos tiene el owner
+    // Contar cuántos negocios activos tiene el owner de este módulo
     const { count, error: countErr } = await supabaseAdmin
       .from('business_modules')
       .select('*', { count: 'exact', head: true })
       .eq('owner_id', owner_id)
+      .eq('tipo_modulo', tipo_modulo)
       .eq('estado', 'activo');
 
     if (countErr) {
@@ -69,7 +83,7 @@ export const checkPlanLimits = async (req: Request, res: Response, next: NextFun
     }
 
     if (count !== null && count >= limiteNegocios) {
-       res.status(403).json({ error: `Has alcanzado el límite de ${limiteNegocios} negocio(s) de tu plan actual. Mejora tu plan para añadir más.` });
+       res.status(403).json({ error: `Has alcanzado el límite de ${limiteNegocios} negocio(s) para el módulo ${tipo_modulo.toUpperCase()}. Adquiere un cupo extra o mejora tu plan para añadir más.` });
        return;
     }
 

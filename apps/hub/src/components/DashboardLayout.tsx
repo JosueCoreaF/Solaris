@@ -1,0 +1,259 @@
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../services/supabaseClient';
+import apiClient from '../services/api';
+import {
+  LayoutDashboard,
+  Building2,
+  Dumbbell,
+  Coffee,
+  Settings,
+  CreditCard,
+  LogOut,
+  Sparkles,
+  CheckCircle2,
+  MessageSquare,
+  Bell,
+} from 'lucide-react';
+
+interface DashboardContextType {
+  modules: any[];
+  kpis: any;
+  ownerNombre: string;
+  summary: any;
+  notifications: any[];
+  dataLoading: boolean;
+  error: string | null;
+  refetch: () => void;
+}
+
+const DashboardContext = createContext<DashboardContextType>({
+  modules: [],
+  kpis: { ingresos: 0, negocios_activos: 0, ocupacion: 0, tareas: 0 },
+  ownerNombre: '',
+  summary: null,
+  notifications: [],
+  dataLoading: false,
+  error: null,
+  refetch: () => {},
+});
+
+export const useDashboard = () => useContext(DashboardContext);
+
+export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { session } = useAuth();
+
+  const [modules, setModules] = useState<any[]>([]);
+  const [kpis, setKpis] = useState({ ingresos: 0, negocios_activos: 0, ocupacion: 0, tareas: 0 });
+  const [ownerNombre, setOwnerNombre] = useState('');
+  const [summary, setSummary] = useState<any>(null);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [dataLoading, setDataLoading] = useState(false); // inicia en false; se activa solo cuando hay sesión
+  const [error, setError] = useState<string | null>(null);
+  const [fetchedOnce, setFetchedOnce] = useState(false);
+
+  const fetchDashboard = async () => {
+    try {
+      setDataLoading(true);
+      setError(null);
+      const d = await apiClient.get('/hub/dashboard-summary');
+      if (d?.needsOwnerSetup) {
+        navigate('/setup-owner', { replace: true });
+        return;
+      }
+      setModules(d?.modules || []);
+      setKpis(d?.kpis || { ingresos: 0, negocios_activos: 0, ocupacion: 0, tareas: 0 });
+      setOwnerNombre(d?.owner?.nombre || session?.user?.email?.split('@')[0] || '');
+      setSummary(d || null);
+      setFetchedOnce(true);
+
+      // Notificaciones en background (no bloquean el render)
+      apiClient.get('/hub/notifications')
+        .then((notifs: any[]) => setNotifications(Array.isArray(notifs) ? notifs : []))
+        .catch(() => {});
+    } catch (err: any) {
+      const errData = err.response?.data;
+      if (errData?.needsOwnerSetup) {
+        navigate('/setup-owner', { replace: true });
+        return;
+      }
+      setError(errData?.error || err.message || 'Error al conectar con el servidor.');
+    } finally {
+      setDataLoading(false);
+    }
+  };
+
+  // Solo lanzar el fetch cuando la sesión esté disponible
+  useEffect(() => {
+    if (session && !fetchedOnce) {
+      fetchDashboard();
+    }
+    // Si la sesión existe pero aún no hemos hecho fetch, esperamos
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const routeByModuleType = (type: string) => {
+    const normalized = type?.toLowerCase?.() ?? 'hotel';
+    switch (normalized) {
+      case 'gym': return 5175;
+      case 'restaurant': return 5176;
+      case 'store': return 5177;
+      case 'hotel':
+      default: return 5173;
+    }
+  };
+
+  const handleEnterBusiness = (moduleType: string, referenceId: string) => {
+    const port = routeByModuleType(moduleType);
+    if (session) {
+      window.location.href = `http://localhost:${port}/?access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}&business_id=${encodeURIComponent(referenceId)}`;
+    } else {
+      window.location.href = `http://localhost:${port}/?business_id=${encodeURIComponent(referenceId)}`;
+    }
+  };
+
+  const urgentNotifCount = notifications.filter(n => n.severity === 'high').length;
+
+  return (
+    <DashboardContext.Provider value={{ modules, kpis, ownerNombre, summary, notifications, dataLoading, error, refetch: fetchDashboard }}>
+      <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
+
+        {/* Sidebar */}
+        <aside className="w-64 bg-slate-950 text-slate-300 flex flex-col hidden md:flex shrink-0">
+          <div className="p-6 pb-4">
+            <h2
+              onClick={() => navigate('/dashboard')}
+              className="cursor-pointer text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-400"
+            >
+              Solaris
+            </h2>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-4 py-2 space-y-6">
+            {/* Principal */}
+            <div>
+              <p className="px-4 text-[11px] font-semibold text-slate-500 uppercase tracking-widest mb-1">Principal</p>
+              <nav className="space-y-0.5">
+                <button
+                  onClick={() => navigate('/dashboard')}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-left text-sm font-medium ${
+                    location.pathname === '/dashboard'
+                      ? 'bg-indigo-500/15 text-indigo-400'
+                      : 'hover:bg-slate-800 hover:text-white text-slate-400'
+                  }`}
+                >
+                  <LayoutDashboard size={17} />
+                  <span>Resumen General</span>
+                </button>
+              </nav>
+            </div>
+
+            {/* Mis Módulos */}
+            <div>
+              <p className="px-4 text-[11px] font-semibold text-slate-500 uppercase tracking-widest mb-1">Mis Módulos</p>
+              <nav className="space-y-0.5">
+                {dataLoading ? (
+                  <div className="px-4 py-2.5 flex gap-3 items-center animate-pulse">
+                    <div className="w-4 h-4 bg-slate-800 rounded-full" />
+                    <div className="h-3 bg-slate-800 rounded w-28" />
+                  </div>
+                ) : modules.length > 0 ? (
+                  modules.map(mod => (
+                    <button
+                      key={mod.id}
+                      onClick={() => handleEnterBusiness(mod.type, mod.reference_id)}
+                      className="flex items-center justify-between w-full px-4 py-2.5 hover:bg-slate-800 hover:text-white rounded-xl transition-all text-left text-sm text-slate-400"
+                    >
+                      <div className="flex items-center gap-3">
+                        {mod.type === 'hotel' ? (
+                          <Building2 size={17} className="text-emerald-400 shrink-0" />
+                        ) : mod.type === 'gym' ? (
+                          <Dumbbell size={17} className="text-blue-400 shrink-0" />
+                        ) : mod.type === 'restaurant' ? (
+                          <Coffee size={17} className="text-orange-400 shrink-0" />
+                        ) : (
+                          <Sparkles size={17} className="text-violet-400 shrink-0" />
+                        )}
+                        <span className="font-medium truncate">{mod.name || `Módulo ${mod.type?.toUpperCase()}`}</span>
+                      </div>
+                      {mod.is_active && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />}
+                    </button>
+                  ))
+                ) : (
+                  <p className="px-4 py-2 text-xs text-slate-600 italic">Sin módulos activos</p>
+                )}
+              </nav>
+            </div>
+
+            {/* Administración */}
+            <div>
+              <p className="px-4 text-[11px] font-semibold text-slate-500 uppercase tracking-widest mb-1">Administración</p>
+              <nav className="space-y-0.5">
+                {[
+                  { label: 'Facturación y Planes', icon: <CreditCard size={17} />, path: '/billing', match: ['/billing', '/upgrade'] },
+                  { label: 'Notificaciones', icon: <Bell size={17} />, path: '/notifications', match: ['/notifications'], badge: urgentNotifCount },
+                  { label: 'Chat Operativo', icon: <MessageSquare size={17} />, path: '/chat', match: ['/chat'] },
+                  { label: 'Soporte y Ayuda', icon: <CheckCircle2 size={17} />, path: '/support', match: ['/support'] },
+                  { label: 'Configuración', icon: <Settings size={17} />, path: '#', match: [] },
+                ].map(item => {
+                  const active = item.match.some(m => location.pathname.includes(m));
+                  return (
+                    <button
+                      key={item.label}
+                      onClick={() => item.path !== '#' && navigate(item.path)}
+                      className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-all text-left text-sm font-medium ${
+                        active ? 'bg-indigo-500/15 text-indigo-400' : 'hover:bg-slate-800 hover:text-white text-slate-400'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        {item.icon}
+                        <span>{item.label}</span>
+                      </div>
+                      {item.badge && item.badge > 0 ? (
+                        <span className="bg-rose-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+          </div>
+
+          {/* User / Logout */}
+          <div className="p-4 border-t border-slate-800/60">
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-3 px-4 py-2.5 w-full text-slate-500 hover:text-white hover:bg-slate-800 rounded-xl transition-all text-sm"
+            >
+              <LogOut size={17} />
+              <span className="font-medium">Cerrar Sesión</span>
+            </button>
+            <div className="mt-3 flex items-center gap-3 px-2">
+              <div className="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-sm shrink-0">
+                {(ownerNombre || session?.user?.email || 'U').charAt(0).toUpperCase()}
+              </div>
+              <div className="overflow-hidden">
+                <p className="text-sm font-semibold text-white truncate">{ownerNombre || 'Usuario'}</p>
+                <p className="text-xs text-slate-500 truncate">{session?.user?.email}</p>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {/* Main Content Area */}
+        <main className="flex-1 overflow-y-auto">
+          {children}
+        </main>
+      </div>
+    </DashboardContext.Provider>
+  );
+};

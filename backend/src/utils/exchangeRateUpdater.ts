@@ -23,14 +23,14 @@ export async function updateExchangeRate(): Promise<number | null> {
     const hnlRate = parseFloat(data.rates.HNL);
     console.log(`[Scheduler] Fetched exchange rate: 1 USD = ${hnlRate.toFixed(4)} HNL`);
 
-    // Update in Supabase
+    // Update in Supabase for all configs
     const { error } = await supabaseAdmin
       .from('configuracion_hotelera')
       .update({
         tipo_cambio_base: hnlRate,
         tipo_cambio_actualizado_en: new Date().toISOString()
       })
-      .eq('id_config', 'default');
+      .not('id_config', 'is', null);
 
     if (error) {
       throw new Error(`Failed to update exchange rate in Supabase: ${error.message}`);

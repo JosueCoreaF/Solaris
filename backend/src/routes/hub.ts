@@ -74,35 +74,64 @@ router.post('/owner', async (req, res) => {
     const { data: existingOwner, error: existingError } = await supabaseAdmin
       .from('owners')
       .select('id_owner, email_contacto')
-      .or(`id_owner.eq.${user.id},email_contacto.eq.${normalizedEmail}`)
+      .eq('email_contacto', normalizedEmail)
       .maybeSingle();
 
     if (existingError) {
       return res.status(400).json({ error: existingError.message });
     }
 
+    let finalOwnerId = existingOwner?.id_owner;
+
     if (existingOwner) {
-      return res.status(400).json({ error: 'Ya existe un perfil de propietario con ese correo.' });
+      // El owner ya existe. Verificamos si este usuario YA está enlazado a él.
+      const { data: checkRole } = await supabaseAdmin
+        .from('usuarios_roles')
+        .select('id')
+        .eq('usuario_id', user.id)
+        .eq('owner_id', finalOwnerId)
+        .maybeSingle();
+
+      if (checkRole) {
+        return res.status(400).json({ error: 'Ya tienes un perfil de propietario con este correo.' });
+      }
+      // Si no tiene el rol pero el owner existe (ej. error parcial en el pasado), se lo enlazamos.
+    } else {
+      // Crear el nuevo owner
+      const { data: owner, error: ownerErr } = await supabaseAdmin
+        .from('owners')
+        .insert({
+          nombre_empresa: nombre_empresa.trim(),
+          email_contacto: normalizedEmail,
+          telefono_contacto: telefono_contacto?.trim() || null,
+          estado: 'activo',
+        })
+        .select('id_owner')
+        .single();
+
+      if (ownerErr || !owner) return res.status(400).json({ error: ownerErr?.message || 'Error al crear el perfil de propietario.' });
+      finalOwnerId = owner.id_owner;
+
+      // Iniciar 14 días de Trial solo si es un owner nuevo
+      const trialEndDate = new Date();
+      trialEndDate.setDate(trialEndDate.getDate() + 14);
+
+      await supabaseAdmin
+        .from('suscripciones_owner')
+        .insert({
+          owner_id: finalOwnerId,
+          id_plan: 'estandar', // Asignamos Estándar para el trial
+          estado: 'trial',
+          trial_end: trialEndDate.toISOString(),
+        });
     }
 
-    const { data: owner, error: ownerErr } = await supabaseAdmin
-      .from('owners')
-      .insert({
-        nombre_empresa: nombre_empresa.trim(),
-        email_contacto: normalizedEmail,
-        telefono_contacto: telefono_contacto?.trim() || null,
-        estado: 'activo',
-      })
-      .select('id_owner')
-      .single();
-
-    if (ownerErr || !owner) return res.status(400).json({ error: ownerErr?.message || 'Error al crear el perfil de propietario.' });
-
+    // Insertar el rol para enlazarlos
     const { error: roleErr } = await supabaseAdmin
       .from('usuarios_roles')
       .insert({
         usuario_id: user.id,
-        owner_id: owner.id_owner,
+        owner_id: finalOwnerId,
         id_hotel: null,
         rol: 'PROPIETARIO',
         estado: 'activo',
@@ -114,7 +143,7 @@ router.post('/owner', async (req, res) => {
       return res.status(500).json({ error: 'Perfil creado, pero no se pudo registrar el rol de propietario.' });
     }
 
-    return res.status(201).json({ success: true, ownerId: owner.id_owner });
+    return res.status(201).json({ success: true, ownerId: finalOwnerId });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -173,6 +202,7 @@ router.post(['/business', '/businesses'], checkPlanLimits, async (req, res) => {
     }
 
     const owner_id = ownerIds[0];
+
     const { data: mod, error: modErr } = await supabaseAdmin
       .from('business_modules')
       .insert({ owner_id, tipo_modulo: normalizedType, nombre_modulo, estado: 'activo' })
@@ -259,7 +289,7 @@ router.get('/dashboard-summary', async (req, res) => {
         name: hotel.nombre_hotel,
       }));
 
-    const combinedModules = [
+    let combinedModules = [
       ...(modules || []).map((m: any) => ({
         id: m.id_module,
         type: m.tipo_modulo?.toLowerCase() ?? 'hotel',
@@ -270,6 +300,65 @@ router.get('/dashboard-summary', async (req, res) => {
       ...hotelFallbacks,
     ];
 
+    // Fetch metricas reales de hoteles (reservas de este mes)
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const { data: reservas } = await supabaseAdmin
+      .from('reservas_hotel')
+      .select('id_hotel, total_reserva, estado, check_in')
+      .in('owner_id', ownerIds)
+      .gte('created_at', startOfMonth.toISOString());
+
+    // Agrupar por id_hotel (o reference_id)
+    const hotelStats = (reservas || []).reduce((acc: any, res: any) => {
+      const hid = res.id_hotel;
+      if (!acc[hid]) acc[hid] = { ingresos: 0, ocupacion: 0, total_reservas: 0 };
+      acc[hid].total_reservas += 1;
+      if (res.estado === 'confirmada' || res.estado === 'check_in' || res.estado === 'check_out') {
+        acc[hid].ingresos += Number(res.total_reserva || 0);
+        acc[hid].ocupacion += 1; // Simplificación por ahora
+      }
+      return acc;
+    }, {});
+
+    let globalIngresos = 0;
+    let globalOcupacion = 0;
+    let globalTareas = 0;
+
+    combinedModules = combinedModules.map((mod: any) => {
+      const stats = hotelStats[mod.reference_id] || { ingresos: 0, ocupacion: 0, total_reservas: 0 };
+      
+      // Simulación de ocupación porcentual basada en cantidad de reservas si no hay dato real de capacidad
+      const ocPercent = stats.ocupacion > 0 ? Math.min(100, Math.round((stats.ocupacion / 30) * 100)) : 0;
+      
+      globalIngresos += stats.ingresos;
+      globalOcupacion += ocPercent;
+      
+      return {
+        ...mod,
+        kpis: {
+          ingresos: stats.ingresos,
+          ocupacion: ocPercent,
+          tareas: 0 // TODO: Conectar a sistema de tareas cuando exista
+        }
+      };
+    });
+
+    const avgOcupacion = combinedModules.length > 0 ? Math.round(globalOcupacion / combinedModules.length) : 0;
+
+    let aiRecommendation = '';
+    if (combinedModules.length === 0) {
+      aiRecommendation = 'Aún no tienes negocios registrados. Te sugerimos añadir tu primer módulo (Hotel, Gym o Restaurante) para comenzar a operar y ver métricas reales.';
+    } else if (avgOcupacion < 30) {
+      aiRecommendation = `Hemos detectado una ocupación promedio baja del ${avgOcupacion}%. Te sugerimos crear tarifas promocionales o descuentos especiales para atraer más clientes este fin de semana.`;
+    } else if (avgOcupacion > 80) {
+      aiRecommendation = `¡Excelente! Tienes una alta ocupación promedio del ${avgOcupacion}%. Sugerimos habilitar la estrategia de sobreventa dinámica o revisar si puedes incrementar tus tarifas temporalmente.`;
+    } else {
+      aiRecommendation = `Tu ocupación actual es estable (${avgOcupacion}%). Mantén el monitoreo de tus operaciones diarias y asegúrate de ofrecer un buen servicio a tus clientes actuales.`;
+    }
+
     return res.json({
       owner: {
         nombre: ownerRow.nombre_empresa || user.email?.split('@')[0] || 'Usuario',
@@ -277,12 +366,130 @@ router.get('/dashboard-summary', async (req, res) => {
       },
       modules: combinedModules,
       kpis: {
-        ingresos: 0,
-        negocios_activos: combinedModules.length,
-        ocupacion: 0,
-        tareas: 0,
+        ingresos: globalIngresos,
+        negocios_activos: combinedModules.filter(m => m.is_active).length,
+        ocupacion: avgOcupacion,
+        tareas: globalTareas,
       },
+      ai_recommendation: aiRecommendation,
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET - Centro de Notificaciones: check-ins hoy/mañana, pagos en deuda
+router.get('/notifications', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+
+    const { ownerIds, error: ownerError } = await findOwnerForUser(user);
+    if (ownerError) return res.status(400).json({ error: ownerError.message });
+    if (ownerIds.length === 0) return res.json([]);
+
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const tomorrowEnd = new Date(now);
+    tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
+    tomorrowEnd.setHours(23, 59, 59, 999);
+
+    // Check-ins de hoy y mañana
+    const { data: checkins } = await supabaseAdmin
+      .from('reservas_hotel')
+      .select('id_reserva_hotel, check_in, estado, id_hotel, huespedes(nombre_completo)')
+      .in('owner_id', ownerIds)
+      .gte('check_in', todayStart.toISOString())
+      .lte('check_in', tomorrowEnd.toISOString())
+      .in('estado', ['confirmada', 'pendiente'])
+      .limit(20);
+
+    // Reservas con deuda (estado_pago = deuda)
+    const { data: pagosDeuda } = await supabaseAdmin
+      .from('reservas_hotel')
+      .select('id_reserva_hotel, total_reserva, estado_pago, id_hotel, huespedes(nombre_completo)')
+      .in('owner_id', ownerIds)
+      .eq('estado_pago', 'deuda')
+      .in('estado', ['check_in', 'check_out', 'confirmada'])
+      .limit(10);
+
+    const notifications: any[] = [];
+
+    (checkins || []).forEach((r: any) => {
+      const huesped = Array.isArray(r.huespedes) ? r.huespedes[0] : r.huespedes;
+      const checkInDate = new Date(r.check_in);
+      const isToday = checkInDate >= todayStart && checkInDate <= new Date(todayStart.getTime() + 86400000 - 1);
+      notifications.push({
+        id: `checkin-${r.id_reserva_hotel}`,
+        type: 'checkin',
+        title: isToday ? 'Check-in Hoy' : 'Check-in Mañana',
+        description: `${huesped?.nombre_completo || 'Huésped'} — ${checkInDate.toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' })}`,
+        severity: isToday ? 'high' : 'medium',
+        created_at: r.check_in,
+        reference_id: r.id_hotel,
+      });
+    });
+
+    (pagosDeuda || []).forEach((r: any) => {
+      const huesped = Array.isArray(r.huespedes) ? r.huespedes[0] : r.huespedes;
+      notifications.push({
+        id: `deuda-${r.id_reserva_hotel}`,
+        type: 'payment',
+        title: 'Pago Pendiente',
+        description: `${huesped?.nombre_completo || 'Huésped'} — $${Number(r.total_reserva).toLocaleString()}`,
+        severity: 'high',
+        created_at: new Date().toISOString(),
+        reference_id: r.id_hotel,
+      });
+    });
+
+    // Ordenar por severidad y fecha
+    notifications.sort((a, b) => {
+      const sevOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+      return (sevOrder[a.severity] ?? 2) - (sevOrder[b.severity] ?? 2);
+    });
+
+    res.json(notifications);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET - Chat del Hub: últimos mensajes de cada canal del owner
+router.get('/chat/channels', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+
+    const { ownerIds, error: ownerError } = await findOwnerForUser(user);
+    if (ownerError) return res.status(400).json({ error: ownerError.message });
+    if (ownerIds.length === 0) return res.json([]);
+
+    const { data: channels, error: chErr } = await supabaseAdmin
+      .from('chat_channels')
+      .select('id, name, channel_type, created_at, metadata')
+      .in('owner_id', ownerIds)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (chErr) return res.status(400).json({ error: chErr.message });
+
+    // Para cada canal, traer el último mensaje
+    const channelsWithLastMsg = await Promise.all((channels || []).map(async (ch: any) => {
+      const { data: lastMsg } = await supabaseAdmin
+        .from('chat_messages')
+        .select('content, sender_name, created_at')
+        .eq('channel_id', ch.id)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      return { ...ch, last_message: lastMsg || null };
+    }));
+
+    res.json(channelsWithLastMsg);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

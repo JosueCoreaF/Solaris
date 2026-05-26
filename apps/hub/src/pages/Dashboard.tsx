@@ -1,444 +1,396 @@
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../services/supabaseClient';
-import apiClient from '../services/api';
+import { DashboardLayout, useDashboard } from '../components/DashboardLayout';
 import {
-  LayoutDashboard,
-  BarChart3,
   Wallet,
   Building2,
   Dumbbell,
   Coffee,
-  Settings,
-  CreditCard,
-  Search,
   Bell,
-  LogOut,
   Sparkles,
   TrendingUp,
   CheckCircle2,
   Users,
   Plus,
-  ArrowRight
+  ArrowRight,
+  Search,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-export const Dashboard = () => {
+const DashboardContent = () => {
   const navigate = useNavigate();
   const { session } = useAuth();
-  const [modules, setModules] = useState<any[]>([]);
-  const [kpis, setKpis] = useState({ ingresos: 0, negocios_activos: 0, ocupacion: 0, tareas: 0 });
-  const [ownerNombre, setOwnerNombre] = useState('');
-  const [dataLoading, setDataLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { modules, kpis, ownerNombre, summary, notifications, dataLoading, error, refetch } = useDashboard();
 
-  useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        setDataLoading(true);
-        const d = await apiClient.get('/hub/dashboard-summary');
-        // Si el backend nos dice que no hay perfil owner, redirigir al setup
-        if (d?.needsOwnerSetup) {
-          navigate('/setup-owner', { replace: true });
-          return;
-        }
-        setModules(d?.modules || []);
-        setKpis(d?.kpis || { ingresos: 0, negocios_activos: 0, ocupacion: 0, tareas: 0 });
-        setOwnerNombre(d?.owner?.nombre || session?.user?.email?.split('@')[0] || 'Usuario');
-      } catch (err: any) {
-        if (err.response?.data?.needsOwnerSetup) {
-          navigate('/setup-owner', { replace: true });
-          return;
-        }
-        setError(err.response?.data?.error || err.message || 'Error al cargar el dashboard.');
-      } finally {
-        setDataLoading(false);
-      }
-    };
-    if (session) fetchDashboard();
-  }, [session, navigate]);
+  // Si la sesión todavía no se ha cargado, mostrar spinner inicial
+  if (session === undefined) {
+    return (
+      <div className="flex items-center justify-center h-full min-h-screen">
+        <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
+      </div>
+    );
+  }
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-  };
-
-  const routeByModuleType = (type: string) => {
-    const normalized = type?.toLowerCase?.() ?? 'hotel';
-    switch (normalized) {
-      case 'gym':
-        return 5175;
-      case 'restaurant':
-        return 5176;
-      case 'store':
-        return 5177;
-      case 'hotel':
-      default:
-        return 5173;
-    }
-  };
-
-  const handleEnterBusiness = (moduleType: string, referenceId: string) => {
-    const port = routeByModuleType(moduleType);
-    try {
-      if (session) {
-        const accessToken = session.access_token;
-        const refreshToken = session.refresh_token;
-        window.location.href = `http://localhost:${port}/?access_token=${encodeURIComponent(accessToken)}&refresh_token=${encodeURIComponent(refreshToken)}&business_id=${encodeURIComponent(referenceId)}`;
-      } else {
-        window.location.href = `http://localhost:${port}/?business_id=${encodeURIComponent(referenceId)}`;
-      }
-    } catch {
-      window.location.href = `http://localhost:${port}/?business_id=${encodeURIComponent(referenceId)}`;
-    }
-  };
+  const showEmptyState = !dataLoading && !error && modules.length === 0;
+  const urgentCount = notifications.filter(n => n.severity === 'high').length;
 
   const containerVariants = {
     hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: { staggerChildren: 0.1 }
-    }
+    show: { opacity: 1, transition: { staggerChildren: 0.08 } },
   };
 
   const itemVariants = {
     hidden: { opacity: 0, y: 20 },
-    show: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 300, damping: 24 } }
+    show: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 280, damping: 24 } },
   };
 
-  const showEmptyState = !dataLoading && !error && modules.length === 0;
+  const getModulePort = (type: string) => {
+    const t = type?.toLowerCase?.() ?? 'hotel';
+    if (t === 'gym') return 5175;
+    if (t === 'restaurant') return 5176;
+    if (t === 'store') return 5177;
+    return 5173;
+  };
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
-
-      {/* Sidebar */}
-      <aside className="w-64 bg-slate-950 text-slate-300 flex flex-col hidden md:flex shrink-0">
-        <div className="p-6">
-          <h2 className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-400">
-            Solaris
-          </h2>
+    <>
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 px-8 py-5 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Hola, {ownerNombre || 'Usuario'} 👋</h1>
+          <p className="text-slate-500 text-sm mt-1">Resumen de todos tus negocios en Solaris</p>
         </div>
-
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-8 scrollbar-hide">
-          {/* General Section */}
-          <div>
-            <p className="px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">General</p>
-            <nav className="space-y-1">
-              <a href="#" className="flex items-center gap-3 px-4 py-2 bg-indigo-500/10 text-indigo-400 rounded-lg transition-colors">
-                <LayoutDashboard size={18} />
-                <span className="font-medium text-sm">Dashboard</span>
-              </a>
-              <a href="#" className="flex items-center gap-3 px-4 py-2 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
-                <BarChart3 size={18} />
-                <span className="font-medium text-sm">Analíticas</span>
-              </a>
-              <a href="#" className="flex items-center gap-3 px-4 py-2 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
-                <Wallet size={18} />
-                <span className="font-medium text-sm">Finanzas</span>
-              </a>
-            </nav>
+        <div className="flex items-center gap-4">
+          <div className="relative hidden md:block">
+            <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Buscar negocio..."
+              className="pl-10 pr-4 py-2 bg-slate-100 border-transparent focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-xl w-56 transition-all outline-none text-sm"
+            />
           </div>
-
-          {/* Mis Módulos Section */}
-          <div>
-            <p className="px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Mis Módulos</p>
-            <nav className="space-y-1">
-              {dataLoading ? (
-                <div className="px-4 py-2 flex gap-3 items-center animate-pulse">
-                  <div className="w-4 h-4 bg-slate-800 rounded-full"></div>
-                  <div className="h-3 bg-slate-800 rounded w-24"></div>
-                </div>
-              ) : modules.length > 0 ? (
-                modules.map(mod => (
-                  <button
-                    key={mod.id}
-                    onClick={() => handleEnterBusiness(mod.type, mod.reference_id)}
-                    className="flex items-center justify-between w-full px-4 py-2 hover:bg-slate-800 hover:text-white rounded-lg transition-colors text-left"
-                  >
-                    <div className="flex items-center gap-3">
-                      {mod.type === 'hotel' ? (
-                    <Building2 size={18} className="text-emerald-400" />
-                  ) : mod.type === 'gym' ? (
-                    <Dumbbell size={18} className="text-blue-400" />
-                  ) : mod.type === 'restaurant' ? (
-                    <Coffee size={18} className="text-orange-400" />
-                  ) : (
-                    <Sparkles size={18} className="text-violet-400" />
-                  )}
-                      <span className="font-medium text-sm truncate">{mod.name || `Módulo ${mod.type?.toUpperCase()}`}</span>
-                    </div>
-                    {mod.is_active && <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 ml-2"></div>}
-                  </button>
-                ))
-              ) : (
-                <div className="px-4 py-2 text-sm text-slate-500">No hay módulos activos</div>
-              )}
-            </nav>
-          </div>
-
-          {/* Administración Section */}
-          <div>
-            <p className="px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Administración</p>
-            <nav className="space-y-1">
-              <a href="#" className="flex items-center gap-3 px-4 py-2 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
-                <Settings size={18} />
-                <span className="font-medium text-sm">Configuración Global</span>
-              </a>
-              <a href="#" className="flex items-center gap-3 px-4 py-2 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
-                <CreditCard size={18} />
-                <span className="font-medium text-sm">Suscripciones</span>
-              </a>
-            </nav>
-          </div>
-        </div>
-
-        {/* User / Logout */}
-        <div className="p-4 border-t border-slate-800/50">
           <button
-            onClick={handleLogout}
-            className="flex items-center gap-3 px-4 py-2 w-full text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+            onClick={() => navigate('/notifications')}
+            className="relative p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
           >
-            <LogOut size={18} />
-            <span className="font-medium text-sm">Cerrar Sesión</span>
+            <Bell className="w-6 h-6" />
+            {urgentCount > 0 ? (
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white">
+                {urgentCount > 9 ? '9+' : urgentCount}
+              </span>
+            ) : (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-400 rounded-full border-2 border-white" />
+            )}
+          </button>
+          <button
+            onClick={() => navigate('/create-business')}
+            className="hidden md:flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all shadow-sm shadow-indigo-200"
+          >
+            <Plus size={18} />
+            Añadir Negocio
           </button>
         </div>
-      </aside>
+      </header>
 
-      {/* Main Area */}
-      <main className="flex-1 flex flex-col relative overflow-hidden">
+      {/* Content */}
+      <div className="p-8 w-full max-w-7xl mx-auto space-y-10">
 
-        {/* Top Header Flotante */}
-        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 h-16 flex items-center justify-between px-8 shrink-0 z-20">
-          <div className="flex-1 max-w-md">
-            <div className="relative group">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search className="h-4 w-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
-              </div>
-              <input
-                type="text"
-                placeholder="Buscar clientes, reservas o transacciones..."
-                className="w-full pl-10 pr-4 py-2 bg-slate-100 border-transparent rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <button className="relative text-slate-500 hover:text-slate-700 transition-colors">
-              <Bell size={20} />
-              <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white transform translate-x-1/2 -translate-y-1/2"></span>
-            </button>
-            <div className="h-6 w-px bg-slate-200"></div>
-            <div className="flex items-center gap-3 cursor-pointer group">
-              <div className="text-right hidden md:block">
-                <p className="text-sm font-semibold text-slate-900">
-                  {dataLoading ? <span className="animate-pulse bg-slate-200 h-4 w-20 block rounded"></span> : ownerNombre || 'Usuario'}
-                </p>
-                <p className="text-xs text-slate-500">Propietario</p>
-              </div>
-              <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm shadow-sm ring-2 ring-transparent group-hover:ring-indigo-100 transition-all">
-                {ownerNombre ? ownerNombre.charAt(0).toUpperCase() : 'U'}
-              </div>
-            </div>
-            <button onClick={handleLogout} className="md:hidden text-slate-500">
-              <LogOut size={20} />
-            </button>
-          </div>
-        </header>
-
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-8 z-10 relative">
-
-          {dataLoading ? (
-            // Skeleton Loader Completo
-            <div className="max-w-6xl animate-pulse">
-              <div className="mb-10">
-                <div className="h-8 bg-slate-200 rounded w-1/3 mb-4"></div>
-                <div className="h-4 bg-slate-200 rounded w-1/4"></div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="bg-white rounded-2xl border border-slate-100 p-6 h-32">
-                    <div className="flex justify-between mb-4">
-                      <div className="h-10 w-10 bg-slate-200 rounded-xl"></div>
-                      <div className="h-6 w-16 bg-slate-200 rounded-full"></div>
-                    </div>
-                    <div className="h-4 bg-slate-200 rounded w-1/2 mb-2"></div>
-                    <div className="h-6 bg-slate-200 rounded w-3/4"></div>
+        {/* ── Estado: Cargando ── */}
+        {dataLoading && (
+          <div className="max-w-6xl animate-pulse space-y-6">
+            <p className="text-slate-400 text-sm">Cargando tu información...</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="bg-white rounded-2xl border border-slate-100 p-6 h-32">
+                  <div className="flex justify-between mb-4">
+                    <div className="h-10 w-10 bg-slate-200 rounded-xl" />
+                    <div className="h-6 w-16 bg-slate-200 rounded-full" />
                   </div>
-                ))}
-              </div>
-              <div className="h-48 bg-slate-200 rounded-2xl w-full"></div>
-            </div>
-          ) : (
-            <>
-              {/* Encabezado de Página */}
-              <div className="mb-8">
-                <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Bienvenido, {ownerNombre || 'Usuario'} <span className="inline-block origin-bottom-right hover:animate-wave">👋</span></h1>
-                <p className="text-slate-500 mt-2 text-sm">Aquí tienes el resumen de tus operaciones de hoy.</p>
-              </div>
-
-              {/* Banner de Error (Ej. Red Caída) */}
-              {error && (
-                <div className="mb-8 bg-red-50 text-red-600 border border-red-200 px-4 py-3 rounded-xl text-sm font-medium flex items-center justify-center">
-                  {error}
+                  <div className="h-4 bg-slate-200 rounded w-1/2 mb-2" />
+                  <div className="h-6 bg-slate-200 rounded w-3/4" />
                 </div>
-              )}
+              ))}
+            </div>
+            <div className="h-48 bg-slate-200 rounded-2xl w-full" />
+          </div>
+        )}
 
-              {/* Condicional: Estado Vacío vs KPIs */}
-              {showEmptyState ? (
-                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center justify-center py-20 text-center">
-                  <Building2 className="w-20 h-20 text-slate-300 mb-6" />
-                  <h2 className="text-2xl font-bold text-slate-900 mb-2">Aún no tienes negocios registrados</h2>
-                  <p className="text-slate-500 max-w-md mx-auto mb-8">Comienza creando tu primer hotel o sucursal para ver tus métricas aquí.</p>
-                  <button
-                    onClick={() => navigate('/create-business')}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-bold transition-all shadow-lg hover:shadow-indigo-500/30"
-                  >
-                    Crear mi primer negocio
-                  </button>
-                </motion.div>
-              ) : (
-                <motion.div
-                  variants={containerVariants}
-                  initial="hidden"
-                  animate="show"
-                  className="space-y-8 max-w-6xl"
-                >
-                  {/* Grid de KPIs */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* ── Estado: Error ── */}
+        {!dataLoading && error && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-6 flex items-start gap-4">
+            <div className="flex-1">
+              <p className="text-red-800 font-bold mb-1">Error al cargar el dashboard</p>
+              <p className="text-red-600 text-sm">{error}</p>
+            </div>
+            <button
+              onClick={refetch}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition-colors shrink-0"
+            >
+              <RefreshCw className="w-4 h-4" /> Reintentar
+            </button>
+          </div>
+        )}
 
-                    {/* KPI 1 */}
-                    <motion.div variants={itemVariants} whileHover={{ y: -4 }} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 transition-all hover:shadow-md">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-xl">
-                          <Wallet size={20} />
-                        </div>
-                        <span className="flex items-center text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">
-                          <TrendingUp size={12} className="mr-1" /> +12.5%
-                        </span>
-                      </div>
-                      <h3 className="text-slate-500 text-sm font-medium mb-1">Ingresos Mensuales</h3>
-                      <p className="text-2xl font-bold text-slate-900">${kpis.ingresos.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                    </motion.div>
+        {/* ── Estado: Sin negocios ── */}
+        {showEmptyState && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl p-12 text-center border-2 border-dashed border-slate-300 shadow-sm flex flex-col items-center justify-center mt-10"
+          >
+            <div className="w-20 h-20 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center mb-6">
+              <Building2 size={40} />
+            </div>
+            <h3 className="text-2xl font-bold text-slate-900 mb-2">Aún no tienes negocios</h3>
+            <p className="text-slate-500 max-w-md mx-auto mb-8">
+              Empieza a gestionar hoteles, gimnasios o restaurantes creando tu primer módulo en Solaris.
+            </p>
+            <button
+              onClick={() => navigate('/create-business')}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-bold transition-all shadow-lg shadow-indigo-200 flex items-center gap-2"
+            >
+              <Plus size={20} />
+              Crear Mi Primer Negocio
+            </button>
+          </motion.div>
+        )}
 
-                    {/* KPI 2 (Negocios Activos con Botón +) */}
-                    <motion.div variants={itemVariants} whileHover={{ y: -4 }} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 transition-all hover:shadow-md">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="bg-indigo-50 text-indigo-600 p-2.5 rounded-xl">
-                          <Building2 size={20} />
-                        </div>
-                        <span className="flex items-center text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
-                          Estables
-                        </span>
-                      </div>
-                      <div className="flex items-end justify-between">
-                        <div>
-                          <h3 className="text-slate-500 text-sm font-medium mb-1">Negocios Activos</h3>
-                          <p className="text-2xl font-bold text-slate-900">{kpis.negocios_activos}</p>
-                        </div>
-                        <button
-                          onClick={() => navigate('/create-business')}
-                          className="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg transition-colors group relative"
-                          title="Registrar Nuevo Negocio"
-                        >
-                          <Plus size={20} />
-                        </button>
-                      </div>
-                    </motion.div>
-
-                    {/* KPI 3 */}
-                    <motion.div variants={itemVariants} whileHover={{ y: -4 }} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 transition-all hover:shadow-md">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="bg-blue-50 text-blue-600 p-2.5 rounded-xl">
-                          <Users size={20} />
-                        </div>
-                        <span className="flex items-center text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">
-                          <TrendingUp size={12} className="mr-1" /> +5%
-                        </span>
-                      </div>
-                      <h3 className="text-slate-500 text-sm font-medium mb-1">Ocupación / Capacidad</h3>
-                      <p className="text-2xl font-bold text-slate-900">{kpis.ocupacion}%</p>
-                    </motion.div>
-
-                    {/* KPI 4 */}
-                    <motion.div variants={itemVariants} whileHover={{ y: -4 }} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 transition-all hover:shadow-md">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="bg-amber-50 text-amber-600 p-2.5 rounded-xl">
-                          <CheckCircle2 size={20} />
-                        </div>
-                        <span className="flex items-center text-xs font-medium text-amber-600 bg-amber-50 px-2 py-1 rounded-full">
-                          Urgentes
-                        </span>
-                      </div>
-                      <h3 className="text-slate-500 text-sm font-medium mb-1">Tareas Pendientes</h3>
-                      <p className="text-2xl font-bold text-slate-900">{kpis.tareas}</p>
-                    </motion.div>
+        {/* ── Estado: Contenido Principal ── */}
+        {!dataLoading && !error && modules.length > 0 && (
+          <>
+            {/* KPIs Globales */}
+            <motion.div
+              variants={containerVariants}
+              initial="hidden"
+              animate="show"
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+            >
+              {/* Ingresos */}
+              <motion.div variants={itemVariants} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow relative overflow-hidden group">
+                <div className="absolute -right-6 -top-6 w-24 h-24 bg-indigo-50 rounded-full group-hover:scale-110 transition-transform" />
+                <div className="flex justify-between items-start relative z-10">
+                  <div>
+                    <p className="text-slate-500 text-sm font-medium mb-1">Ingresos del Mes</p>
+                    <h3 className="text-3xl font-bold text-slate-900">${kpis.ingresos.toLocaleString()}</h3>
                   </div>
+                  <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl">
+                    <Wallet size={24} />
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center gap-2 text-sm relative z-10">
+                  <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-medium flex items-center gap-1">
+                    <TrendingUp size={14} /> Todos los negocios
+                  </span>
+                </div>
+              </motion.div>
 
-                  {/* Sección: Tus Negocios (Acceso a PartnerCentral) */}
-                  <motion.div variants={itemVariants} className="mt-12">
-                    <h2 className="text-xl font-bold text-slate-900 mb-6">Tus Negocios</h2>
+              {/* Negocios Activos */}
+              <motion.div variants={itemVariants} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow relative overflow-hidden group">
+                <div className="absolute -right-6 -top-6 w-24 h-24 bg-emerald-50 rounded-full group-hover:scale-110 transition-transform" />
+                <div className="flex justify-between items-start relative z-10">
+                  <div>
+                    <p className="text-slate-500 text-sm font-medium mb-1">Negocios Activos</p>
+                    <h3 className="text-3xl font-bold text-slate-900">{kpis.negocios_activos}</h3>
+                  </div>
+                  <div className="p-3 bg-emerald-100 text-emerald-600 rounded-2xl">
+                    <Building2 size={24} />
+                  </div>
+                </div>
+                <div className="mt-4 text-sm text-slate-500 relative z-10">Operando con normalidad</div>
+              </motion.div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {modules.map((mod: any) => (
-                        <div key={mod.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col transition-all hover:shadow-md">
-                          <div className="flex justify-between items-start mb-6">
-                            <div className="bg-indigo-50 p-3 rounded-xl">
-                              {mod.type === 'HOTEL' ? <Building2 className="text-indigo-600" size={24} /> : <Dumbbell className="text-indigo-600" size={24} />}
-                            </div>
-                            {mod.is_active && (
-                              <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-1 rounded-md">
-                                Activo
-                              </span>
-                            )}
-                          </div>
+              {/* Ocupación */}
+              <motion.div variants={itemVariants} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow relative overflow-hidden group">
+                <div className="absolute -right-6 -top-6 w-24 h-24 bg-blue-50 rounded-full group-hover:scale-110 transition-transform" />
+                <div className="flex justify-between items-start relative z-10">
+                  <div>
+                    <p className="text-slate-500 text-sm font-medium mb-1">Ocupación Promedio</p>
+                    <h3 className="text-3xl font-bold text-slate-900">{kpis.ocupacion}%</h3>
+                  </div>
+                  <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl">
+                    <Users size={24} />
+                  </div>
+                </div>
+                <div className="mt-4 w-full bg-slate-100 rounded-full h-1.5 relative z-10">
+                  <div
+                    className="bg-blue-500 h-1.5 rounded-full transition-all"
+                    style={{ width: `${Math.min(kpis.ocupacion, 100)}%` }}
+                  />
+                </div>
+              </motion.div>
 
-                          <h3 className="text-lg font-bold text-slate-900 mb-1">{mod.name || 'Módulo Hotel'}</h3>
-                          <p className="text-sm text-slate-500 mb-6 flex-1">Gestión operativa del sistema central.</p>
+              {/* Alertas */}
+              <motion.div variants={itemVariants} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow relative overflow-hidden group">
+                <div className="absolute -right-6 -top-6 w-24 h-24 bg-amber-50 rounded-full group-hover:scale-110 transition-transform" />
+                <div className="flex justify-between items-start relative z-10">
+                  <div>
+                    <p className="text-slate-500 text-sm font-medium mb-1">Alertas Urgentes</p>
+                    <h3 className={`text-3xl font-bold ${urgentCount > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                      {urgentCount}
+                    </h3>
+                  </div>
+                  <div className="p-3 bg-amber-100 text-amber-600 rounded-2xl">
+                    <CheckCircle2 size={24} />
+                  </div>
+                </div>
+                <button
+                  onClick={() => navigate('/notifications')}
+                  className="mt-4 text-sm text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md font-medium relative z-10 hover:bg-amber-100 transition-colors"
+                >
+                  {urgentCount > 0 ? 'Ver notificaciones' : 'Sin alertas'}
+                </button>
+              </motion.div>
+            </motion.div>
 
-                          <button
-                            onClick={() => handleEnterBusiness(mod.type, mod.reference_id)}
-                            className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-colors shadow-sm"
-                          >
-                            Entrar al Panel <ArrowRight size={16} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
+            {/* Grid de Negocios */}
+            <div>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-slate-900">Tus Negocios</h3>
+                <button
+                  onClick={() => navigate('/create-business')}
+                  className="text-indigo-600 text-sm font-medium hover:text-indigo-700 flex items-center gap-1"
+                >
+                  Añadir <ArrowRight size={16} />
+                </button>
+              </div>
 
-                  {/* Recomendaciones de IA */}
-                  <motion.div variants={itemVariants} whileHover={{ y: -2 }} className="bg-white rounded-2xl shadow-sm border border-slate-100 border-t-4 border-t-indigo-500 overflow-hidden transition-all hover:shadow-md mt-8">
-                    <div className="p-6 sm:p-8 flex flex-col sm:flex-row gap-6 items-start">
-                      <div className="bg-indigo-50 p-4 rounded-full shrink-0">
-                        <Sparkles className="text-indigo-600 h-8 w-8" />
+              <motion.div
+                variants={containerVariants}
+                initial="hidden"
+                animate="show"
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+              >
+                {modules.map((mod: any) => (
+                  <motion.div
+                    variants={itemVariants}
+                    key={mod.id}
+                    className="bg-white border border-slate-200 rounded-3xl p-6 hover:border-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10 transition-all group flex flex-col"
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <div className={`p-4 rounded-2xl ${
+                        mod.type === 'hotel' ? 'bg-emerald-50 text-emerald-600'
+                        : mod.type === 'gym' ? 'bg-blue-50 text-blue-600'
+                        : 'bg-orange-50 text-orange-600'
+                      }`}>
+                        {mod.type === 'hotel'
+                          ? <Building2 size={28} />
+                          : mod.type === 'gym'
+                          ? <Dumbbell size={28} />
+                          : <Coffee size={28} />}
                       </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-lg font-bold text-slate-900">Recomendación Estratégica AI</h3>
-                          <span className="px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold uppercase tracking-wide">Nuevo</span>
-                        </div>
-                        <p className="text-slate-600 leading-relaxed mb-5">
-                          Hemos detectado una <strong className="text-slate-900">alta demanda proyectada</strong> para tus instalaciones este próximo fin de semana, incrementando el interés de búsqueda un 42%. Sugerimos habilitar la estrategia de <strong>sobreventa dinámica</strong> según tu configuración de riesgos.
-                        </p>
-                        <div className="flex flex-wrap gap-3">
-                          <button className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
-                            Aplicar Ajuste Automático
-                          </button>
-                          <button className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-sm font-medium rounded-lg shadow-sm transition-colors">
-                            Ver Detalles Analíticos
-                          </button>
-                        </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                        mod.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                      }`}>
+                        {mod.is_active ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </div>
+
+                    <h4 className="text-lg font-bold text-slate-900 mb-1 group-hover:text-indigo-600 transition-colors">
+                      {mod.name}
+                    </h4>
+                    <p className="text-sm text-slate-500 capitalize mb-4">{mod.type}</p>
+
+                    {/* KPIs por negocio */}
+                    <div className="flex-1 space-y-2.5 mb-5">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-slate-400">Ingresos (Mes)</span>
+                        <span className="font-bold text-slate-900">
+                          ${(mod.kpis?.ingresos || 0).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-slate-400">Ocupación</span>
+                        <span className="font-bold text-slate-900">{mod.kpis?.ocupacion ?? 0}%</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-slate-400">Alertas</span>
+                        <span className={`font-bold ${mod.kpis?.tareas > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
+                          {mod.kpis?.tareas ?? 0}
+                        </span>
                       </div>
                     </div>
-                  </motion.div>
 
+                    <button
+                      onClick={() => {
+                        const port = getModulePort(mod.type);
+                        if (session) {
+                          window.location.href = `http://localhost:${port}/?access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}&business_id=${encodeURIComponent(mod.reference_id)}`;
+                        } else {
+                          window.location.href = `http://localhost:${port}/?business_id=${encodeURIComponent(mod.reference_id)}`;
+                        }
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-colors shadow-sm"
+                    >
+                      Entrar al Panel <ArrowRight size={16} />
+                    </button>
+                  </motion.div>
+                ))}
+
+                {/* Botón agregar */}
+                <motion.div
+                  variants={itemVariants}
+                  onClick={() => navigate('/create-business')}
+                  className="border-2 border-dashed border-slate-300 rounded-3xl p-6 cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/50 transition-all group flex flex-col items-center justify-center text-center min-h-[220px]"
+                >
+                  <div className="w-14 h-14 bg-slate-100 group-hover:bg-indigo-100 rounded-full flex items-center justify-center mb-4 transition-colors">
+                    <Plus size={28} className="text-slate-400 group-hover:text-indigo-600 transition-colors" />
+                  </div>
+                  <h4 className="text-lg font-bold text-slate-700 group-hover:text-indigo-700 transition-colors">
+                    Añadir Nuevo
+                  </h4>
+                  <p className="text-sm text-slate-500 mt-1">Expande tus operaciones</p>
                 </motion.div>
-              )}
-            </>
-          )}
-        </div>
-      </main>
-    </div>
+              </motion.div>
+            </div>
+
+            {/* Recomendación IA */}
+            <motion.div
+              variants={itemVariants}
+              initial="hidden"
+              animate="show"
+              className="bg-white rounded-2xl shadow-sm border border-slate-100 border-t-4 border-t-indigo-500 overflow-hidden hover:shadow-md transition-shadow"
+            >
+              <div className="p-6 sm:p-8 flex flex-col sm:flex-row gap-6 items-start">
+                <div className="bg-indigo-50 p-4 rounded-full shrink-0">
+                  <Sparkles className="text-indigo-600 h-8 w-8" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <h3 className="text-lg font-bold text-slate-900">Recomendación Estratégica AI</h3>
+                    <span className="px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold uppercase tracking-wide">
+                      Nuevo
+                    </span>
+                  </div>
+                  <p className="text-slate-600 leading-relaxed mb-5">
+                    {summary?.ai_recommendation || 'Analizando tus métricas para generar una recomendación...'}
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <button className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors">
+                      Aplicar Ajuste
+                    </button>
+                    <button
+                      onClick={() => navigate('/notifications')}
+                      className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-sm font-medium rounded-lg shadow-sm transition-colors"
+                    >
+                      Ver Alertas
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </div>
+    </>
+  );
+};
+
+export const Dashboard = () => {
+  return (
+    <DashboardLayout>
+      <DashboardContent />
+    </DashboardLayout>
   );
 };
