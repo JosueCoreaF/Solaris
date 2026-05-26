@@ -7,11 +7,11 @@
     "backend"
   ],
   "scripts": {
-    "dev:backend": "npm run dev --workspace=backend",
-    "dev:hub": "npm run dev --workspace=apps/hub",
-    "dev:hotel": "npm run dev --workspace=apps/hotel",
-    "dev:gym": "npm run dev --workspace=apps/gym",
-    "dev:restaurant": "npm run dev --workspace=apps/restaurant",
+    "dev:backend": "npm run dev --workspace=partnercentral-backend",
+    "dev:hub": "npm run dev --workspace=hub",
+    "dev:hotel": "npm run dev --workspace=@solaris/hotel",
+    "dev:gym": "npm run dev --workspace=@solaris/gym",
+    "dev:restaurant": "npm run dev --workspace=@solaris/restaurant",
     "dev": "concurrently -c \"cyan,magenta,yellow\" \"npm run dev:backend\" \"npm run dev:hub\" \"npm run dev:hotel\"",
     "install:all": "npm install"
   },
