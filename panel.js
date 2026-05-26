@@ -2,7 +2,7 @@ const blessed = require('blessed');
 const contrib = require('blessed-contrib');
 const { spawn, execSync } = require('child_process');
 
-const DIRECTORIO = 'C:\\Users\\Zyros RK\\Desktop\\Solaris';
+const DIRECTORIO = __dirname;
 const servicios = [
     { id: 'hub', name: 'HUB', color: 'blue', port: 5174 },
     { id: 'backend', name: 'BACKEND', color: 'green', port: 4000 },
