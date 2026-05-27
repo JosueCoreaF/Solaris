@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, FileSpreadsheet, Plus, X } from 'lucide-react';
+import { ImportadorReservas } from './ImportadorReservas';
 import { useNavigate } from 'react-router-dom';
 import {
   addDays,
@@ -39,7 +40,7 @@ import { obtenerConfigHotelera } from '../../api/configService';
 type WizardStep = 'datos' | 'tarifas' | 'resumen';
 
 const WIZARD_STEPS: { id: WizardStep; title: string; caption: string }[] = [
-  { id: 'datos',   title: 'Datos',   caption: 'Huésped, habitación y fechas' },
+  { id: 'datos', title: 'Datos', caption: 'Huésped, habitación y fechas' },
   { id: 'tarifas', title: 'Tarifas', caption: 'Esquema y cálculo' },
   { id: 'resumen', title: 'Resumen', caption: 'Revisión final y cierre' },
 ];
@@ -164,6 +165,7 @@ export const Bookings: React.FC = () => {
   const dragState = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [detailReserva, setDetailReserva] = useState<Reserva | null>(null);
+  const [importadorOpen, setImportadorOpen] = useState(false);
   // ── Nueva empresa inline ──
   const [showNuevaEmpresa, setShowNuevaEmpresa] = useState(false);
   const [nuevaEmpresaNombre, setNuevaEmpresaNombre] = useState('');
@@ -276,7 +278,7 @@ export const Bookings: React.FC = () => {
         const coStr = s.tentativeCo;
         const hovered = s.hoveredDate;
         let newCi = ciStr, newCo = coStr;
-        
+
         if (s.direction === 'bottom') {
           const lastNightDate = new Date(hovered + 'T12:00:00Z');
           lastNightDate.setUTCDate(lastNightDate.getUTCDate() + 1);
@@ -291,7 +293,7 @@ export const Bookings: React.FC = () => {
           const maxCiStr = maxCiDate.toISOString().split('T')[0];
           newCi = hovered < maxCiStr ? hovered : maxCiStr;
         }
-        
+
         return {
           ...s,
           tentativeCi: newCi,
@@ -309,11 +311,11 @@ export const Bookings: React.FC = () => {
     if (!splitStayState) return [];
     const ci = getOnlyDate(splitStayState.reserva.check_in);
     const co = getOnlyDate(splitStayState.reserva.check_out);
-    
+
     const options: { dateKey: string; label: string }[] = [];
     const checkInDateObj = new Date(ci + 'T12:00:00Z');
     const checkOutDateObj = new Date(co + 'T12:00:00Z');
-    
+
     let current = new Date(checkInDateObj.getTime() + 24 * 60 * 60 * 1000);
     while (current < checkOutDateObj) {
       const dateKey = toDateKey(current);
@@ -326,7 +328,7 @@ export const Bookings: React.FC = () => {
 
   const habitacionesFiltradas = useMemo(() => {
     const filtered = hotelFiltro === 'todos' ? habitaciones : habitaciones.filter(h => h.id_hotel === hotelFiltro);
-    
+
     // Ordenar por número extraído del nombre
     return filtered.sort((a, b) => {
       const numA = parseInt(a.nombre_habitacion.match(/\d+/)?.[0] ?? '0', 10);
@@ -380,7 +382,7 @@ export const Bookings: React.FC = () => {
     const isvRate = hotelConfig?.tasa_isv !== undefined ? hotelConfig.tasa_isv : 0.15;
     const turisticaRate = hotelConfig?.tasa_turistica !== undefined ? hotelConfig.tasa_turistica : 0.04;
     const taxFactor = 1 + isvRate + turisticaRate;
-    
+
     if (form.esCortesia) {
       return {
         subtotalBruto: 0,
@@ -393,7 +395,7 @@ export const Bookings: React.FC = () => {
         turisticaRate,
       };
     }
-    
+
     if (form.tipoReserva === 'hora') {
       const total = form.tarifaManual;
       const subtotal = +(total / taxFactor).toFixed(2);
@@ -415,13 +417,13 @@ export const Bookings: React.FC = () => {
     const totalBruto = pricePerNoche * form.noches;
     const discountBruto = form.aplicarDescuento ? totalBruto * 0.15 : 0;
     const total = +(totalBruto - discountBruto).toFixed(2);
-    
+
     const subtotalBruto = +(totalBruto / taxFactor).toFixed(2);
     const discount = +(discountBruto / taxFactor).toFixed(2);
     const subtotal = +(total / taxFactor).toFixed(2);
     const isv = +(subtotal * isvRate).toFixed(2);
     const tasaTuristica = +(total - subtotal - isv).toFixed(2);
-    
+
     return {
       subtotalBruto,
       discount,
@@ -604,7 +606,7 @@ export const Bookings: React.FC = () => {
       while (i < monthDays.length) {
         const day = monthDays[i];
         const dayKey = toDateKey(day);
-        
+
         const dayReservas = roomReservas.filter(rv => {
           const ci = getOnlyDate(rv.check_in);
           const co = getOnlyDate(rv.check_out);
@@ -634,14 +636,14 @@ export const Bookings: React.FC = () => {
     const ciStr = getOnlyDate(movingReserva.check_in);
     const coStr = getOnlyDate(movingReserva.check_out);
     const result = new Set<string>();
-    
+
     // Obtener hotel de la habitación original para evitar traslados entre distintas propiedades
     const originalHab = habitaciones.find(h => h.id_habitacion === movingReserva.id_habitacion);
     const originalHotelId = originalHab?.id_hotel;
 
     for (const hab of habitacionesFiltradas) {
       if (hab.id_habitacion === movingReserva.id_habitacion) continue;
-      
+
       // Impedir traslados entre hoteles diferentes (inconsistencia contable/tarifaria)
       if (originalHotelId && hab.id_hotel !== originalHotelId) continue;
 
@@ -695,7 +697,7 @@ export const Bookings: React.FC = () => {
     if (nuevoEstado === 'check_out') {
       const checkInStr = getOnlyDate(res.check_in);
       const checkOutStr = getOnlyDate(res.check_out);
-      
+
       if (todayStr >= checkInStr && todayStr < checkOutStr) {
         const releaseRoom = window.confirm(
           'El huésped está realizando Check-out antes de la fecha programada.\n\n' +
@@ -743,30 +745,30 @@ export const Bookings: React.FC = () => {
       }
     }
     setEditingReserva(null);
-    
+
     if (contextHoraReserva) {
-       const newForm = defaultForm(checkIn, habitacionId);
-       const endD = new Date(contextHoraReserva.check_out);
-       const h = endD.getHours().toString().padStart(2, '0');
-       const m = endD.getMinutes().toString().padStart(2, '0');
-       const startH = `${h}:${m}`;
-       
-       endD.setHours(endD.getHours() + 3);
-       const endH2 = endD.getHours().toString().padStart(2, '0');
-       const endM2 = endD.getMinutes().toString().padStart(2, '0');
-       const endH = `${endH2}:${endM2}`;
-       
-       setForm({
-         ...newForm,
-         tipoReserva: 'hora',
-         fechaHoraDate: getOnlyDate(contextHoraReserva.check_out),
-         horaCheckIn: startH,
-         horaCheckOut: endH
-       });
+      const newForm = defaultForm(checkIn, habitacionId);
+      const endD = new Date(contextHoraReserva.check_out);
+      const h = endD.getHours().toString().padStart(2, '0');
+      const m = endD.getMinutes().toString().padStart(2, '0');
+      const startH = `${h}:${m}`;
+
+      endD.setHours(endD.getHours() + 3);
+      const endH2 = endD.getHours().toString().padStart(2, '0');
+      const endM2 = endD.getMinutes().toString().padStart(2, '0');
+      const endH = `${endH2}:${endM2}`;
+
+      setForm({
+        ...newForm,
+        tipoReserva: 'hora',
+        fechaHoraDate: getOnlyDate(contextHoraReserva.check_out),
+        horaCheckIn: startH,
+        horaCheckOut: endH
+      });
     } else {
       setForm(defaultForm(checkIn, habitacionId));
     }
-    
+
     setWizardStep('datos');
     setEditorOpen(true);
   }
@@ -833,7 +835,7 @@ export const Bookings: React.FC = () => {
     const checkInDateObj = new Date(ci + 'T12:00:00Z');
     const firstSplitDate = new Date(checkInDateObj.getTime() + 24 * 60 * 60 * 1000);
     const firstSplitStr = toDateKey(firstSplitDate);
-    
+
     setSelectedSplitDate(firstSplitStr);
     setSplitStayState({ reserva });
   }
@@ -866,10 +868,10 @@ export const Bookings: React.FC = () => {
     closeCtxMenu();
     const todayStr = toDateKey(new Date());
     const isPast = reserva.estado === 'check_in' ||
-                   reserva.estado === 'check_out' || 
-                   reserva.estado === 'cancelada' || 
-                   getOnlyDate(reserva.check_in) < todayStr ||
-                   getOnlyDate(reserva.check_out) < todayStr;
+      reserva.estado === 'check_out' ||
+      reserva.estado === 'cancelada' ||
+      getOnlyDate(reserva.check_in) < todayStr ||
+      getOnlyDate(reserva.check_out) < todayStr;
     if (isPast) {
       showToast('No se pueden modificar reservas del pasado.', 'err');
       return;
@@ -942,10 +944,10 @@ export const Bookings: React.FC = () => {
   function startResize(reserva: Reserva, direction: 'top' | 'bottom') {
     const todayStr = toDateKey(new Date());
     const isPast = reserva.estado === 'check_in' ||
-                   reserva.estado === 'check_out' || 
-                   reserva.estado === 'cancelada' || 
-                   getOnlyDate(reserva.check_in) < todayStr ||
-                   getOnlyDate(reserva.check_out) < todayStr;
+      reserva.estado === 'check_out' ||
+      reserva.estado === 'cancelada' ||
+      getOnlyDate(reserva.check_in) < todayStr ||
+      getOnlyDate(reserva.check_out) < todayStr;
     if (isPast) {
       showToast('No se pueden modificar reservas del pasado.', 'err');
       return;
@@ -964,27 +966,27 @@ export const Bookings: React.FC = () => {
     const ciStr = state.tentativeCi;
     const coStr = state.tentativeCo;
     const hovered = state.hoveredDate;
-    
+
     if (state.direction === null) {
       return { newCi: ciStr, newCo: coStr };
     }
-    
+
     if (state.direction === 'bottom') {
       const lastNightDate = new Date(hovered + 'T12:00:00Z');
       lastNightDate.setUTCDate(lastNightDate.getUTCDate() + 1);
       const nextDayStr = lastNightDate.toISOString().split('T')[0];
-      
+
       const minCoDate = new Date(ciStr + 'T12:00:00Z');
       minCoDate.setUTCDate(minCoDate.getUTCDate() + 1);
       const minCoStr = minCoDate.toISOString().split('T')[0];
-      
+
       const newCo = nextDayStr > minCoStr ? nextDayStr : minCoStr;
       return { newCi: ciStr, newCo };
     } else {
       const maxCiDate = new Date(coStr + 'T12:00:00Z');
       maxCiDate.setUTCDate(maxCiDate.getUTCDate() - 1);
       const maxCiStr = maxCiDate.toISOString().split('T')[0];
-      
+
       const newCi = hovered < maxCiStr ? hovered : maxCiStr;
       return { newCi, newCo: coStr };
     }
@@ -1007,7 +1009,7 @@ export const Bookings: React.FC = () => {
     const newCi = resizingState.tentativeCi;
     const newCo = resizingState.tentativeCo;
     if (newCi === getOnlyDate(resizingState.reserva.check_in) &&
-        newCo === getOnlyDate(resizingState.reserva.check_out)) {
+      newCo === getOnlyDate(resizingState.reserva.check_out)) {
       setResizingState(null);
       return;
     }
@@ -1226,13 +1228,13 @@ export const Bookings: React.FC = () => {
               100% { background-position: -200% 0; }
             }
           `}</style>
-          <div 
-            style={{ 
-              position: 'fixed', top: 0, left: 0, right: 0, height: 3, 
-              background: 'linear-gradient(90deg, #3b82f6, #60a5fa, #3b82f6)', zIndex: 99999, 
+          <div
+            style={{
+              position: 'fixed', top: 0, left: 0, right: 0, height: 3,
+              background: 'linear-gradient(90deg, #3b82f6, #60a5fa, #3b82f6)', zIndex: 99999,
               backgroundSize: '200% 100%',
               animation: 'loading-bar 1.5s infinite linear',
-            }} 
+            }}
           />
         </>
       )}
@@ -1261,7 +1263,7 @@ export const Bookings: React.FC = () => {
           <button onClick={() => setViewMonth(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))} style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', background: '#fff', display: 'flex', alignItems: 'center' }}>
             <ChevronLeft size={14} />
           </button>
-          
+
           <div style={{ display: 'flex', gap: 4, alignItems: 'center', minWidth: 160, justifyContent: 'center' }}>
             <select
               value={viewMonth.getMonth()}
@@ -1322,15 +1324,22 @@ export const Bookings: React.FC = () => {
           >
             <span>{modoBloqueo ? '🔒 Modo Bloqueo: Activo' : '🔓 Modo Bloqueo: Inactivo'}</span>
           </button>
-          <select 
-            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 disabled:opacity-60 disabled:cursor-not-allowed" 
-            value={hotelFiltro} 
+          <select
+            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 disabled:opacity-60 disabled:cursor-not-allowed"
+            value={hotelFiltro}
             onChange={e => setHotelFiltro(e.target.value)}
             disabled={localStorage.getItem('active_hotel_id') !== 'all'}
           >
             <option value="todos">Todos los hoteles</option>
             {hoteles.map(h => <option key={h.id_hotel} value={h.id_hotel}>{h.nombre_hotel}</option>)}
           </select>
+          <button
+            onClick={() => setImportadorOpen(true)}
+            title="Importar reservas desde Excel"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: 8, cursor: 'pointer', fontWeight: 500 }}
+          >
+            <FileSpreadsheet size={14} /> Importar Excel
+          </button>
           <button onClick={() => openNewReserva()} className="flex items-center gap-1.5 bg-gray-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors">
             <Plus size={14} /> Nueva reserva
           </button>
@@ -1412,14 +1421,14 @@ export const Bookings: React.FC = () => {
                         const nightInfo = getNightStatusInfo(r, dayKey);
                         const status = nightInfo?.status ?? 'reservada';
                         const color = getStatusColor(status);
-                        
+
                         const isFirstNight = dayKey === getOnlyDate(r.check_in);
                         const prevDay = addDays(new Date(dayKey + 'T12:00:00'), -1);
                         const prevDayKey = toDateKey(prevDay);
                         const prevNightInfo = getNightStatusInfo(r, prevDayKey);
                         const showLabel = !prevNightInfo || prevNightInfo.status !== status;
                         const isLastNight = r.tipo_reserva === 'hora' || dayKey === toDateKey(addDays(new Date(r.check_out), -1));
-                        
+
                         const isWeb = r.origen_reserva === 'web' || r.observaciones?.includes('[WEB]');
                         const isIa = r.origen_reserva === 'ia' || r.observaciones?.includes('[IA]');
                         const formatTime = (isoString: string) => {
@@ -1499,7 +1508,7 @@ export const Bookings: React.FC = () => {
                               const origCo = getOnlyDate(r.check_out);
                               const totalNights = nightsBetween(origCi, origCo) || 1;
                               const masks = [];
-                              
+
                               if (newCo < origCo && isLastNight) {
                                 const keptDays = nightsBetween(origCi, newCo);
                                 const removePct = Math.max(0, 100 - (keptDays / totalNights) * 100);
@@ -1561,7 +1570,7 @@ export const Bookings: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            
+
                             {isFirstNight && (
                               <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: '4px', marginTop: 2 }}>
                                 {isIa && <span title="Creada por Asistente IA" style={{ fontSize: '11px', cursor: 'help' }}>🤖</span>}
@@ -1690,10 +1699,10 @@ export const Bookings: React.FC = () => {
       {ctxMenu && (() => {
         const todayStr = toDateKey(new Date());
         const isPast = ctxMenu.reserva.estado === 'check_in' ||
-                       ctxMenu.reserva.estado === 'check_out' || 
-                       ctxMenu.reserva.estado === 'cancelada' || 
-                       getOnlyDate(ctxMenu.reserva.check_in) < todayStr ||
-                       getOnlyDate(ctxMenu.reserva.check_out) < todayStr;
+          ctxMenu.reserva.estado === 'check_out' ||
+          ctxMenu.reserva.estado === 'cancelada' ||
+          getOnlyDate(ctxMenu.reserva.check_in) < todayStr ||
+          getOnlyDate(ctxMenu.reserva.check_out) < todayStr;
         return (
           <div
             style={{ position: 'fixed', inset: 0, zIndex: 2000 }}
@@ -1729,19 +1738,19 @@ export const Bookings: React.FC = () => {
               {[
                 ctxMenu.reserva.tipo_reserva === 'hora' && { icon: '➕', label: 'Añadir reserva extra', action: () => { closeCtxMenu(); openNewReserva(ctxMenu!.reserva.id_habitacion, undefined, ctxMenu!.reserva); } },
                 ctxMenu.reserva.estado !== 'check_in' && ctxMenu.reserva.estado !== 'check_out' && ctxMenu.reserva.estado !== 'cancelada' &&
-                  { icon: '🔑', label: 'Marcar como Check-in', action: () => { closeCtxMenu(); void updateEstado(ctxMenu!.reserva.id_reserva_hotel, 'check_in'); } },
+                { icon: '🔑', label: 'Marcar como Check-in', action: () => { closeCtxMenu(); void updateEstado(ctxMenu!.reserva.id_reserva_hotel, 'check_in'); } },
                 ctxMenu.reserva.estado === 'check_in' &&
-                  { icon: '✅', label: 'Marcar como Check-out', action: () => { closeCtxMenu(); void updateEstado(ctxMenu!.reserva.id_reserva_hotel, 'check_out'); } },
+                { icon: '✅', label: 'Marcar como Check-out', action: () => { closeCtxMenu(); void updateEstado(ctxMenu!.reserva.id_reserva_hotel, 'check_out'); } },
                 { icon: '✏️', label: 'Editar', action: () => { closeCtxMenu(); openEditReserva(ctxMenu!.reserva); } },
                 !isPast && { icon: '↕️', label: 'Ampliar / Reducir noches', action: () => { closeCtxMenu(); startResize(ctxMenu!.reserva, 'bottom'); } },
                 !isPast && { icon: '🚚', label: 'Mover a otra habitación', action: () => startMoving(ctxMenu!.reserva) },
                 nightsBetween(ctxMenu.reserva.check_in, ctxMenu.reserva.check_out) > 1 &&
-                  ctxMenu.reserva.estado !== 'cancelada' &&
-                  ctxMenu.reserva.estado !== 'check_out' && {
-                    icon: '✂️',
-                    label: 'Dividir estancia (Split)',
-                    action: () => { closeCtxMenu(); handleOpenSplitStay(ctxMenu!.reserva); }
-                  },
+                ctxMenu.reserva.estado !== 'cancelada' &&
+                ctxMenu.reserva.estado !== 'check_out' && {
+                  icon: '✂️',
+                  label: 'Dividir estancia (Split)',
+                  action: () => { closeCtxMenu(); handleOpenSplitStay(ctxMenu!.reserva); }
+                },
                 { icon: '🔍', label: 'Ver detalles', action: () => { closeCtxMenu(); setDetailReserva(ctxMenu!.reserva); } },
                 null,
                 !isPast && { icon: '❌', label: 'Cancelar reserva', danger: true, action: () => { closeCtxMenu(); handleCancelClick(ctxMenu!.reserva.id_reserva_hotel); } },
@@ -2212,10 +2221,10 @@ export const Bookings: React.FC = () => {
       {editorOpen && editingReserva && (() => {
         const todayStr = toDateKey(new Date());
         const isPastReserva = editingReserva.estado === 'check_in' ||
-                              editingReserva.estado === 'check_out' || 
-                              editingReserva.estado === 'cancelada' || 
-                              getOnlyDate(editingReserva.check_in) < todayStr ||
-                              getOnlyDate(editingReserva.check_out) < todayStr;
+          editingReserva.estado === 'check_out' ||
+          editingReserva.estado === 'cancelada' ||
+          getOnlyDate(editingReserva.check_in) < todayStr ||
+          getOnlyDate(editingReserva.check_out) < todayStr;
         return (
           <div
             style={{ position: 'fixed', inset: 0, background: '#0007', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
@@ -2371,7 +2380,7 @@ export const Bookings: React.FC = () => {
                                 const ciDate = new Date(form.checkIn);
                                 const coDate = new Date(ciDate.getTime() + 5 * 60 * 1000);
                                 const pad = (n: number) => String(n).padStart(2, '0');
-                                newCo = `${coDate.getFullYear()}-${pad(coDate.getMonth()+1)}-${pad(coDate.getDate())}T${pad(coDate.getHours())}:${pad(coDate.getMinutes())}`;
+                                newCo = `${coDate.getFullYear()}-${pad(coDate.getMonth() + 1)}-${pad(coDate.getDate())}T${pad(coDate.getHours())}:${pad(coDate.getMinutes())}`;
                               }
                               const originalNoches = (editingReserva.noches ?? nightsBetween(editingReserva.check_in, editingReserva.check_out)) || 1;
                               const actualNoches = Math.max(1, nightsBetween(form.checkIn, newCo));
@@ -2481,7 +2490,7 @@ export const Bookings: React.FC = () => {
                     <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Empresa a facturar (Opcional)</label>
                     <button type="button" onClick={() => setShowNuevaEmpresa(true)} style={{ fontSize: 11, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>+ Crear nueva</button>
                   </div>
-                  {!showNuevaEmpresa ? (
+                  {!showNuevaEmpresa && (
                     <select
                       disabled={isPastReserva}
                       value={form.empresaId}
@@ -2527,7 +2536,16 @@ export const Bookings: React.FC = () => {
                   <button
                     onClick={() => void handleSave()}
                     disabled={saving || isPastReserva}
-                    style={{ padding: '7px 16px', fontSize: 13, background: (saving || isPastReserva) ? '#94a3b8' : '#1e293b', color: '#fff', border: 'none', borderRadius: 8, cursor: (saving || isPastReserva) ? 'not-allowed' : 'pointer', fontWeight: 600 }}
+                    style={{
+                      padding: '7px 16px',
+                      fontSize: 13,
+                      background: (saving || isPastReserva) ? '#94a3b8' : '#1e293b',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 8,
+                      cursor: (saving || isPastReserva) ? 'not-allowed' : 'pointer',
+                      fontWeight: 600
+                    }}
                   >
                     {saving ? 'Guardando…' : 'Guardar cambios'}
                   </button>
@@ -2677,7 +2695,7 @@ export const Bookings: React.FC = () => {
                     )}
 
                     {/* Habitación */}
-                             {/* Tipo de Reserva */}
+                    {/* Tipo de Reserva */}
                     <div style={{ gridColumn: '1 / -1', marginTop: 4 }}>
                       <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 6 }}>Tipo de reserva</div>
                       <div style={{ display: 'flex', gap: 16 }}>
@@ -3447,6 +3465,17 @@ export const Bookings: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Modal: Importador de Reservas Excel ── */}
+      {importadorOpen && (
+        <ImportadorReservas
+          onClose={() => setImportadorOpen(false)}
+          hotelId={hotelFiltro !== 'todos' ? hotelFiltro : (hoteles[0]?.id_hotel ?? '')}
+          hoteles={hoteles}
+          habitaciones={habitaciones}
+          onImportComplete={() => { void load(); }}
+        />
       )}
     </div>
   );

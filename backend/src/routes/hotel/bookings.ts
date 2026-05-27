@@ -429,16 +429,16 @@ router.post('/habitaciones', async (req, res) => {
 
   const { data, error } = await db()
     .from('habitaciones')
-    .insert({ 
-      nombre_habitacion, 
-      codigo_habitacion, 
-      capacidad, 
-      tarifa_noche, 
-      estado: estado ?? 'disponible', 
-      piso, 
-      id_hotel, 
-      numero_camas, 
-      id_tipo_habitacion, 
+    .insert({
+      nombre_habitacion,
+      codigo_habitacion,
+      capacidad,
+      tarifa_noche,
+      estado: estado ?? 'disponible',
+      piso,
+      id_hotel,
+      numero_camas,
+      id_tipo_habitacion,
       imagen_360: imagen_360 || null,
       owner_id
     })
@@ -794,7 +794,7 @@ router.get('/reservas', async (req, res) => {
         db().from('pagos_hotel').select('id_pago_hotel, monto, moneda, metodo_pago, fecha_pago, estado').eq('id_reserva_hotel', r.id_reserva_hotel).then(res => res.data),
         db().from('reserva_servicios').select('servicios_adicionales(nombre)').eq('id_reserva_hotel', r.id_reserva_hotel).then(res => res.data)
       ]);
-      
+
       const hasService = (name: string) => {
         if (!servicios || !Array.isArray(servicios)) return false;
         return servicios.some((s: any) => s.servicios_adicionales?.nombre === name);
@@ -824,15 +824,15 @@ router.get('/reservas', async (req, res) => {
 const mapEstadoPago = (estado: string | undefined | null, esCortesia: boolean, idEmpresa: string | null): string => {
   if (esCortesia) return 'cortesia';
   if (idEmpresa) return 'credito';
-  
+
   if (!estado) return 'deuda';
-  
+
   const normalizado = estado.toLowerCase().trim();
   if (normalizado === 'pagado') return 'pagado';
   if (normalizado === 'cortesia') return 'cortesia';
   if (normalizado === 'credito' || normalizado === 'crédito') return 'credito';
   if (normalizado === 'abonada' || normalizado === 'parcial' || normalizado === 'abonado') return 'abonada';
-  
+
   return 'deuda'; // Mapeo defensivo para 'reservada', 'capital_pendiente', 'n/a', etc.
 };
 
@@ -994,14 +994,14 @@ router.patch('/reservas/:id', async (req, res) => {
   const existingCi = reservaExistente.check_in.split(/[T ]/)[0];
   const existingCo = reservaExistente.check_out.split(/[T ]/)[0];
   const isPast = reservaExistente.estado === 'check_in' ||
-                 reservaExistente.estado === 'check_out' ||
-                 reservaExistente.estado === 'cancelada' ||
-                 existingCi < hoyServer ||
-                 existingCo < hoyServer;
+    reservaExistente.estado === 'check_out' ||
+    reservaExistente.estado === 'cancelada' ||
+    existingCi < hoyServer ||
+    existingCo < hoyServer;
 
   if (isPast) {
     const tryingToChangeDates = (updates.check_in !== undefined && updates.check_in !== reservaExistente.check_in) ||
-                                (updates.check_out !== undefined && updates.check_out !== reservaExistente.check_out);
+      (updates.check_out !== undefined && updates.check_out !== reservaExistente.check_out);
     const tryingToChangeRoom = (updates.id_habitacion !== undefined && updates.id_habitacion !== reservaExistente.id_habitacion);
 
     if (tryingToChangeDates || tryingToChangeRoom) {
@@ -1027,10 +1027,10 @@ router.patch('/reservas/:id', async (req, res) => {
 
   // Si se está modificando check_in, check_out, cama_extra, neverita o plancha
   if (
-    updates.cama_extra !== undefined || 
-    updates.neverita !== undefined || 
-    updates.plancha !== undefined || 
-    updates.check_in !== undefined || 
+    updates.cama_extra !== undefined ||
+    updates.neverita !== undefined ||
+    updates.plancha !== undefined ||
+    updates.check_in !== undefined ||
     updates.check_out !== undefined
   ) {
 
@@ -1091,9 +1091,9 @@ router.patch('/reservas/:id', async (req, res) => {
 
   // Si se pasaron actualizaciones de servicios, recrear la tabla intermedia
   if (
-    updates.cama_extra !== undefined || 
-    updates.neverita !== undefined || 
-    updates.plancha !== undefined || 
+    updates.cama_extra !== undefined ||
+    updates.neverita !== undefined ||
+    updates.plancha !== undefined ||
     updates.limpieza_diaria !== undefined
   ) {
     await db().from('reserva_servicios').delete().eq('id_reserva_hotel', id);
@@ -1419,7 +1419,7 @@ router.post('/saldos/:id/aplicar', async (req, res) => {
     .single();
 
   const totalPagado = (pagos ?? []).reduce((s: number, p: { monto: number }) => s + p.monto, 0);
-  const pendiente   = (reserva?.total_reserva ?? 0) - totalPagado;
+  const pendiente = (reserva?.total_reserva ?? 0) - totalPagado;
   const montoAplicar = Math.min(saldo.monto, pendiente > 0 ? pendiente : saldo.monto);
 
   // Usar fecha local del servidor (toLocaleDateString evita la coma de toLocaleString)
@@ -1582,12 +1582,12 @@ router.post('/bloqueos', async (req, res) => {
 
   const { data, error } = await db()
     .from('bloqueos_habitacion')
-    .insert({ 
-      id_habitacion, 
-      owner_id: hab.owner_id, 
-      fecha_inicio, 
-      fecha_fin, 
-      motivo: motivo || 'Bloqueo' 
+    .insert({
+      id_habitacion,
+      owner_id: hab.owner_id,
+      fecha_inicio,
+      fecha_fin,
+      motivo: motivo || 'Bloqueo'
     })
     .select();
 
@@ -1644,7 +1644,7 @@ router.get('/pagos', async (req, res) => {
     query = query.eq('id_reserva_hotel', id_reserva);
   } else {
     if (desde) query = query.gte('fecha_pago', desde);
-    if (hasta)  query = query.lte('fecha_pago', hasta + 'T23:59:59');
+    if (hasta) query = query.lte('fecha_pago', hasta + 'T23:59:59');
   }
 
   const hotelId = req.headers['x-hotel-id'];
@@ -1848,7 +1848,7 @@ router.delete('/pagos/:id', async (req, res) => {
             .eq('id_reserva_hotel', reservaId)
             .neq('estado', 'anulado');
 
-          const totalPagado  = (pagosActivos ?? []).reduce((s: number, p: { monto: number }) => s + p.monto, 0);
+          const totalPagado = (pagosActivos ?? []).reduce((s: number, p: { monto: number }) => s + p.monto, 0);
           const totalReserva = reserva.total_reserva ?? 0;
 
           let nuevoDisplay: string;
@@ -1881,7 +1881,7 @@ router.delete('/pagos/:id', async (req, res) => {
 router.get('/kpis/ocupacion-actual', async (req, res) => {
   try {
     const hotelId = req.headers['x-hotel-id'];
-    
+
     // 1. Obtener habitaciones (filtrando por hotel si aplica)
     let queryHab = db().from('habitaciones').select('estado');
     if (hotelId && hotelId !== 'all') {
@@ -2030,7 +2030,7 @@ router.get('/kpis/tendencias-ocupacion', async (req, res) => {
 // ─── Importación desde Excel ───────────────────────────────────────────────────
 const upload = multer({ dest: os.tmpdir() });
 
-router.post('/simulate-import', upload.single('file'), (req, res) => {
+router.post('/simulate-import', upload.single('file') as any, (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No se subió ningún archivo' });
   }
@@ -2039,7 +2039,7 @@ router.post('/simulate-import', upload.single('file'), (req, res) => {
   if (!fs.existsSync(scriptPath)) {
     scriptPath = path.resolve('backend/src/scripts/extract_reservas_final.py');
   }
-  
+
   if (!fs.existsSync(scriptPath)) {
     return res.status(500).json({ error: 'No se encontró el script de Python.' });
   }
@@ -2051,7 +2051,7 @@ router.post('/simulate-import', upload.single('file'), (req, res) => {
 
   exec(`python "${scriptPath}" "${excelPath}"`, { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }, (error, stdout, stderr) => {
     // Intentar borrar el archivo temporal subido
-    fs.unlink(excelPath, () => {});
+    fs.unlink(excelPath, () => { });
 
     if (error) {
       console.error('Error ejecutando script python:', stderr);
@@ -2096,19 +2096,19 @@ router.post('/bulk-import', async (req, res) => {
     }
 
     const resultados = { insertadas: 0, errores: 0 };
-    
+
     for (const r of reservas) {
       try {
         const huespedNombre = r.huesped || 'Huésped Importado';
         let id_huesped = null;
-        
+
         const { data: huespedData } = await db()
           .from('huespedes')
           .select('id_huesped')
           .eq('nombre_completo', huespedNombre)
           .limit(1)
           .single();
-          
+
         if (huespedData) {
           id_huesped = huespedData.id_huesped;
         } else {
@@ -2117,12 +2117,12 @@ router.post('/bulk-import', async (req, res) => {
             .insert({
               owner_id: owner_id,
               nombre_completo: huespedNombre,
-              correo: `importado-${Date.now()}-${Math.floor(Math.random()*1000)}@hotel.local`,
+              correo: `importado-${Date.now()}-${Math.floor(Math.random() * 1000)}@hotel.local`,
               telefono: '',
             })
             .select('id_huesped')
             .single();
-            
+
           if (newHuespedError) throw newHuespedError;
           id_huesped = newHuesped.id_huesped;
         }
@@ -2134,7 +2134,7 @@ router.post('/bulk-import', async (req, res) => {
         }
 
         let final_id_empresa = r.id_empresa;
-        
+
         // Manejo de creación dinámica de empresas
         if (r._sim_empresa) {
           const empresaNombre = r._sim_empresa;
@@ -2160,14 +2160,14 @@ router.post('/bulk-import', async (req, res) => {
               })
               .select('id_empresa')
               .single();
-              
+
             if (!newEmpresaError && newEmpresa) {
               final_id_empresa = newEmpresa.id_empresa;
             }
           }
         }
 
-        const { error: resError } = await db()
+        const { data: newReserva, error: resError } = await db()
           .from('reservas_hotel')
           .insert({
             id_hotel: hotelId,
@@ -2186,13 +2186,37 @@ router.post('/bulk-import', async (req, res) => {
             es_cortesia: r.es_cortesia || false,
             observaciones: r.observaciones || 'Importado desde Excel',
             tipo_reserva: r.tipo_reserva || 'noche',
-          });
-          
+          })
+          .select('id_reserva_hotel')
+          .single();
+
         if (resError) {
           console.error('Error insertando reserva', resError);
           resultados.errores++;
-        } else {
+        } else if (newReserva) {
           resultados.insertadas++;
+
+          // Si el estado de pago es 'pagado' y tiene un total, insertamos el registro de pago correspondiente
+          if (r.estado_pago === 'pagado' && (r.total_reserva || 0) > 0) {
+            const { error: pagoError } = await db()
+              .from('pagos_hotel')
+              .insert({
+                owner_id: owner_id,
+                id_reserva_hotel: newReserva.id_reserva_hotel,
+                monto: r.total_reserva,
+                metodo_pago: 'efectivo',
+                referencia: 'Importación Excel',
+                fecha_pago: r.check_in, // se asume pagado al momento del check-in
+                estado: 'aplicado',
+                moneda: r.moneda || 'HNL',
+                monto_en_moneda_reserva: r.total_reserva,
+                notas: 'Pago importado automáticamente desde Excel'
+              });
+
+            if (pagoError) {
+              console.error('Error insertando pago para reserva importada:', pagoError);
+            }
+          }
         }
       } catch (err) {
         console.error('Error procesando reserva', err);
@@ -2207,3 +2231,25 @@ router.post('/bulk-import', async (req, res) => {
 });
 
 export default router;
+
+async function getOwnerIdAndRole(req: express.Request): Promise<{ ownerId: string | null; role: string | null }> {
+  try {
+    const user = await getAuthUser(req);
+    if (!user) return { ownerId: null, role: null };
+    const { ownerIds } = await getOwnerHotelIdsForUser(user);
+    const ownerId = ownerIds[0] || null;
+    const { data: roleRow } = await db()
+      .from('usuarios_roles')
+      .select('rol')
+      .eq('usuario_id', user.id)
+      .eq('estado', 'activo')
+      .limit(1)
+      .maybeSingle();
+    return { ownerId, role: roleRow?.rol || null };
+  } catch (err) {
+    console.error('Error resolving owner id and role:', err);
+    return { ownerId: null, role: null };
+  }
+}
+
+

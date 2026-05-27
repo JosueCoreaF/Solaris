@@ -53,12 +53,24 @@ router.get('/hotelera', async (req: Request, res: Response) => {
     }
 
     if (!data) {
+      // Obtener el owner_id del hotel
+      const { data: hotelData, error: hotelErr } = await supabaseAdmin
+        .from('hoteles')
+        .select('owner_id')
+        .eq('id_hotel', hotelId)
+        .single();
+      
+      if (hotelErr || !hotelData?.owner_id) {
+        return res.status(400).json({ error: 'El hotel especificado no tiene un propietario asociado o no existe.' });
+      }
+      const owner_id = hotelData.owner_id;
+
       // Si no existe configuración para este hotel, crear una con valores por defecto
       const { data: newConfig, error: insertError } = await supabaseAdmin
         .from('configuracion_hotelera')
         .insert([{
-          id_config: 'config_' + (hotelId as string).substring(0, 8),
           id_hotel: hotelId,
+          owner_id,
           hora_check_in: '14:00:00',
           hora_check_out: '12:00:00',
           moneda: 'HNL',

@@ -406,3 +406,40 @@ export async function splitReserva(idReservaHotel: string, fechaSplit: string): 
     body: JSON.stringify({ id_reserva_hotel: idReservaHotel, fecha_split: fechaSplit }),
   });
 }
+
+export async function simulateImportReservas(file: File): Promise<any[]> {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const token = (await supabase.auth.getSession()).data.session?.access_token || '';
+  const headers: Record<string, string> = {
+    'X-Hotel-ID': activeHotelId,
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}/bookings/simulate-import`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `Error ${res.status}`);
+  }
+
+  return res.json();
+}
+
+export async function confirmImportReservas(reservas: Reserva[], hotelId: string): Promise<{ insertadas: number; errores: number }> {
+  return apiFetch<{ insertadas: number; errores: number }>('/bookings/bulk-import', {
+    method: 'POST',
+    headers: {
+      'X-Hotel-ID': hotelId,
+    },
+    body: JSON.stringify({ reservas }),
+  });
+}

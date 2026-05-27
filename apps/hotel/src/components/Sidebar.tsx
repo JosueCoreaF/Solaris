@@ -52,6 +52,13 @@ const IconChart = () => (
     <line x1="6" y1="20" x2="6" y2="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
+const IconExport = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <line x1="12" y1="15" x2="12" y2="3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
 const IconUsers = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M16 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -109,6 +116,7 @@ const getSidebarSections = (role: string) => {
         items: [
           { to: '/finanzas', label: 'Ingresos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/tarifas', label: 'Tarifas', icon: IconRates, roles: ['PROPIETARIO', 'ADMIN'] },
+          { to: '/exportar', label: 'Exportar Datos', icon: IconExport, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
           { to: '/config', label: 'Configuración', icon: IconSettings, roles: ['PROPIETARIO', 'ADMIN'] },
           { to: '/gestionar-roles', label: 'Roles y Permisos', icon: IconUsers, roles: ['PROPIETARIO'] },
         ],

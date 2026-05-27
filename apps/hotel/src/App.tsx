@@ -17,6 +17,7 @@ import { Config } from './features/admin/Config';
 import { Tarifas } from './features/admin/Tarifas';
 import { RoleManagement } from './features/admin/RoleManagement';
 import { Reportes } from './features/admin/Reportes';
+import { ExportadorDatos } from './features/admin/ExportadorDatos';
 import { PerfilUsuario } from './features/profile/PerfilUsuario';
 import { EstadoCuenta } from './features/bookings/EstadoCuenta';
 import { Clients } from './features/clients/Clients';
@@ -117,6 +118,14 @@ export const App: React.FC = () => {
                   element={
                     <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN', 'CONTADOR']}>
                       <Reportes />
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/exportar"
+                  element={
+                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN', 'CONTADOR']}>
+                      <ExportadorDatos />
                     </RoleGuard>
                   }
                 />

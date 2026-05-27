@@ -1,7 +1,3 @@
-/**
- * Hotel Router Index
- * Centraliza todas las sub-rutas del módulo de hotel bajo /api/hotel
- */
 import express from 'express';
 import configRouter from './config.js';
 import bookingsRouter from './bookings.js';
@@ -12,6 +8,7 @@ import chatRouter from './chat.js';
 import auditRouter from './audit.js';
 import publicHotelRouter from './public.js';
 import habitacionesRouter from './habitaciones.js';
+import exportsRouter from './exports.js';
 import { syncContext } from '../../controllers/hotel/contexto.controller.js';
 
 const router = express.Router();
@@ -26,6 +23,8 @@ router.use('/chat', chatRouter);
 router.use('/audit', auditRouter);
 router.use('/public', publicHotelRouter);
 router.use('/habitaciones', habitacionesRouter);
+router.use('/exports', exportsRouter);
 
 export { chatRouter };
 export default router;
+

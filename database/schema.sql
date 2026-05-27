@@ -287,6 +287,17 @@ CREATE TABLE public.habitaciones (
   CONSTRAINT habitaciones_id_hotel_fkey FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel),
   CONSTRAINT habitaciones_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner)
 );
+CREATE TABLE public.historial_pagos (
+  id_pago uuid NOT NULL DEFAULT gen_random_uuid(),
+  owner_id uuid NOT NULL,
+  monto numeric NOT NULL,
+  concepto character varying NOT NULL,
+  metodo_pago character varying NOT NULL DEFAULT 'tarjeta'::character varying,
+  estado character varying NOT NULL DEFAULT 'completado'::character varying,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT historial_pagos_pkey PRIMARY KEY (id_pago),
+  CONSTRAINT historial_pagos_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner)
+);
 CREATE TABLE public.hoteles (
   id_hotel uuid NOT NULL DEFAULT gen_random_uuid(),
   owner_id uuid NOT NULL,
@@ -321,6 +332,18 @@ CREATE TABLE public.huespedes (
   CONSTRAINT huespedes_pkey PRIMARY KEY (id_huesped),
   CONSTRAINT huespedes_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner)
 );
+CREATE TABLE public.inventario_costos (
+  id_prod bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_restaurante bigint NOT NULL,
+  id_owner uuid NOT NULL,
+  nombre_producto text NOT NULL,
+  cantidad integer NOT NULL,
+  precio numeric NOT NULL,
+  categoria text NOT NULL,
+  CONSTRAINT inventario_costos_pkey PRIMARY KEY (id_prod),
+  CONSTRAINT fk_restaurante FOREIGN KEY (id_restaurante) REFERENCES public.restaurante(id_restaurante),
+  CONSTRAINT fk_owner FOREIGN KEY (id_owner) REFERENCES public.owners(id_owner)
+);
 CREATE TABLE public.invitaciones (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   owner_id uuid NOT NULL,
@@ -346,6 +369,13 @@ CREATE TABLE public.owners (
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT owners_pkey PRIMARY KEY (id_owner)
 );
+CREATE TABLE public.pago_cate (
+  id_cate bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  catego character varying,
+  id_pago bigint,
+  CONSTRAINT pago_cate_pkey PRIMARY KEY (id_cate),
+  CONSTRAINT fk_pago_rest FOREIGN KEY (id_pago) REFERENCES public.pagos_rest(id_pago)
+);
 CREATE TABLE public.pagos_hotel (
   id_pago_hotel uuid NOT NULL DEFAULT gen_random_uuid(),
   owner_id uuid NOT NULL,
@@ -363,6 +393,33 @@ CREATE TABLE public.pagos_hotel (
   CONSTRAINT pagos_hotel_pkey PRIMARY KEY (id_pago_hotel),
   CONSTRAINT pagos_hotel_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner),
   CONSTRAINT pagos_hotel_id_reserva_hotel_fkey FOREIGN KEY (id_reserva_hotel) REFERENCES public.reservas_hotel(id_reserva_hotel)
+);
+CREATE TABLE public.pagos_rest (
+  id_pago bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_owner uuid NOT NULL,
+  id_restaurante bigint NOT NULL,
+  fecha_pago date DEFAULT CURRENT_DATE,
+  monto numeric NOT NULL,
+  estado text DEFAULT 'Por pagar'::text CHECK (estado = ANY (ARRAY['Por pagar'::text, 'Pagado'::text])),
+  id_cate bigint NOT NULL,
+  CONSTRAINT pagos_rest_pkey PRIMARY KEY (id_pago),
+  CONSTRAINT fk_owner FOREIGN KEY (id_owner) REFERENCES public.owners(id_owner),
+  CONSTRAINT fk_restaurante FOREIGN KEY (id_restaurante) REFERENCES public.restaurante(id_restaurante),
+  CONSTRAINT fk_pago_rest FOREIGN KEY (id_cate) REFERENCES public.pago_cate(id_cate)
+);
+CREATE TABLE public.planes_suscripcion (
+  id_plan character varying NOT NULL,
+  tipo_modulo character varying NOT NULL DEFAULT 'hotel'::character varying,
+  nombre character varying NOT NULL,
+  descripcion text,
+  features jsonb DEFAULT '[]'::jsonb,
+  stripe_price_id_mensual character varying,
+  stripe_price_id_anual character varying,
+  limite_negocios integer NOT NULL DEFAULT 1,
+  precio_mensual numeric NOT NULL DEFAULT 0.00,
+  precio_anual numeric NOT NULL DEFAULT 0.00,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT planes_suscripcion_pkey PRIMARY KEY (id_plan)
 );
 CREATE TABLE public.reserva_servicios (
   id_reserva_hotel uuid NOT NULL,
@@ -411,7 +468,11 @@ CREATE TABLE public.restaurante (
   direccion_restaurante text NOT NULL,
   correo_restaurante character varying NOT NULL,
   telefono_restaurante character varying NOT NULL,
-  CONSTRAINT restaurante_pkey PRIMARY KEY (id_restaurante)
+  id_owner uuid NOT NULL,
+  id_module uuid NOT NULL,
+  CONSTRAINT restaurante_pkey PRIMARY KEY (id_restaurante),
+  CONSTRAINT fk_owner FOREIGN KEY (id_owner) REFERENCES public.owners(id_owner),
+  CONSTRAINT fk_business_module FOREIGN KEY (id_module) REFERENCES public.business_modules(id_module)
 );
 CREATE TABLE public.saldos_clientes (
   id_saldo uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -439,6 +500,23 @@ CREATE TABLE public.servicios_adicionales (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT servicios_adicionales_pkey PRIMARY KEY (id_servicio),
   CONSTRAINT servicios_adicionales_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner)
+);
+CREATE TABLE public.suscripciones_owner (
+  id_suscripcion uuid NOT NULL DEFAULT gen_random_uuid(),
+  owner_id uuid NOT NULL,
+  tipo_modulo character varying NOT NULL DEFAULT 'hotel'::character varying,
+  id_plan character varying NOT NULL,
+  stripe_customer_id character varying,
+  stripe_subscription_id character varying,
+  estado character varying NOT NULL DEFAULT 'inactiva'::character varying CHECK (estado::text = ANY (ARRAY['activa'::character varying::text, 'inactiva'::character varying::text, 'cancelada'::character varying::text, 'impaga'::character varying::text, 'trial'::character varying::text])),
+  trial_end timestamp with time zone,
+  current_period_end timestamp with time zone,
+  negocios_extra integer NOT NULL DEFAULT 0,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT suscripciones_owner_pkey PRIMARY KEY (id_suscripcion),
+  CONSTRAINT suscripciones_owner_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner),
+  CONSTRAINT suscripciones_owner_id_plan_fkey FOREIGN KEY (id_plan) REFERENCES public.planes_suscripcion(id_plan)
 );
 CREATE TABLE public.tarifas (
   id_tarifa uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -492,50 +570,4 @@ CREATE TABLE public.usuarios_roles (
   CONSTRAINT usuarios_roles_pkey PRIMARY KEY (id),
   CONSTRAINT usuarios_roles_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner),
   CONSTRAINT usuarios_roles_id_hotel_fkey FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel)
-);
-
-CREATE TABLE public.planes_suscripcion (
-  id_plan character varying NOT NULL,
-  tipo_modulo character varying NOT NULL DEFAULT 'hotel',
-  nombre character varying NOT NULL,
-  descripcion text,
-  features jsonb DEFAULT '[]'::jsonb,
-  stripe_price_id_mensual character varying,
-  stripe_price_id_anual character varying,
-  limite_negocios integer NOT NULL DEFAULT 1,
-  precio_mensual numeric NOT NULL DEFAULT 0.00,
-  precio_anual numeric NOT NULL DEFAULT 0.00,
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
-  CONSTRAINT planes_suscripcion_pkey PRIMARY KEY (id_plan)
-);
-
-CREATE TABLE public.suscripciones_owner (
-  id_suscripcion uuid NOT NULL DEFAULT gen_random_uuid(),
-  owner_id uuid NOT NULL,
-  tipo_modulo character varying NOT NULL DEFAULT 'hotel',
-  id_plan character varying NOT NULL,
-  stripe_customer_id character varying,
-  stripe_subscription_id character varying,
-  estado character varying NOT NULL DEFAULT 'inactiva'::character varying CHECK (estado::text = ANY (ARRAY['activa'::character varying, 'inactiva'::character varying, 'cancelada'::character varying, 'impaga'::character varying, 'trial'::character varying]::text[])),
-  trial_end timestamp with time zone,
-  current_period_end timestamp with time zone,
-  negocios_extra integer NOT NULL DEFAULT 0,
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
-  updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  CONSTRAINT suscripciones_owner_pkey PRIMARY KEY (id_suscripcion),
-  CONSTRAINT suscripciones_owner_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner) ON DELETE CASCADE,
-  CONSTRAINT suscripciones_owner_id_plan_fkey FOREIGN KEY (id_plan) REFERENCES public.planes_suscripcion(id_plan),
-  CONSTRAINT suscripciones_owner_unica UNIQUE (owner_id, tipo_modulo)
-);
-
-CREATE TABLE public.historial_pagos (
-  id_pago uuid NOT NULL DEFAULT gen_random_uuid(),
-  owner_id uuid NOT NULL,
-  monto numeric NOT NULL,
-  concepto character varying NOT NULL,
-  metodo_pago character varying NOT NULL DEFAULT 'tarjeta',
-  estado character varying NOT NULL DEFAULT 'completado',
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
-  CONSTRAINT historial_pagos_pkey PRIMARY KEY (id_pago),
-  CONSTRAINT historial_pagos_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.owners(id_owner) ON DELETE CASCADE
 );

@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const router = express.Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock', {
-  apiVersion: '2025-01-27.acacia',
+  apiVersion: '2025-01-27.acacia' as any,
 });
 
 const supabaseAdmin = createClient(
@@ -432,7 +432,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
   // Handle the event
   if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as Stripe.Checkout.Session;
+    const session = event.data.object as any;
     const owner_id = session.metadata?.owner_id;
     const plan_id = session.metadata?.plan_id;
 
