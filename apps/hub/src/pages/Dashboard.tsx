@@ -46,12 +46,17 @@ const DashboardContent = () => {
     show: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 280, damping: 24 } },
   };
 
-  const getModulePort = (type: string) => {
+  const getModuleUrl = (type: string) => {
     const t = type?.toLowerCase?.() ?? 'hotel';
-    if (t === 'gym') return 5175;
-    if (t === 'restaurant') return 5176;
-    if (t === 'store') return 5177;
-    return 5173;
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
+    if (isLocal) {
+      const ports: Record<string, number> = { gym: 5175, restaurant: 5176, store: 5177, hotel: 5173 };
+      return `http://localhost:${ports[t] || 5173}`;
+    }
+    
+    // En producción (Vercel) usando subdominios
+    return `https://${t}.solarys.uk`;
   };
 
   return (
@@ -314,11 +319,11 @@ const DashboardContent = () => {
 
                     <button
                       onClick={() => {
-                        const port = getModulePort(mod.type);
+                        const baseUrl = getModuleUrl(mod.type);
                         if (session) {
-                          window.location.href = `http://localhost:${port}/?access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}&business_id=${encodeURIComponent(mod.reference_id)}`;
+                          window.location.href = `${baseUrl}/?access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}&business_id=${encodeURIComponent(mod.reference_id)}`;
                         } else {
-                          window.location.href = `http://localhost:${port}/?business_id=${encodeURIComponent(mod.reference_id)}`;
+                          window.location.href = `${baseUrl}/?business_id=${encodeURIComponent(mod.reference_id)}`;
                         }
                       }}
                       className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-colors shadow-sm"
