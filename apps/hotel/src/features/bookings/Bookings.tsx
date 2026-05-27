@@ -1131,7 +1131,7 @@ export const Bookings: React.FC = () => {
           observaciones: form.observaciones,
           estado_pago: calcEstadoPago(editingReserva.pagos ?? [], totalEstimado),
           es_cortesia: form.esCortesia,
-          id_empresa: form.esCredito ? form.empresaId : null,
+          id_empresa: form.empresaId || null,
           cama_extra: form.camaExtra,
           limpieza_diaria: form.limpiezaDiaria,
           neverita: form.neverita,
@@ -1154,7 +1154,7 @@ export const Bookings: React.FC = () => {
           estado_pago: form.esCredito ? 'credito' : form.esCortesia ? 'cortesia' : 'reservada',
           anticipo: 0,
           es_cortesia: form.esCortesia,
-          id_empresa: form.esCredito ? form.empresaId : undefined,
+          id_empresa: form.empresaId || undefined,
           cama_extra: form.camaExtra,
           limpieza_diaria: form.limpiezaDiaria,
           neverita: form.neverita,
@@ -2475,18 +2475,13 @@ export const Bookings: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Crédito empresa */}
-                <div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: isPastReserva ? 'not-allowed' : 'pointer', fontSize: 12, color: form.esCredito ? '#1d4ed8' : '#64748b', fontWeight: form.esCredito ? 600 : 400, marginBottom: form.esCredito ? 8 : 0 }}>
-                    <input
-                      disabled={isPastReserva}
-                      type="checkbox"
-                      checked={form.esCredito}
-                      onChange={e => setForm(f => ({ ...f, esCredito: e.target.checked, empresaId: '', esCortesia: e.target.checked ? false : f.esCortesia }))}
-                    />
-                    Reserva a crédito empresarial
-                  </label>
-                  {form.esCredito && (
+                {/* Empresa a facturar */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Empresa a facturar (Opcional)</label>
+                    <button type="button" onClick={() => setShowNuevaEmpresa(true)} style={{ fontSize: 11, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>+ Crear nueva</button>
+                  </div>
+                  {!showNuevaEmpresa ? (
                     <select
                       disabled={isPastReserva}
                       value={form.empresaId}

@@ -1,4 +1,9 @@
 import express from 'express';
+import multer from 'multer';
+import { exec } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { supabaseAdmin, supabase, crearClienteUsuario } from '../../config/supabase.js';
 import { extractToken, getInfoFromToken, patchAuditUser } from '../../utils/auditHelper.js';
 import { getAuthUser, getOwnerHotelIdsForUser, getOwnerIdsFromHotelId } from '../../utils/tenantHelper.js';
@@ -256,6 +261,11 @@ router.get('/empresas', async (_req, res) => {
 
 // POST /api/bookings/empresas
 router.post('/empresas', async (req, res) => {
+  const result = await getOwnerIdAndRole(req);
+  if (!result.ownerId) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  const owner_id = result.ownerId;
   const { nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, limite_credito, dias_credito } = req.body;
   if (!nombre) {
     return res.status(400).json({ error: 'nombre es requerido' });
@@ -263,6 +273,7 @@ router.post('/empresas', async (req, res) => {
   const { data, error } = await db()
     .from('empresas')
     .insert({
+      owner_id,
       nombre,
       rtn: rtn || null,
       contacto_nombre: contacto_nombre || null,
@@ -2013,6 +2024,185 @@ router.get('/kpis/tendencias-ocupacion', async (req, res) => {
   } catch (e) {
     console.error('Error calculando tendencias:', e instanceof Error ? e.message : e);
     return res.json([]);
+  }
+});
+
+// ─── Importación desde Excel ───────────────────────────────────────────────────
+const upload = multer({ dest: os.tmpdir() });
+
+router.post('/simulate-import', upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No se subió ningún archivo' });
+  }
+
+  let scriptPath = path.resolve('src/scripts/extract_reservas_final.py');
+  if (!fs.existsSync(scriptPath)) {
+    scriptPath = path.resolve('backend/src/scripts/extract_reservas_final.py');
+  }
+  
+  if (!fs.existsSync(scriptPath)) {
+    return res.status(500).json({ error: 'No se encontró el script de Python.' });
+  }
+
+  // openpyxl requiere que el archivo tenga la extensión .xlsx para poder procesarlo
+  const originalExt = path.extname(req.file.originalname) || '.xlsx';
+  const excelPath = req.file.path + originalExt;
+  fs.renameSync(req.file.path, excelPath);
+
+  exec(`python "${scriptPath}" "${excelPath}"`, { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }, (error, stdout, stderr) => {
+    // Intentar borrar el archivo temporal subido
+    fs.unlink(excelPath, () => {});
+
+    if (error) {
+      console.error('Error ejecutando script python:', stderr);
+      return res.status(500).json({ error: `Error en Python: ${stderr || error.message}` });
+    }
+
+    const jsonPath = path.join(os.tmpdir(), 'reservas_final.json');
+    if (!fs.existsSync(jsonPath)) {
+      return res.status(500).json({ error: 'El script no generó el archivo de resultados' });
+    }
+
+    try {
+      const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: 'Error leyendo resultados de simulación' });
+    }
+  });
+});
+
+router.post('/bulk-import', async (req, res) => {
+  const hotelId = req.headers['x-hotel-id'];
+  if (!hotelId || hotelId === 'all') {
+    return res.status(400).json({ error: 'Debe seleccionar un hotel específico para importar reservas.' });
+  }
+
+  try {
+    const { data: hotelData, error: hotelError } = await db()
+      .from('hoteles')
+      .select('owner_id')
+      .eq('id_hotel', hotelId)
+      .single();
+
+    if (hotelError || !hotelData) {
+      return res.status(400).json({ error: 'Hotel no encontrado o sin propietario.' });
+    }
+    const owner_id = hotelData.owner_id;
+
+    const { reservas } = req.body;
+    if (!reservas || !Array.isArray(reservas)) {
+      return res.status(400).json({ error: 'Se requiere un arreglo de reservas.' });
+    }
+
+    const resultados = { insertadas: 0, errores: 0 };
+    
+    for (const r of reservas) {
+      try {
+        const huespedNombre = r.huesped || 'Huésped Importado';
+        let id_huesped = null;
+        
+        const { data: huespedData } = await db()
+          .from('huespedes')
+          .select('id_huesped')
+          .eq('nombre_completo', huespedNombre)
+          .limit(1)
+          .single();
+          
+        if (huespedData) {
+          id_huesped = huespedData.id_huesped;
+        } else {
+          const { data: newHuesped, error: newHuespedError } = await db()
+            .from('huespedes')
+            .insert({
+              owner_id: owner_id,
+              nombre_completo: huespedNombre,
+              correo: `importado-${Date.now()}-${Math.floor(Math.random()*1000)}@hotel.local`,
+              telefono: '',
+            })
+            .select('id_huesped')
+            .single();
+            
+          if (newHuespedError) throw newHuespedError;
+          id_huesped = newHuesped.id_huesped;
+        }
+
+        if (!r.id_habitacion || r.id_habitacion === 'unknown' || r.id_habitacion.startsWith('sim-hab')) {
+          console.error('Habitación no enlazada, omitiendo reserva:', r.id_reserva_hotel);
+          resultados.errores++;
+          continue;
+        }
+
+        let final_id_empresa = r.id_empresa;
+        
+        // Manejo de creación dinámica de empresas
+        if (r._sim_empresa) {
+          const empresaNombre = r._sim_empresa;
+          const { data: empresaData } = await db()
+            .from('empresas')
+            .select('id_empresa')
+            .eq('owner_id', owner_id)
+            .ilike('nombre', empresaNombre)
+            .limit(1)
+            .single();
+
+          if (empresaData) {
+            final_id_empresa = empresaData.id_empresa;
+          } else {
+            const { data: newEmpresa, error: newEmpresaError } = await db()
+              .from('empresas')
+              .insert({
+                owner_id: owner_id,
+                nombre: empresaNombre,
+                rtn: '00000000000000',
+                contacto_telefono: '',
+                direccion: 'Importado automáticamente'
+              })
+              .select('id_empresa')
+              .single();
+              
+            if (!newEmpresaError && newEmpresa) {
+              final_id_empresa = newEmpresa.id_empresa;
+            }
+          }
+        }
+
+        const { error: resError } = await db()
+          .from('reservas_hotel')
+          .insert({
+            id_hotel: hotelId,
+            id_habitacion: r.id_habitacion,
+            id_huesped: id_huesped,
+            id_empresa: final_id_empresa,
+            owner_id: owner_id,
+            check_in: r.check_in,
+            check_out: r.check_out,
+            adultos: r.adultos || 1,
+            ninos: r.ninos || 0,
+            estado: r.estado || 'confirmada',
+            total_reserva: r.total_reserva || 0,
+            moneda: r.moneda || 'HNL',
+            estado_pago: r.estado_pago || 'deuda',
+            es_cortesia: r.es_cortesia || false,
+            observaciones: r.observaciones || 'Importado desde Excel',
+            tipo_reserva: r.tipo_reserva || 'noche',
+          });
+          
+        if (resError) {
+          console.error('Error insertando reserva', resError);
+          resultados.errores++;
+        } else {
+          resultados.insertadas++;
+        }
+      } catch (err) {
+        console.error('Error procesando reserva', err);
+        resultados.errores++;
+      }
+    }
+
+    return res.json({ success: true, ...resultados });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
   }
 });
 
