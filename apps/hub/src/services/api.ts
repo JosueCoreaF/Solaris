@@ -15,10 +15,7 @@ axiosInstance.interceptors.request.use(async (config) => {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.access_token) {
-      config.headers = {
-        ...config.headers,
-        Authorization: `Bearer ${session.access_token}`,
-      };
+      config.headers.set('Authorization', `Bearer ${session.access_token}`);
     }
   } catch (error) {
     console.warn('🌐 [API] No se pudo obtener sesión de Supabase', error);

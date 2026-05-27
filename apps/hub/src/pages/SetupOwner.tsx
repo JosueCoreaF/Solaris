@@ -20,7 +20,7 @@ export const SetupOwner = () => {
 
   useEffect(() => {
     if (session?.user?.email) {
-      setForm((prev) => ({ ...prev, email_contacto: session.user.email }));
+      setForm((prev) => ({ ...prev, email_contacto: session.user.email || '' }));
     }
   }, [session]);
 

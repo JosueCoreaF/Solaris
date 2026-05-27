@@ -9,7 +9,7 @@ import { DashboardLayout } from '../components/DashboardLayout';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
 export default function Billing() {
-  const [data, setData] = useState<any[]>([]);
+  const [data, setData] = useState<any>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -57,23 +57,7 @@ export default function Billing() {
 
 
 
-  const handleOpenPortal = async () => {
-    try {
-      setLoading(true);
-      const { data: sessionData } = await supabase.auth.getSession();
-      const res = await axios.post(`${API_BASE_URL}/hub/billing/portal`, {}, {
-        headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
-      });
-      if (res.data.url) {
-        window.location.href = res.data.url;
-      }
-    } catch (err: any) {
-      console.error('Error opening portal:', err);
-      const errorMsg = err.response?.data?.error || err.message;
-      alert(`No se pudo abrir el portal de pagos: ${errorMsg}\n\nSi dice algo sobre "configure your portal", necesitas ir a tu panel de Stripe y habilitar el Customer Portal.`);
-      setLoading(false);
-    }
-  };
+
 
   const handleSimulatePayment = async () => {
     if (!selectedMethod) return;
@@ -109,7 +93,7 @@ export default function Billing() {
         
         {/* Tarjetas de Módulos (Iteradas) */}
         <div className="lg:col-span-2 space-y-6">
-          {data.map((sub, idx) => {
+          {(Array.isArray(data) ? data : []).map((sub, idx) => {
             const isTrial = sub.estado === 'trial';
             const isExpired = isTrial && sub.trial_end && new Date(sub.trial_end) < new Date();
             let daysLeft = 0;
@@ -188,7 +172,7 @@ export default function Billing() {
             );
           })}
           
-          {data.length === 0 && (
+          {(Array.isArray(data) && data.length === 0) && (
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 text-center">
               <p className="text-slate-500">No tienes suscripciones activas. Añade un negocio para comenzar.</p>
               <button onClick={() => navigate('/create-business')} className="mt-4 bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold">Añadir Negocio</button>
