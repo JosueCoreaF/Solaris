@@ -919,7 +919,7 @@ router.post('/reservas', async (req, res) => {
     return res.status(400).json({ error: 'Habitación no encontrada o no posee propietario asociado.' });
   }
 
-  const { data, error } = await dbUser(req)
+  const { data, error } = await db()
     .from('reservas_hotel')
     .insert({
       id_huesped,
@@ -1126,7 +1126,7 @@ router.patch('/reservas/:id', async (req, res) => {
     );
   }
 
-  const { error } = await dbUser(req)
+  const { error } = await db()
     .from('reservas_hotel')
     .update(reservasUpdates)
     .eq('id_reserva_hotel', id);
@@ -1233,7 +1233,7 @@ router.delete('/reservas/:id', async (req, res) => {
     }
 
     // Usar token del usuario para que auth.uid() funcione en el trigger de auditoría
-    const { error } = await dbUser(req)
+    const { error } = await db()
       .from('reservas_hotel')
       .update({ estado: 'cancelada', estado_display: 'cancelada' })
       .eq('id_reserva_hotel', id);
