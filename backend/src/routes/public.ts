@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { supabase, supabaseAdmin } from '../config/supabase.js';
 import { getIO, buildBotSystemPrompt, getSimpleAutoResponse, callGeminiChat } from './hotel/chat.js';
 import { verificarCamasExtrasDisponibles, verificarNeveritasDisponibles, verificarPlanchasDisponibles } from './hotel/bookings.js';
+import { sendBookingConfirmation, sendHotelNotificationEmail } from '../utils/emailService.js';
 
 const router = Router();
 const db = () => supabaseAdmin ?? supabase;
@@ -376,6 +377,53 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
         reserva: nuevaReserva,
         mensaje: `Nueva solicitud web: ${nombre} (${habNombre})`
       });
+    }
+
+    // 5. Enviar correo de confirmación de forma asíncrona
+    if (nuevaReserva?.id_reserva_hotel) {
+      (async () => {
+        try {
+          const { data: hotel } = await db()
+            .from('hoteles')
+            .select('nombre_hotel, correo_contacto')
+            .eq('id_hotel', habitacion.id_hotel)
+            .single();
+
+          if (hotel && hotel.nombre_hotel) {
+            const emailData = {
+              guestName: nombre,
+              guestEmail: correoFinal,
+              bookingId: nuevaReserva.id_reserva_hotel,
+              checkIn: checkIn,
+              checkOut: checkOut,
+              totalAmount: totalEstimado,
+              currency: 'USD',
+              hotelName: hotel.nombre_hotel,
+              roomType: habitacion.tipos_habitacion?.nombre_tipo || 'Habitación Estándar',
+              adults: adultos,
+              children: ninos,
+              services: [
+                finalCamaExtra && 'Cama Extra',
+                finalNeverita && 'Neverita/Minibar',
+                finalPlancha && 'Plancha de ropa',
+                finalLimpiezaDiaria && 'Limpieza Diaria'
+              ].filter(Boolean) as string[]
+            };
+
+            // 1. Enviar correo al huésped
+            if (correoFinal) {
+              await sendBookingConfirmation(emailData);
+            }
+
+            // 2. Enviar correo de notificación al hotel
+            if (hotel.correo_contacto) {
+              await sendHotelNotificationEmail(emailData, hotel.correo_contacto);
+            }
+          }
+        } catch (err) {
+          console.error('Error enviando correo post-reserva (public):', err);
+        }
+      })();
     }
 
     return res.status(201).json({ success: true, reserva: nuevaReserva });

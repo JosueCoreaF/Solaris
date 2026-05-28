@@ -7,7 +7,7 @@ import os from 'os';
 import { crearClienteUsuario, supabaseAdmin, supabase } from '../../config/supabase.js';
 import { extractToken, getInfoFromToken, patchAuditUser } from '../../utils/auditHelper.js';
 import { getAuthUser, getOwnerHotelIdsForUser, getOwnerIdsFromHotelId } from '../../utils/tenantHelper.js';
-import { sendBookingConfirmation } from '../../utils/emailService.js';
+import { sendBookingConfirmation, sendHotelNotificationEmail } from '../../utils/emailService.js';
 
 const router = express.Router();
 const db = () => supabaseAdmin ?? supabase;
@@ -816,8 +816,7 @@ router.get('/reservas', async (req, res) => {
       };
       
       // Eliminar los objetos relacionales crudos para no engordar la respuesta
-      delete mapped.huesped;
-      delete mapped.habitacion;
+      // huesped y habitacion ya fueron sobrescritos por strings en el map, as que NO debemos borrarlos
       delete mapped.servicios;
 
       return mapped;
@@ -990,22 +989,48 @@ router.post('/reservas', async (req, res) => {
           .single();
 
         const { data: hotel } = await db()
-          .from('negocios')
-          .select('nombre')
-          .eq('id_negocio', habitacion.id_hotel)
+          .from('hoteles')
+          .select('nombre_hotel, correo_contacto')
+          .eq('id_hotel', habitacion.id_hotel)
           .single();
 
-        if (huesped && huesped.correo && hotel && hotel.nombre) {
-          await sendBookingConfirmation({
-            guestName: huesped.nombre_completo,
-            guestEmail: huesped.correo,
+        const { data: habData } = await db()
+          .from('habitaciones')
+          .select('tipos_habitacion(nombre_tipo)')
+          .eq('id_habitacion', data.id_habitacion)
+          .single();
+
+        const services = [];
+        if (cama_extra) services.push('Cama Extra');
+        if (neverita) services.push('Neverita/Minibar');
+        if (plancha) services.push('Plancha de ropa');
+        if (limpieza_diaria) services.push('Limpieza Diaria');
+
+        if (hotel && hotel.nombre_hotel) {
+          const emailData = {
+            guestName: huesped?.nombre_completo || 'Huésped Desconocido',
+            guestEmail: huesped?.correo || '',
             bookingId: data.id_reserva_hotel,
             checkIn: data.check_in,
             checkOut: data.check_out,
             totalAmount: data.total_reserva,
             currency: data.moneda,
-            hotelName: hotel.nombre
-          });
+            hotelName: hotel.nombre_hotel,
+            roomType: habData?.tipos_habitacion?.nombre_tipo || 'Habitación Estándar',
+            adults: data.adultos,
+            children: data.ninos,
+            services: services
+          };
+
+          // 1. Enviar correo al huésped
+          if (huesped && huesped.correo) {
+            await sendBookingConfirmation(emailData);
+          }
+
+          // 2. Enviar correo de notificación al hotel
+          if (hotel.correo_contacto) {
+            await sendHotelNotificationEmail(emailData, hotel.correo_contacto);
+          }
         }
       } catch (err) {
         console.error('Error enviando correo post-reserva:', err);
