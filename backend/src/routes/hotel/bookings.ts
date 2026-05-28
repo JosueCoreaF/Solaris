@@ -596,16 +596,21 @@ router.get('/huespedes', async (req, res) => {
 
 // POST /api/bookings/huespedes
 router.post('/huespedes', async (req, res) => {
-  const { nombre_completo, correo, telefono, ciudad, direccion } = req.body;
+  const result = await getOwnerIdAndRole(req);
+  if (!result.ownerId) {
+    return res.status(401).json({ error: 'No autorizado o no hay owner_id asociado' });
+  }
+
+  const { nombre_completo, correo, telefono, ciudad, direccion, documento_identidad } = req.body;
   if (!nombre_completo) {
     return res.status(400).json({ error: 'nombre_completo es requerido' });
   }
-  // correo es NOT NULL UNIQUE — generar uno placeholder si no se proporciona
+  // correo es NOT NULL UNIQUE - generar uno placeholder si no se proporciona
   const correoFinal = correo?.trim() || `sin-correo-${Date.now()}@partnercentral.local`;
 
   const { data, error } = await db()
     .from('huespedes')
-    .insert({ nombre_completo, correo: correoFinal, telefono, ciudad, direccion })
+    .insert({ owner_id: result.ownerId, nombre_completo, correo: correoFinal, telefono, ciudad, direccion, documento_identidad })
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
@@ -772,7 +777,11 @@ router.get('/reservas', async (req, res) => {
         observaciones,
         es_cortesia,
         tipo_reserva,
-        created_at
+        created_at,
+        huesped:huespedes(nombre_completo),
+        habitacion:habitaciones(nombre_habitacion, hoteles(nombre_hotel)),
+        pagos:pagos_hotel(id_pago_hotel, monto, moneda, metodo_pago, fecha_pago, estado),
+        servicios:reserva_servicios(servicios_adicionales(nombre))
       `)
       .neq('estado', 'cancelada')
       .lt('check_in', hasta)
@@ -788,31 +797,31 @@ router.get('/reservas', async (req, res) => {
     if (error) throw error;
 
     // Fetch relacionados manualmente para mejor control de errores
-    const result = await Promise.all((data ?? []).map(async (r: any) => {
-      const [huesped, habitacion, pagos, servicios] = await Promise.all([
-        db().from('huespedes').select('nombre_completo').eq('id_huesped', r.id_huesped).single().then(res => res.data),
-        db().from('habitaciones').select('nombre_habitacion, hoteles(nombre_hotel)').eq('id_habitacion', r.id_habitacion).single().then(res => res.data),
-        db().from('pagos_hotel').select('id_pago_hotel, monto, moneda, metodo_pago, fecha_pago, estado').eq('id_reserva_hotel', r.id_reserva_hotel).then(res => res.data),
-        db().from('reserva_servicios').select('servicios_adicionales(nombre)').eq('id_reserva_hotel', r.id_reserva_hotel).then(res => res.data)
-      ]);
-
+    const result = (data ?? []).map((r: any) => {
+      const servicios = r.servicios || [];
       const hasService = (name: string) => {
-        if (!servicios || !Array.isArray(servicios)) return false;
         return servicios.some((s: any) => s.servicios_adicionales?.nombre === name);
       };
 
-      return {
+      const mapped = {
         ...r,
-        huesped: huesped?.nombre_completo ?? '',
-        habitacion: habitacion?.nombre_habitacion ?? '',
-        hotel: (habitacion as any)?.hoteles?.nombre_hotel ?? '',
-        pagos: pagos ?? [],
+        huesped: r.huesped?.nombre_completo ?? '',
+        habitacion: r.habitacion?.nombre_habitacion ?? '',
+        hotel: r.habitacion?.hoteles?.nombre_hotel ?? '',
+        pagos: r.pagos ?? [],
         cama_extra: hasService('Cama Extra'),
         neverita: hasService('Neverita'),
         plancha: hasService('Plancha'),
         limpieza_diaria: hasService('Limpieza Diaria')
       };
-    }));
+      
+      // Eliminar los objetos relacionales crudos para no engordar la respuesta
+      delete mapped.huesped;
+      delete mapped.habitacion;
+      delete mapped.servicios;
+
+      return mapped;
+    });
 
     return res.json(result);
   } catch (error: any) {

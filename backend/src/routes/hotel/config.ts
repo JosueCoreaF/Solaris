@@ -239,6 +239,12 @@ router.get('/tipos-habitacion', async (req: Request, res: Response) => {
 // POST - Crear tipo de habitacion
 router.post('/tipos-habitacion', async (req: Request, res: Response) => {
   try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+    const { ownerIds } = await getOwnerHotelIdsForUser(user);
+    const owner_id = ownerIds[0];
+    if (!owner_id) return res.status(401).json({ error: 'No hay propietario asociado' });
+
     const { nombre, descripcion, precio_base } = req.body;
 
     if (!nombre || precio_base === undefined) {
@@ -248,6 +254,7 @@ router.post('/tipos-habitacion', async (req: Request, res: Response) => {
     const { data, error } = await supabase
       .from('tipos_habitacion')
       .insert([{
+        owner_id,
         nombre_tipo: nombre,
         descripcion,
         tarifa_base: parseFloat(precio_base),
@@ -735,6 +742,12 @@ router.get('/hoteles', async (req: Request, res: Response) => {
 // POST - Registrar un nuevo hotel
 router.post('/hoteles', async (req: Request, res: Response) => {
   try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+    const { ownerIds } = await getOwnerHotelIdsForUser(user);
+    const owner_id = ownerIds[0];
+    if (!owner_id) return res.status(401).json({ error: 'No hay propietario asociado' });
+
     const { nombre_hotel, ciudad, direccion, telefono, correo_contacto, estrellas, enlace_google_maps } = req.body;
 
     if (!nombre_hotel) {
@@ -744,6 +757,7 @@ router.post('/hoteles', async (req: Request, res: Response) => {
     const { data, error } = await supabaseAdmin
       .from('hoteles')
       .insert([{
+        owner_id,
         nombre_hotel,
         ciudad: ciudad || null,
         direccion: direccion || null,

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { supabase, supabaseAdmin } from '../../config/supabase.js';
+import { getAuthUser, getOwnerHotelIdsForUser } from '../../utils/tenantHelper.js';
 
 const router = Router();
 
@@ -152,6 +153,12 @@ router.get('/vigentes', async (req, res) => {
 // POST /api/tarifas (crear tarifa)
 router.post('/', async (req: Request, res: Response) => {
   try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+    const { ownerIds } = await getOwnerHotelIdsForUser(user);
+    const owner_id = ownerIds[0];
+    if (!owner_id) return res.status(401).json({ error: 'No hay propietario asociado' });
+
     const { id_tipo_habitacion, id_categoria, tarifa_noche, tarifa_hora, tarifa_pasadia, vigente_desde, vigente_hasta } = req.body;
 
     if (!id_tipo_habitacion || !id_categoria || tarifa_noche === undefined) {
@@ -161,6 +168,7 @@ router.post('/', async (req: Request, res: Response) => {
     const { data, error } = await supabaseAdmin
       .from('tarifas')
       .insert({
+        owner_id,
         id_tipo_habitacion,
         id_categoria,
         tarifa_noche: parseFloat(tarifa_noche),
