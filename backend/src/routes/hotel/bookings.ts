@@ -4,9 +4,10 @@ import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { supabaseAdmin, supabase, crearClienteUsuario } from '../../config/supabase.js';
+import { crearClienteUsuario, supabaseAdmin, supabase } from '../../config/supabase.js';
 import { extractToken, getInfoFromToken, patchAuditUser } from '../../utils/auditHelper.js';
 import { getAuthUser, getOwnerHotelIdsForUser, getOwnerIdsFromHotelId } from '../../utils/tenantHelper.js';
+import { sendBookingConfirmation } from '../../utils/emailService.js';
 
 const router = express.Router();
 const db = () => supabaseAdmin ?? supabase;
@@ -967,6 +968,40 @@ router.post('/reservas', async (req, res) => {
   if (token && data?.id_reserva_hotel) {
     const { email } = getInfoFromToken(token);
     if (email) patchAuditUser(data.id_reserva_hotel, email);
+  }
+
+  // Enviar correo de confirmación de forma asíncrona
+  if (data?.id_reserva_hotel) {
+    (async () => {
+      try {
+        const { data: huesped } = await db()
+          .from('huespedes')
+          .select('nombre_completo, correo')
+          .eq('id_huesped', data.id_huesped)
+          .single();
+
+        const { data: hotel } = await db()
+          .from('negocios')
+          .select('nombre')
+          .eq('id_negocio', habitacion.id_hotel)
+          .single();
+
+        if (huesped && huesped.correo && hotel && hotel.nombre) {
+          await sendBookingConfirmation({
+            guestName: huesped.nombre_completo,
+            guestEmail: huesped.correo,
+            bookingId: data.id_reserva_hotel,
+            checkIn: data.check_in,
+            checkOut: data.check_out,
+            totalAmount: data.total_reserva,
+            currency: data.moneda,
+            hotelName: hotel.nombre
+          });
+        }
+      } catch (err) {
+        console.error('Error enviando correo post-reserva:', err);
+      }
+    })();
   }
 
   // El trigger automáticamente calculó estado_display
