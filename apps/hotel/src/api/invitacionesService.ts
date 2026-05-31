@@ -7,7 +7,7 @@ export interface Invitacion {
   id_hotel: string;
   rol_sugerido: string;
   usado: boolean;
-  usuario_id: string | null;
+  user_id: string | null;
   creado_en: string;
   actualizado_en: string;
 }
@@ -117,10 +117,10 @@ export const validarInvitacion = async (email: string, codigo: string): Promise<
 };
 
 // Marcar invitación como usada
-export const marcarInvitacionComoUsada = async (codigo: string, usuario_id: string): Promise<boolean> => {
+export const marcarInvitacionComoUsada = async (codigo: string, user_id: string): Promise<boolean> => {
   const { error } = await supabase
     .from('invitaciones')
-    .update({ usado: true, usuario_id })
+    .update({ usado: true, user_id })
     .eq('codigo_unico', codigo);
 
   if (error) {

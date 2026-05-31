@@ -250,31 +250,36 @@ export async function verificarPlanchasDisponibles(
 // ─── Empresas ─────────────────────────────────────────────────────────────────
 
 // GET /api/bookings/empresas
-router.get('/empresas', async (_req, res) => {
+router.get('/empresas', async (req, res) => {
+  const { hotelIds } = await getOwnerIdAndRole(req);
+  if (!hotelIds.length) {
+    const hotelId = req.headers['x-hotel-id'] as string;
+    if (!hotelId || hotelId === 'all') return res.status(401).json({ error: 'No autorizado' });
+    const { data, error } = await db()
+      .from('empresas')
+      .select('id_empresa, nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, limite_credito, dias_credito, estado')
+      .eq('id_hotel', hotelId).eq('estado', 'activo').order('nombre');
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data ?? []);
+  }
   const { data, error } = await db()
     .from('empresas')
     .select('id_empresa, nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, limite_credito, dias_credito, estado')
-    .eq('estado', 'activo')
-    .order('nombre');
+    .in('id_hotel', hotelIds).eq('estado', 'activo').order('nombre');
   if (error) return res.status(500).json({ error: error.message });
   return res.json(data ?? []);
 });
 
 // POST /api/bookings/empresas
 router.post('/empresas', async (req, res) => {
-  const result = await getOwnerIdAndRole(req);
-  if (!result.ownerId) {
-    return res.status(401).json({ error: 'No autorizado' });
-  }
-  const owner_id = result.ownerId;
+  const hotelId = req.headers['x-hotel-id'] as string;
+  if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
   const { nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, limite_credito, dias_credito } = req.body;
-  if (!nombre) {
-    return res.status(400).json({ error: 'nombre es requerido' });
-  }
+  if (!nombre) return res.status(400).json({ error: 'nombre es requerido' });
   const { data, error } = await db()
     .from('empresas')
     .insert({
-      owner_id,
+      id_hotel: hotelId,
       nombre,
       rtn: rtn || null,
       contacto_nombre: contacto_nombre || null,
@@ -284,8 +289,7 @@ router.post('/empresas', async (req, res) => {
       dias_credito: dias_credito ?? 30,
       estado: 'activo',
     })
-    .select()
-    .single();
+    .select().single();
   if (error) return res.status(500).json({ error: error.message });
   return res.status(201).json(data);
 });
@@ -295,41 +299,30 @@ router.post('/empresas', async (req, res) => {
 // GET /api/bookings/hoteles
 router.get('/hoteles', async (req, res) => {
   try {
-    let ownerIds: string[] = [];
-    let hotelIds: string[] = [];
     const user = await getAuthUser(req);
+    if (!user) return res.json([]);
 
-    if (user) {
-      const result = await getOwnerHotelIdsForUser(user);
-      if (result.error) {
-        return res.status(400).json({ error: result.error.message || 'Error al resolver permisos del usuario.' });
-      }
-      ownerIds = result.ownerIds;
-      hotelIds = result.hotelIds;
-    } else {
-      const activeHotelId = req.headers['x-hotel-id'];
-      if (typeof activeHotelId === 'string' && activeHotelId !== 'all') {
-        ownerIds = await getOwnerIdsFromHotelId(activeHotelId);
-      }
-    }
+    const { ownerIds, hotelIds } = await getOwnerHotelIdsForUser(user);
+    if (ownerIds.length === 0 && hotelIds.length === 0) return res.json([]);
 
-    if (ownerIds.length === 0 && hotelIds.length === 0) {
-      return res.json([]);
-    }
-
-    let query = supabaseAdmin!
+    // hoteles no tiene owner_id — filtrar por id_hotel o via business_modules
+    let query = db()
       .from('hoteles')
       .select('id_hotel, nombre_hotel, ciudad, direccion, telefono, enlace_google_maps, estado')
       .eq('estado', 'activo');
 
-    if (ownerIds.length > 0 && hotelIds.length > 0) {
-      const ownerIdsCsv = ownerIds.join(',');
-      const hotelIdsCsv = hotelIds.join(',');
-      query = query.or(`owner_id.in.(${ownerIdsCsv}),id_hotel.in.(${hotelIdsCsv})`);
-    } else if (ownerIds.length > 0) {
-      query = query.in('owner_id', ownerIds);
-    } else if (hotelIds.length > 0) {
+    if (hotelIds.length > 0) {
+      // Staff: acceso a hoteles específicos
       query = query.in('id_hotel', hotelIds);
+    } else if (ownerIds.length > 0) {
+      // Propietario: hoteles via business_modules.owner_id
+      const { data: mods } = await db()
+        .from('business_modules')
+        .select('id_module')
+        .in('owner_id', ownerIds);
+      const moduleIds = (mods || []).map((m: any) => m.id_module);
+      if (moduleIds.length === 0) return res.json([]);
+      query = query.in('id_module', moduleIds);
     }
 
     const { data, error } = await query.order('nombre_hotel');
@@ -385,26 +378,54 @@ router.post('/habitaciones', async (req, res) => {
     return res.status(400).json({ error: 'nombre_habitacion e id_hotel son requeridos' });
   }
 
-  // Buscar id_tipo_habitacion que coincida con el tipo, o usar el primero disponible
-  const { data: tipoHab } = await db()
-    .from('tipos_habitacion')
-    .select('id_tipo_habitacion')
-    .ilike('nombre_tipo', tipo ?? '%')
-    .limit(1)
-    .single();
+  // Buscar id_tipo_habitacion filtrado por el hotel (tipos son hotel-específicos)
+  let id_tipo_habitacion: string | undefined;
 
-  let id_tipo_habitacion = tipoHab?.id_tipo_habitacion;
+  if (tipo) {
+    const { data: tipoHab } = await db()
+      .from('tipos_habitacion')
+      .select('id_tipo_habitacion')
+      .eq('id_hotel', id_hotel)
+      .ilike('nombre_tipo', tipo)
+      .limit(1)
+      .maybeSingle();
+    id_tipo_habitacion = tipoHab?.id_tipo_habitacion;
+  }
+
+  // Fallback: primer tipo del hotel
   if (!id_tipo_habitacion) {
     const { data: cualquierTipo } = await db()
       .from('tipos_habitacion')
       .select('id_tipo_habitacion')
+      .eq('id_hotel', id_hotel)
       .limit(1)
-      .single();
+      .maybeSingle();
     id_tipo_habitacion = cualquierTipo?.id_tipo_habitacion;
   }
 
+  // Si no existe ningún tipo, crear los tipos base automáticamente
   if (!id_tipo_habitacion) {
-    return res.status(400).json({ error: 'No existe ningún tipo de habitación. Crea uno primero en tipos_habitacion.' });
+    const tiposBase = ['Simple', 'Doble', 'Triple', 'Suite'];
+    const { data: nuevostipos } = await db()
+      .from('tipos_habitacion')
+      .insert(tiposBase.map(nombre_tipo => ({
+        id_hotel,
+        nombre_tipo,
+        descripcion: `Habitación ${nombre_tipo.toLowerCase()}`,
+        capacidad_base: nombre_tipo === 'Simple' ? 1 : nombre_tipo === 'Triple' ? 3 : 2,
+        estado: 'activo',
+      })))
+      .select('id_tipo_habitacion, nombre_tipo');
+
+    if (!nuevostipos || nuevostipos.length === 0) {
+      return res.status(400).json({ error: 'No se pudieron crear los tipos de habitación base.' });
+    }
+
+    // Seleccionar el tipo que coincide con el solicitado o el primero
+    const tipoSolicitado = tipo
+      ? nuevostipos.find((t: any) => t.nombre_tipo.toLowerCase() === tipo.toLowerCase())
+      : null;
+    id_tipo_habitacion = (tipoSolicitado ?? nuevostipos[0]).id_tipo_habitacion;
   }
 
   // Generar codigo_habitacion único automáticamente
@@ -416,17 +437,16 @@ router.post('/habitaciones', async (req, res) => {
   const suffix = Date.now().toString().slice(-4);
   const codigo_habitacion = `${base}-${suffix}`;
 
-  // Obtener el owner_id del hotel
+  // Verificar que el hotel existe
   const { data: hotelData, error: hotelError } = await db()
     .from('hoteles')
-    .select('owner_id')
+    .select('id_hotel')
     .eq('id_hotel', id_hotel)
     .single();
 
   if (hotelError || !hotelData) {
-    return res.status(400).json({ error: 'El hotel especificado no existe o no tiene un propietario asociado.' });
+    return res.status(400).json({ error: 'El hotel especificado no existe.' });
   }
-  const owner_id = hotelData.owner_id;
 
   const { data, error } = await db()
     .from('habitaciones')
@@ -441,7 +461,6 @@ router.post('/habitaciones', async (req, res) => {
       numero_camas,
       id_tipo_habitacion,
       imagen_360: imagen_360 || null,
-      owner_id
     })
     .select()
     .single();
@@ -482,17 +501,26 @@ const updateHabitacionHandler = async (req: express.Request, res: express.Respon
   const { id } = req.params;
   const { nombre_habitacion, tipo, capacidad, tarifa_noche, estado, piso, id_hotel, numero_camas, imagenes, imagen_360, comodidades } = req.body;
 
-  // Buscar id_tipo_habitacion que coincida con el tipo, si se provee
+  // Buscar id_tipo_habitacion filtrado por hotel (tipos son hotel-específicos)
   let id_tipo_habitacion = undefined;
   if (tipo) {
-    const { data: tipoHab } = await db()
-      .from('tipos_habitacion')
-      .select('id_tipo_habitacion')
-      .ilike('nombre_tipo', tipo)
-      .limit(1)
-      .single();
-    if (tipoHab) {
-      id_tipo_habitacion = tipoHab.id_tipo_habitacion;
+    // Obtener id_hotel actual de la habitación si no viene en el body
+    const hotelIdForTipo = id_hotel || (await db()
+      .from('habitaciones')
+      .select('id_hotel')
+      .eq('id_habitacion', id)
+      .maybeSingle()
+    ).data?.id_hotel;
+
+    if (hotelIdForTipo) {
+      const { data: tipoHab } = await db()
+        .from('tipos_habitacion')
+        .select('id_tipo_habitacion')
+        .eq('id_hotel', hotelIdForTipo)
+        .ilike('nombre_tipo', tipo)
+        .limit(1)
+        .maybeSingle();
+      if (tipoHab) id_tipo_habitacion = tipoHab.id_tipo_habitacion;
     }
   }
 
@@ -559,58 +587,35 @@ router.delete('/habitaciones/:id', async (req, res) => {
 
 // GET /api/bookings/huespedes
 router.get('/huespedes', async (req, res) => {
-  const hotelId = req.headers['x-hotel-id'] || 'all';
+  const { hotelIds } = await getOwnerIdAndRole(req);
+  const hotelId = req.headers['x-hotel-id'] as string;
+  const filterIds = hotelId && hotelId !== 'all' ? [hotelId] : hotelIds;
 
-  if (hotelId && hotelId !== 'all') {
-    // Obtener los ids de huéspedes con reservas en este hotel
-    const { data: reservas, error: rErr } = await db()
-      .from('reservas_hotel')
-      .select('id_huesped')
-      .eq('id_hotel', hotelId);
+  if (filterIds.length === 0) return res.status(401).json({ error: 'No autorizado' });
 
-    if (rErr) return res.status(500).json({ error: rErr.message });
+  const { data, error } = await db()
+    .from('huespedes')
+    .select('id_huesped, nombre_completo, correo, telefono, ciudad, direccion, documento_identidad')
+    .in('id_hotel', filterIds)
+    .order('nombre_completo');
 
-    const idsHuespedes = [...new Set((reservas ?? []).map(r => r.id_huesped).filter(Boolean))];
-
-    if (idsHuespedes.length === 0) {
-      return res.json([]);
-    }
-
-    const { data, error } = await db()
-      .from('huespedes')
-      .select('id_huesped, nombre_completo, correo, telefono, ciudad, direccion')
-      .in('id_huesped', idsHuespedes)
-      .order('nombre_completo');
-
-    if (error) return res.status(500).json({ error: error.message });
-    return res.json(data ?? []);
-  } else {
-    const { data, error } = await db()
-      .from('huespedes')
-      .select('id_huesped, nombre_completo, correo, telefono, ciudad, direccion')
-      .order('nombre_completo');
-    if (error) return res.status(500).json({ error: error.message });
-    return res.json(data ?? []);
-  }
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data ?? []);
 });
 
 // POST /api/bookings/huespedes
 router.post('/huespedes', async (req, res) => {
-  const result = await getOwnerIdAndRole(req);
-  if (!result.ownerId) {
-    return res.status(401).json({ error: 'No autorizado o no hay owner_id asociado' });
-  }
+  const hotelId = req.headers['x-hotel-id'] as string;
+  if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
 
   const { nombre_completo, correo, telefono, ciudad, direccion, documento_identidad } = req.body;
-  if (!nombre_completo) {
-    return res.status(400).json({ error: 'nombre_completo es requerido' });
-  }
-  // correo es NOT NULL UNIQUE - generar uno placeholder si no se proporciona
+  if (!nombre_completo) return res.status(400).json({ error: 'nombre_completo es requerido' });
+
   const correoFinal = correo?.trim() || `sin-correo-${Date.now()}@partnercentral.local`;
 
   const { data, error } = await db()
     .from('huespedes')
-    .insert({ owner_id: result.ownerId, nombre_completo, correo: correoFinal, telefono, ciudad, direccion, documento_identidad })
+    .insert({ id_hotel: hotelId, nombre_completo, correo: correoFinal, telefono, ciudad, direccion, documento_identidad })
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
@@ -866,7 +871,6 @@ router.post('/reservas', async (req, res) => {
     limpieza_diaria,
     neverita,
     plancha,
-    origen_reserva,
     tipo_reserva,
   } = req.body;
 
@@ -874,163 +878,84 @@ router.post('/reservas', async (req, res) => {
     return res.status(400).json({ error: 'Faltan campos requeridos: id_huesped, id_habitacion, check_in, check_out' });
   }
 
-  // Verificar disponibilidad de camas extras si se solicita una
-  if (cama_extra) {
-    const checkExtra = await verificarCamasExtrasDisponibles(check_in, check_out);
-    if (!checkExtra.disponible) {
-      const fechas = (checkExtra.fechasConSobrecupo || []).join(', ');
-      return res.status(400).json({
-        error: `No hay camas extras unipersonales disponibles para las siguientes fechas: [${fechas}]. Capacidad máxima del hotel: 3.`
-      });
-    }
+  // Resolver owner_id del usuario autenticado
+  const { ownerId } = await getOwnerIdAndRole(req);
+  if (!ownerId) {
+    return res.status(401).json({ error: 'No autorizado o no hay owner_id asociado' });
   }
 
-  // Verificar disponibilidad de neveritas si se solicita una
-  if (neverita) {
-    const checkNevera = await verificarNeveritasDisponibles(check_in, check_out);
-    if (!checkNevera.disponible) {
-      const fechas = (checkNevera.fechasConSobrecupo || []).join(', ');
-      return res.status(400).json({
-        error: `No hay neveritas/minibares disponibles para las siguientes fechas: [${fechas}]. Capacidad máxima del hotel: 1.`
-      });
-    }
+  // Construir lista de servicios
+  const servicios: string[] = [];
+  if (cama_extra)      servicios.push('Cama Extra');
+  if (neverita)        servicios.push('Neverita');
+  if (plancha)         servicios.push('Plancha');
+  if (limpieza_diaria) servicios.push('Limpieza Diaria');
+
+  // Llamada atómica: valida disponibilidad + inserta reserva + inserta servicios
+  const { data: rpcResult, error: rpcError } = await db()
+    .rpc('fn_crear_reserva_completa', {
+      p_owner_id:      ownerId,
+      p_id_huesped:    id_huesped,
+      p_id_habitacion: id_habitacion,
+      p_check_in:      check_in,
+      p_check_out:     check_out,
+      p_adultos:       adultos  ?? 1,
+      p_ninos:         ninos    ?? 0,
+      p_estado:        estado   ?? 'confirmada',
+      p_total_reserva: total_reserva ?? 0,
+      p_moneda:        moneda   ?? 'HNL',
+      p_observaciones: observaciones ?? null,
+      p_estado_pago:   mapEstadoPago(estado_pago, es_cortesia ?? false, id_empresa ?? null),
+      p_anticipo:      anticipo ?? 0,
+      p_es_cortesia:   es_cortesia ?? false,
+      p_id_empresa:    id_empresa  ?? null,
+      p_tipo_reserva:  tipo_reserva ?? 'noche',
+      p_servicios:     servicios,
+    });
+
+  if (rpcError) {
+    const msg = rpcError.message ?? '';
+    const status = msg.includes('HABITACION_OCUPADA') || msg.includes('SERVICIO_NO_DISPONIBLE') ? 400 : 500;
+    return res.status(status).json({ error: msg });
   }
 
-  // Verificar disponibilidad de planchas si se solicita una
-  if (plancha) {
-    const checkPlancha = await verificarPlanchasDisponibles(check_in, check_out);
-    if (!checkPlancha.disponible) {
-      const fechas = (checkPlancha.fechasConSobrecupo || []).join(', ');
-      return res.status(400).json({
-        error: `No hay planchas de ropa disponibles para las siguientes fechas: [${fechas}]. Capacidad máxima del hotel: 8.`
-      });
-    }
-  }
-
-  // Obtener id_hotel y owner_id de la habitación
-  const { data: habitacion, error: habError } = await db()
-    .from('habitaciones')
-    .select('id_hotel, owner_id')
-    .eq('id_habitacion', id_habitacion)
-    .single();
-
-  if (habError || !habitacion?.id_hotel || !habitacion?.owner_id) {
-    return res.status(400).json({ error: 'Habitación no encontrada o no posee propietario asociado.' });
-  }
-
-  const { data, error } = await db()
-    .from('reservas_hotel')
-    .insert({
-      id_huesped,
-      id_habitacion,
-      id_hotel: habitacion.id_hotel,
-      owner_id: habitacion.owner_id,
-      check_in,
-      check_out,
-      adultos,
-      ninos,
-      estado: estado ?? 'confirmada',
-      total_reserva,
-      moneda,
-      observaciones,
-      estado_pago: mapEstadoPago(estado_pago, es_cortesia ?? false, id_empresa ?? null),
-      anticipo: anticipo ?? 0,
-      es_cortesia: es_cortesia ?? false,
-      id_empresa: id_empresa ?? null,
-      tipo_reserva: tipo_reserva ?? 'noche',
-    })
-    .select()
-    .single();
-
-  if (error) return res.status(500).json({ error: error.message });
-
-  // Guardar servicios adicionales contratados en la tabla intermedia
-  if (data && data.id_reserva_hotel) {
-    const servicesToInsert = [];
-    if (cama_extra) servicesToInsert.push({ name: 'Cama Extra' });
-    if (neverita) servicesToInsert.push({ name: 'Neverita' });
-    if (plancha) servicesToInsert.push({ name: 'Plancha' });
-    if (limpieza_diaria) servicesToInsert.push({ name: 'Limpieza Diaria' });
-
-    if (servicesToInsert.length > 0) {
-      const { data: dbServices } = await db()
-        .from('servicios_adicionales')
-        .select('id_servicio, nombre, precio_defecto')
-        .in('nombre', servicesToInsert.map(s => s.name));
-
-      if (dbServices && dbServices.length > 0) {
-        await db().from('reserva_servicios').insert(
-          dbServices.map(s => ({
-            id_reserva_hotel: data.id_reserva_hotel,
-            id_servicio: s.id_servicio,
-            cantidad: 1,
-            precio_unitario: s.precio_defecto,
-            owner_id: habitacion.owner_id
-          }))
-        );
-      }
-    }
-  }
+  const id_reserva_hotel: string = (rpcResult as any)?.id_reserva_hotel;
+  const id_hotel: string         = (rpcResult as any)?.id_hotel;
 
   const token = extractToken(req);
-  if (token && data?.id_reserva_hotel) {
+  if (token && id_reserva_hotel) {
     const { email } = getInfoFromToken(token);
-    if (email) patchAuditUser(data.id_reserva_hotel, email);
+    if (email) patchAuditUser(id_reserva_hotel, email);
   }
 
-  // Enviar correo de confirmación de forma asíncrona
-  if (data?.id_reserva_hotel) {
+  // Enviar correos de confirmación de forma asíncrona (no bloquea la respuesta)
+  if (id_reserva_hotel) {
     (async () => {
       try {
-        const { data: huesped } = await db()
-          .from('huespedes')
-          .select('nombre_completo, correo')
-          .eq('id_huesped', data.id_huesped)
-          .single();
+        const [{ data: huesped }, { data: hotel }, { data: habData }, { data: reservaData }] = await Promise.all([
+          db().from('huespedes').select('nombre_completo, correo').eq('id_huesped', id_huesped).single(),
+          db().from('hoteles').select('nombre_hotel, correo_contacto').eq('id_hotel', id_hotel).single(),
+          db().from('habitaciones').select('tipos_habitacion(nombre_tipo)').eq('id_habitacion', id_habitacion).single(),
+          db().from('reservas_hotel').select('check_in, check_out, total_reserva, moneda, adultos, ninos').eq('id_reserva_hotel', id_reserva_hotel).single(),
+        ]);
 
-        const { data: hotel } = await db()
-          .from('hoteles')
-          .select('nombre_hotel, correo_contacto')
-          .eq('id_hotel', habitacion.id_hotel)
-          .single();
-
-        const { data: habData } = await db()
-          .from('habitaciones')
-          .select('tipos_habitacion(nombre_tipo)')
-          .eq('id_habitacion', data.id_habitacion)
-          .single();
-
-        const services = [];
-        if (cama_extra) services.push('Cama Extra');
-        if (neverita) services.push('Neverita/Minibar');
-        if (plancha) services.push('Plancha de ropa');
-        if (limpieza_diaria) services.push('Limpieza Diaria');
-
-        if (hotel && hotel.nombre_hotel) {
+        if (hotel?.nombre_hotel && reservaData) {
           const emailData = {
-            guestName: huesped?.nombre_completo || 'Huésped Desconocido',
-            guestEmail: huesped?.correo || '',
-            bookingId: data.id_reserva_hotel,
-            checkIn: data.check_in,
-            checkOut: data.check_out,
-            totalAmount: data.total_reserva,
-            currency: data.moneda,
-            hotelName: hotel.nombre_hotel,
-            roomType: habData?.tipos_habitacion?.nombre_tipo || 'Habitación Estándar',
-            adults: data.adultos,
-            children: data.ninos,
-            services: services
+            guestName:   huesped?.nombre_completo || 'Huésped',
+            guestEmail:  huesped?.correo || '',
+            bookingId:   id_reserva_hotel,
+            checkIn:     reservaData.check_in,
+            checkOut:    reservaData.check_out,
+            totalAmount: reservaData.total_reserva,
+            currency:    reservaData.moneda,
+            hotelName:   hotel.nombre_hotel,
+            roomType:    (habData?.tipos_habitacion as any)?.nombre_tipo || 'Habitación',
+            adults:      reservaData.adultos,
+            children:    reservaData.ninos,
+            services:    servicios,
           };
-
-          // 1. Enviar correo al huésped
-          if (huesped && huesped.correo) {
-            await sendBookingConfirmation(emailData);
-          }
-
-          // 2. Enviar correo de notificación al hotel
-          if (hotel.correo_contacto) {
-            await sendHotelNotificationEmail(emailData, hotel.correo_contacto);
-          }
+          if (huesped?.correo) await sendBookingConfirmation(emailData);
+          if (hotel.correo_contacto) await sendHotelNotificationEmail(emailData, hotel.correo_contacto);
         }
       } catch (err) {
         console.error('Error enviando correo post-reserva:', err);
@@ -1038,8 +963,14 @@ router.post('/reservas', async (req, res) => {
     })();
   }
 
-  // El trigger automáticamente calculó estado_display
-  return res.status(201).json(data);
+  // Retornar el registro completo de la reserva creada
+  const { data: reservaCreada } = await db()
+    .from('reservas_hotel')
+    .select('*')
+    .eq('id_reserva_hotel', id_reserva_hotel)
+    .single();
+
+  return res.status(201).json(reservaCreada ?? rpcResult);
 });
 
 // PATCH /api/bookings/reservas/:id
@@ -1050,7 +981,7 @@ router.patch('/reservas/:id', async (req, res) => {
   // Obtener los datos existentes de la reserva
   const { data: reservaExistente } = await db()
     .from('reservas_hotel')
-    .select('check_in, check_out, estado, id_habitacion, owner_id, es_cortesia, id_empresa')
+    .select('check_in, check_out, estado, id_habitacion, es_cortesia, id_empresa')
     .eq('id_reserva_hotel', id)
     .single();
 
@@ -1186,7 +1117,6 @@ router.patch('/reservas/:id', async (req, res) => {
             id_servicio: s.id_servicio,
             cantidad: 1,
             precio_unitario: s.precio_defecto,
-            owner_id: (reservaExistente as any).owner_id
           }))
         );
       }
@@ -1205,73 +1135,30 @@ router.delete('/reservas/:id', async (req, res) => {
   const anularPagos = req.query.anularPagos === 'true';
 
   try {
-    // Si debe anular pagos, obtener primero la reserva y sus pagos
-    if (anularPagos) {
-      const { data: reserva } = await db()
-        .from('reservas_hotel')
-        .select('id_huesped, total_reserva')
-        .eq('id_reserva_hotel', id)
-        .single();
-
-      if (reserva) {
-        const { data: pagosActivos } = await db()
-          .from('pagos_hotel')
-          .select('monto')
-          .eq('id_reserva_hotel', id)
-          .neq('estado', 'anulado');
-
-        const totalPagado = (pagosActivos ?? []).reduce((s: number, p: { monto: number }) => s + p.monto, 0);
-
-        // Anular los pagos
-        if (totalPagado > 0) {
-          const token = extractToken(req);
-          const email = token ? getInfoFromToken(token).email : 'Desconocido';
-          const notasAnulacion = `Anulado por cancelación de reserva (Usuario: ${email})`;
-
-          const { data: pagosHotel } = await db()
-            .from('pagos_hotel')
-            .select('id_pago_hotel, notas')
-            .eq('id_reserva_hotel', id)
-            .neq('estado', 'anulado');
-
-          for (const p of pagosHotel ?? []) {
-            const nuevasNotas = p.notas ? `${p.notas}\n${notasAnulacion}` : notasAnulacion;
-            await db()
-              .from('pagos_hotel')
-              .update({ estado: 'anulado', notas: nuevasNotas })
-              .eq('id_pago_hotel', p.id_pago_hotel);
-          }
-
-          // Registrar el saldo en saldos_clientes para posterior crédito
-          const { error: saldoError } = await db()
-            .from('saldos_clientes')
-            .insert({
-              id_huesped: reserva.id_huesped,
-              monto: totalPagado,
-              descripcion: `Pago anulado por cancelación de reserva ${id}`,
-              tipo: 'credito',
-              fecha_creacion: new Date().toISOString(),
-            });
-          if (saldoError) console.error('Error registrando saldo:', saldoError);
-        }
-      }
-    }
-
-    // Usar token del usuario para que auth.uid() funcione en el trigger de auditoría
-    const { error } = await db()
-      .from('reservas_hotel')
-      .update({ estado: 'cancelada', estado_display: 'cancelada' })
-      .eq('id_reserva_hotel', id);
-
-    if (error) {
-      console.error('Error al cancelar reserva:', error.message, error.details, error.hint);
-      return res.status(500).json({ error: error.message });
-    }
+    const { ownerId } = await getOwnerIdAndRole(req);
+    if (!ownerId) return res.status(401).json({ error: 'No autorizado' });
 
     const token = extractToken(req);
-    if (token) { const { email } = getInfoFromToken(token); if (email) patchAuditUser(id, email); }
+    const emailUsuario = token ? getInfoFromToken(token).email : null;
 
-    return res.json({ success: true });
+    // Operación atómica: cancela reserva, anula pagos (opcional) y genera crédito
+    const { data: rpcResult, error: rpcError } = await db()
+      .rpc('fn_cancelar_reserva', {
+        p_id_reserva:   id,
+        p_owner_id:     ownerId,
+        p_anular_pagos: anularPagos,
+        p_email_usuario: emailUsuario ?? null,
+      });
+
+    if (rpcError) {
+      const msg = rpcError.message ?? '';
+      const status = msg.includes('RESERVA_YA_CANCELADA') ? 400 : 500;
+      return res.status(status).json({ error: msg });
+    }
+
+    if (token) { if (emailUsuario) patchAuditUser(id, emailUsuario); }
+
+    return res.json(rpcResult ?? { success: true });
   } catch (e) {
     console.error('Error en cancelación:', e instanceof Error ? e.message : e);
     return res.status(500).json({ error: e instanceof Error ? e.message : 'Error desconocido' });
@@ -1343,10 +1230,10 @@ router.get('/estado-cuenta/:id_huesped', async (req, res) => {
     // Nombre habitación
     const { data: hab } = await db()
       .from('habitaciones')
-      .select('nombre')
+      .select('nombre_habitacion')
       .eq('id_habitacion', r.id_habitacion)
       .single();
-    const nombreHab = hab?.nombre ?? `Hab. …${String(r.id_habitacion).slice(-4)}`;
+    const nombreHab = hab?.nombre_habitacion ?? `Hab. …${String(r.id_habitacion).slice(-4)}`;
 
     const { data: pagos } = await db()
       .from('pagos_hotel')
@@ -1441,7 +1328,7 @@ router.get('/saldos/reservas-pendientes/:id_huesped', async (req, res) => {
     if (pendiente > 0.01) {
       const { data: hab } = await db()
         .from('habitaciones')
-        .select('nombre')
+        .select('nombre_habitacion')
         .eq('id_habitacion', r.id_habitacion)
         .single();
 
@@ -1451,7 +1338,7 @@ router.get('/saldos/reservas-pendientes/:id_huesped', async (req, res) => {
         check_out: r.check_out,
         total_reserva: r.total_reserva,
         saldo_pendiente: pendiente,
-        habitacion: hab?.nombre ?? `Hab. …${String(r.id_habitacion).slice(-4)}`,
+        habitacion: hab?.nombre_habitacion ?? `Hab. …${String(r.id_habitacion).slice(-4)}`,
       });
     }
   }
@@ -1466,56 +1353,24 @@ router.post('/saldos/:id/aplicar', async (req, res) => {
 
   if (!id_reserva_hotel) return res.status(400).json({ error: 'id_reserva_hotel requerido' });
 
-  const { data: saldo, error: sErr } = await db()
-    .from('saldos_clientes')
-    .select('monto, aplicado')
-    .eq('id_saldo', id)
-    .single();
+  const { ownerId } = await getOwnerIdAndRole(req);
+  if (!ownerId) return res.status(401).json({ error: 'No autorizado' });
 
-  if (sErr || !saldo) return res.status(404).json({ error: 'Saldo no encontrado' });
-  if (saldo.aplicado) return res.status(400).json({ error: 'Este saldo ya fue aplicado' });
-
-  const { data: pagos } = await db()
-    .from('pagos_hotel')
-    .select('monto')
-    .eq('id_reserva_hotel', id_reserva_hotel)
-    .neq('estado', 'anulado');
-
-  const { data: reserva } = await db()
-    .from('reservas_hotel')
-    .select('total_reserva')
-    .eq('id_reserva_hotel', id_reserva_hotel)
-    .single();
-
-  const totalPagado = (pagos ?? []).reduce((s: number, p: { monto: number }) => s + p.monto, 0);
-  const pendiente = (reserva?.total_reserva ?? 0) - totalPagado;
-  const montoAplicar = Math.min(saldo.monto, pendiente > 0 ? pendiente : saldo.monto);
-
-  // Usar fecha local del servidor (toLocaleDateString evita la coma de toLocaleString)
-  const hoyServer = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
-
-  const { error: pagoErr } = await db()
-    .from('pagos_hotel')
-    .insert({
-      id_reserva_hotel,
-      monto: montoAplicar,
-      moneda: 'HNL', // Saldos siempre están en HNL
-      metodo_pago: 'transferencia',
-      fecha_pago: hoyServer,
-      estado: 'registrado',
-      notas: `Aplicado desde saldo de cliente (saldo ID: ${id})`,
+  // Operación atómica: valida saldo, crea pago, marca saldo como aplicado
+  const { data: rpcResult, error: rpcError } = await db()
+    .rpc('fn_aplicar_saldo_cliente', {
+      p_id_saldo:         id,
+      p_id_reserva_hotel: id_reserva_hotel,
+      p_owner_id:         ownerId,
     });
 
-  if (pagoErr) return res.status(500).json({ error: pagoErr.message });
+  if (rpcError) {
+    const msg = rpcError.message ?? '';
+    const status = msg.includes('SALDO_YA_APLICADO') || msg.includes('NO_ENCONTRADO') ? 400 : 500;
+    return res.status(status).json({ error: msg });
+  }
 
-  const { error: saldoErr } = await db()
-    .from('saldos_clientes')
-    .update({ aplicado: true, fecha_aplicacion: new Date().toISOString() })
-    .eq('id_saldo', id);
-
-  if (saldoErr) return res.status(500).json({ error: saldoErr.message });
-
-  return res.json({ success: true, monto_aplicado: montoAplicar, diferencia: saldo.monto - montoAplicar });
+  return res.json(rpcResult);
 });
 
 // PATCH /api/bookings/saldos/:id  (devolver / marcar aplicado manualmente)
@@ -1598,23 +1453,11 @@ router.post('/bloqueos/toggle', async (req, res) => {
       }
       return res.json({ success: true, action: 'removed', idsRemoved: idsAEliminar });
     } else {
-      // Obtener owner_id de la habitación
-      const { data: hab, error: habError } = await db()
-        .from('habitaciones')
-        .select('owner_id')
-        .eq('id_habitacion', id_habitacion)
-        .single();
-
-      if (habError || !hab?.owner_id) {
-        return res.status(400).json({ error: 'Habitación no encontrada o no posee propietario asociado.' });
-      }
-
       // No existe, crearlo
       const { data: creado, error: insertError } = await db()
         .from('bloqueos_habitacion')
         .insert({
           id_habitacion,
-          owner_id: hab.owner_id,
           fecha_inicio: fechaInicio,
           fecha_fin: fechaFin,
           motivo: motivo || 'Bloqueo rápido desde calendario'
@@ -1638,26 +1481,9 @@ router.post('/bloqueos', async (req, res) => {
     return res.status(400).json({ error: 'id_habitacion, fecha_inicio y fecha_fin son requeridos' });
   }
 
-  // Obtener owner_id de la habitación
-  const { data: hab, error: habError } = await db()
-    .from('habitaciones')
-    .select('owner_id')
-    .eq('id_habitacion', id_habitacion)
-    .single();
-
-  if (habError || !hab?.owner_id) {
-    return res.status(400).json({ error: 'Habitación no encontrada o no posee propietario asociado.' });
-  }
-
   const { data, error } = await db()
     .from('bloqueos_habitacion')
-    .insert({
-      id_habitacion,
-      owner_id: hab.owner_id,
-      fecha_inicio,
-      fecha_fin,
-      motivo: motivo || 'Bloqueo'
-    })
+    .insert({ id_habitacion, fecha_inicio, fecha_fin, motivo: motivo || 'Bloqueo' })
     .select();
 
   if (error) return res.status(500).json({ error: error.message });
@@ -1748,81 +1574,39 @@ router.get('/pagos', async (req, res) => {
 
 // POST /api/bookings/pagos
 router.post('/pagos', async (req, res) => {
-  const { id_reserva_hotel, monto, moneda, metodo_pago, referencia, estado, notas } = req.body;
+  const { id_reserva_hotel, monto, moneda, metodo_pago, referencia, notas } = req.body;
   if (!id_reserva_hotel || !monto || !metodo_pago) {
     return res.status(400).json({ error: 'Faltan campos requeridos: id_reserva_hotel, monto, metodo_pago' });
   }
 
-  // Obtener owner_id de la reserva asociada
-  const { data: reserva, error: resError } = await db()
-    .from('reservas_hotel')
-    .select('owner_id')
-    .eq('id_reserva_hotel', id_reserva_hotel)
-    .single();
+  const { ownerId } = await getOwnerIdAndRole(req);
+  if (!ownerId) return res.status(401).json({ error: 'No autorizado' });
 
-  if (resError || !reserva?.owner_id) {
-    return res.status(400).json({ error: 'Reserva no encontrada o no posee propietario asociado.' });
-  }
-  const owner_id = reserva.owner_id;
+  // Operación atómica: inserta pago + recalcula estado_pago + convierte moneda
+  const { data: rpcResult, error: rpcError } = await db()
+    .rpc('fn_registrar_pago', {
+      p_owner_id:         ownerId,
+      p_id_reserva_hotel: id_reserva_hotel,
+      p_monto:            Number(monto),
+      p_moneda:           moneda     ?? 'HNL',
+      p_metodo_pago:      metodo_pago,
+      p_referencia:       referencia ?? null,
+      p_notas:            notas      ?? null,
+      p_fecha_pago:       new Date().toLocaleDateString('en-CA'),
+    });
 
-  // Para registros nuevos, usar ALWAYS la fecha del servidor (toLocaleDateString evita la coma de toLocaleString)
-  const hoyServer = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
-  const { data: nuevoPago, error } = await db()
-    .from('pagos_hotel')
-    .insert({
-      id_reserva_hotel,
-      owner_id,
-      monto: Number(monto),
-      moneda: moneda ?? 'HNL',
-      monto_en_moneda_reserva: Number(monto),
-      metodo_pago,
-      referencia: referencia ?? null,
-      fecha_pago: hoyServer,
-      estado: estado ?? 'registrado',
-      notas: notas ?? null,
-    })
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-
-  // ── Actualizar estado_display de la reserva según total pagado ──
-  try {
-    const { data: reserva } = await db()
-      .from('reservas_hotel')
-      .select('total_reserva, estado, es_cortesia, id_empresa, estado_display')
-      .eq('id_reserva_hotel', id_reserva_hotel)
-      .single();
-
-    if (reserva && !reserva.es_cortesia && !['cancelada', 'no_show'].includes(reserva.estado)) {
-      const { data: pagosActivos } = await db()
-        .from('pagos_hotel')
-        .select('monto')
-        .eq('id_reserva_hotel', id_reserva_hotel)
-        .neq('estado', 'anulado');
-
-      const totalPagado = (pagosActivos ?? []).reduce((s: number, p: { monto: number }) => s + p.monto, 0);
-      const totalReserva = reserva.total_reserva ?? 0;
-
-      let nuevoDisplay: string | null = null;
-      if (totalPagado >= totalReserva - 0.01) {
-        nuevoDisplay = 'pagada';
-      } else if (totalPagado > 0) {
-        nuevoDisplay = reserva.id_empresa ? 'credito' : 'abonada';
-      }
-
-      // No tocar check_in / check_out aunque esté pagada (son estados operativos)
-      if (nuevoDisplay && !['check_in', 'check_out'].includes(reserva.estado)) {
-        await db()
-          .from('reservas_hotel')
-          .update({ estado_display: nuevoDisplay })
-          .eq('id_reserva_hotel', id_reserva_hotel);
-      }
-    }
-  } catch (e) {
-    console.error('Error en recalc estado_display:', e instanceof Error ? e.message : e);
+  if (rpcError) {
+    const status = rpcError.message?.includes('MONTO_INVALIDO') ? 400 : 500;
+    return res.status(status).json({ error: rpcError.message });
   }
 
-  return res.status(201).json(nuevoPago);
+  // Retornar el pago recién creado
+  const id_pago = (rpcResult as any)?.id_pago_hotel;
+  const { data: nuevoPago } = id_pago
+    ? await db().from('pagos_hotel').select('*').eq('id_pago_hotel', id_pago).single()
+    : { data: rpcResult };
+
+  return res.status(201).json(nuevoPago ?? rpcResult);
 });
 
 // POST /api/bookings/split
@@ -1860,87 +1644,30 @@ router.patch('/pagos/:id', async (req, res) => {
 // DELETE /api/bookings/pagos/:id  (anular)
 router.delete('/pagos/:id', async (req, res) => {
   const { id } = req.params;
-  const motivo = req.query.motivo || req.body.motivo || 'No especificado';
+  const motivo = (req.query.motivo as string) || req.body.motivo || undefined;
 
-  // Obtener el pago antes de anular para poder recalcular y registrar saldo
-  const { data: pagoAntes } = await db()
-    .from('pagos_hotel')
-    .select('id_reserva_hotel, monto, estado, notas')
-    .eq('id_pago_hotel', id)
-    .single();
-
-  if (pagoAntes?.estado === 'anulado') {
-    return res.status(400).json({ error: 'Este pago ya está anulado' });
-  }
+  const { ownerId } = await getOwnerIdAndRole(req);
+  if (!ownerId) return res.status(401).json({ error: 'No autorizado' });
 
   const token = extractToken(req);
-  const email = token ? getInfoFromToken(token).email : 'Desconocido';
-  const notasAnulacion = `Anulado por: ${email} (Motivo: ${motivo})`;
-  const nuevasNotas = pagoAntes?.notas ? `${pagoAntes.notas}\n${notasAnulacion}` : notasAnulacion;
+  const emailUsuario = token ? getInfoFromToken(token).email : null;
 
-  const { error } = await db()
-    .from('pagos_hotel')
-    .update({ estado: 'anulado', notas: nuevasNotas })
-    .eq('id_pago_hotel', id);
-  if (error) return res.status(500).json({ error: error.message });
+  // Operación atómica: anula pago + genera crédito + recalcula estado_pago
+  const { data: rpcResult, error: rpcError } = await db()
+    .rpc('fn_anular_pago', {
+      p_id_pago_hotel: id,
+      p_owner_id:      ownerId,
+      p_motivo:        motivo        ?? null,
+      p_email_usuario: emailUsuario  ?? null,
+    });
 
-  if (pagoAntes?.id_reserva_hotel) {
-    const reservaId = pagoAntes.id_reserva_hotel;
-    try {
-      const { data: reserva } = await db()
-        .from('reservas_hotel')
-        .select('total_reserva, estado, es_cortesia, id_empresa, id_huesped')
-        .eq('id_reserva_hotel', reservaId)
-        .single();
-
-      if (reserva) {
-        // ── Registrar saldo del cliente si la reserva NO está cancelada ──
-        // (si está cancelada ya se registró el saldo al cancelar)
-        if (!['cancelada', 'no_show'].includes(reserva.estado) && reserva.id_huesped) {
-          const { error: saldoErr } = await db()
-            .from('saldos_clientes')
-            .insert({
-              id_huesped: reserva.id_huesped,
-              monto: pagoAntes.monto,
-              descripcion: `Pago anulado manualmente (reserva ${reservaId.slice(-8)})`,
-              tipo: 'credito',
-              fecha_creacion: new Date().toISOString(),
-            });
-          if (saldoErr) console.error('Error registrando saldo tras anulación:', saldoErr);
-        }
-
-        // ── Recalcular estado_display ──
-        if (!reserva.es_cortesia && !['cancelada', 'no_show', 'check_in', 'check_out'].includes(reserva.estado)) {
-          const { data: pagosActivos } = await db()
-            .from('pagos_hotel')
-            .select('monto')
-            .eq('id_reserva_hotel', reservaId)
-            .neq('estado', 'anulado');
-
-          const totalPagado = (pagosActivos ?? []).reduce((s: number, p: { monto: number }) => s + p.monto, 0);
-          const totalReserva = reserva.total_reserva ?? 0;
-
-          let nuevoDisplay: string;
-          if (totalPagado >= totalReserva - 0.01) {
-            nuevoDisplay = 'pagada';
-          } else if (totalPagado > 0) {
-            nuevoDisplay = reserva.id_empresa ? 'credito' : 'abonada';
-          } else {
-            nuevoDisplay = reserva.id_empresa ? 'credito' : 'reservada';
-          }
-
-          await db()
-            .from('reservas_hotel')
-            .update({ estado_display: nuevoDisplay })
-            .eq('id_reserva_hotel', reservaId);
-        }
-      }
-    } catch (e) {
-      console.error('Error post-anulación:', e instanceof Error ? e.message : e);
-    }
+  if (rpcError) {
+    const msg = rpcError.message ?? '';
+    const status = msg.includes('PAGO_YA_ANULADO') || msg.includes('NO_ENCONTRADO') ? 400 : 500;
+    return res.status(status).json({ error: msg });
   }
 
-  return res.json({ success: true });
+  return res.json(rpcResult ?? { success: true });
 });
 
 // ─── KPIs Dashboard ────────────────────────────────────────────────────────────
@@ -2150,14 +1877,13 @@ router.post('/bulk-import', async (req, res) => {
   try {
     const { data: hotelData, error: hotelError } = await db()
       .from('hoteles')
-      .select('owner_id')
+      .select('id_hotel')
       .eq('id_hotel', hotelId)
       .single();
 
     if (hotelError || !hotelData) {
-      return res.status(400).json({ error: 'Hotel no encontrado o sin propietario.' });
+      return res.status(400).json({ error: 'Hotel no encontrado.' });
     }
-    const owner_id = hotelData.owner_id;
 
     const { reservas } = req.body;
     if (!reservas || !Array.isArray(reservas)) {
@@ -2184,7 +1910,7 @@ router.post('/bulk-import', async (req, res) => {
           const { data: newHuesped, error: newHuespedError } = await db()
             .from('huespedes')
             .insert({
-              owner_id: owner_id,
+              id_hotel: hotelId,
               nombre_completo: huespedNombre,
               correo: `importado-${Date.now()}-${Math.floor(Math.random() * 1000)}@hotel.local`,
               telefono: '',
@@ -2210,7 +1936,7 @@ router.post('/bulk-import', async (req, res) => {
           const { data: empresaData } = await db()
             .from('empresas')
             .select('id_empresa')
-            .eq('owner_id', owner_id)
+            .eq('id_hotel', hotelId as string)
             .ilike('nombre', empresaNombre)
             .limit(1)
             .single();
@@ -2221,7 +1947,7 @@ router.post('/bulk-import', async (req, res) => {
             const { data: newEmpresa, error: newEmpresaError } = await db()
               .from('empresas')
               .insert({
-                owner_id: owner_id,
+                id_hotel: hotelId,
                 nombre: empresaNombre,
                 rtn: '00000000000000',
                 contacto_telefono: '',
@@ -2243,7 +1969,6 @@ router.post('/bulk-import', async (req, res) => {
             id_habitacion: r.id_habitacion,
             id_huesped: id_huesped,
             id_empresa: final_id_empresa,
-            owner_id: owner_id,
             check_in: r.check_in,
             check_out: r.check_out,
             adultos: r.adultos || 1,
@@ -2270,7 +1995,6 @@ router.post('/bulk-import', async (req, res) => {
             const { error: pagoError } = await db()
               .from('pagos_hotel')
               .insert({
-                owner_id: owner_id,
                 id_reserva_hotel: newReserva.id_reserva_hotel,
                 monto: r.total_reserva,
                 metodo_pago: 'efectivo',
@@ -2301,23 +2025,33 @@ router.post('/bulk-import', async (req, res) => {
 
 export default router;
 
-async function getOwnerIdAndRole(req: express.Request): Promise<{ ownerId: string | null; role: string | null }> {
+async function getOwnerIdAndRole(req: express.Request): Promise<{ ownerId: string | null; role: string | null; hotelIds: string[] }> {
   try {
     const user = await getAuthUser(req);
-    if (!user) return { ownerId: null, role: null };
-    const { ownerIds } = await getOwnerHotelIdsForUser(user);
+    if (!user) return { ownerId: null, role: null, hotelIds: [] };
+
+    const { ownerIds, hotelIds } = await getOwnerHotelIdsForUser(user);
     const ownerId = ownerIds[0] || null;
+    if (!ownerId) return { ownerId: null, role: null, hotelIds: [] };
+
+    // Propietario directo: owners.id_owner = auth.uid()
+    if (ownerId === user.id) {
+      return { ownerId, role: 'PROPIETARIO', hotelIds };
+    }
+
+    // Staff: buscar rol en usuarios_roles (user_id, no usuario_id)
     const { data: roleRow } = await db()
       .from('usuarios_roles')
       .select('rol')
-      .eq('usuario_id', user.id)
+      .eq('user_id', user.id)
+      .eq('owner_id', ownerId)
       .eq('estado', 'activo')
       .limit(1)
       .maybeSingle();
-    return { ownerId, role: roleRow?.rol || null };
+    return { ownerId, role: roleRow?.rol || null, hotelIds };
   } catch (err) {
     console.error('Error resolving owner id and role:', err);
-    return { ownerId: null, role: null };
+    return { ownerId: null, role: null, hotelIds: [] };
   }
 }
 

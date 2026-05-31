@@ -52,7 +52,7 @@ export const Config: React.FC = () => {
 
   // Estados para multi-hotel
   const [hoteles, setHoteles] = useState<any[]>([]);
-  const [selectedHotelId, setSelectedHotelId] = useState(localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de');
+  const [selectedHotelId, setSelectedHotelId] = useState(localStorage.getItem('active_hotel_id') || '');
   const [showAddHotelForm, setShowAddHotelForm] = useState(false);
   const [newHotelName, setNewHotelName] = useState('');
   const [newHotelCity, setNewHotelCity] = useState('');
@@ -109,7 +109,7 @@ export const Config: React.FC = () => {
         console.error('Error loading hotels list:', hErr);
       }
 
-      const activeId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+      const activeId = localStorage.getItem('active_hotel_id') || '';
 
       // Cargar datos reales del backend
       const [configData, tiposData, amenidadesData] = await Promise.all([

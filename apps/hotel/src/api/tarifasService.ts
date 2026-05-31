@@ -1,7 +1,7 @@
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   const res = await fetch(`${API}${path}`, {
     ...options,
     headers: { 

@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 
 export interface UsuarioRol {
   id: string;
-  usuario_id: string;
+  user_id: string;
   id_hotel: string;
   email: string;
   rol: 'PROPIETARIO' | 'ADMIN' | 'RECEPCIONISTA' | 'MANTENIMIENTO' | 'CONTADOR';
@@ -12,7 +12,7 @@ export interface UsuarioRol {
 }
 
 export interface AsignarRolParams {
-  usuario_id: string;
+  user_id: string;
   id_hotel: string;
   rol: string;
   estado: string;
@@ -46,7 +46,7 @@ export const obtenerUsuarioRol = async (usuario_id: string): Promise<UsuarioRol 
     const { data, error } = await supabase
       .from('usuarios_roles_con_email')
       .select('*')
-      .eq('usuario_id', usuario_id)
+      .eq('user_id', usuario_id)
       .single();
 
     if (error) throw error;
@@ -69,8 +69,8 @@ export const asignarRol = async (params: AsignarRolParams): Promise<boolean> => 
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        usuario_id: params.usuario_id,
-        id_hotel: params.id_hotel || '00000000-0000-0000-0000-000000000000',
+        user_id: params.user_id,
+        id_hotel: params.id_hotel || null,
         rol: params.rol,
         estado: params.estado,
         email: params.email || '',
@@ -103,7 +103,7 @@ export const cambiarEstadoUsuario = async (
     const { error } = await supabase
       .from('usuarios_roles')
       .update({ estado, actualizado_en: new Date().toISOString() })
-      .eq('usuario_id', usuario_id)
+      .eq('user_id', usuario_id)
       .eq('id_hotel', id_hotel);
 
     if (error) throw error;
@@ -124,11 +124,10 @@ export const solicitarRegistro = async (
 ): Promise<boolean> => {
   try {
     const { error } = await supabase.from('usuarios_roles').insert({
-      usuario_id,
+      user_id: usuario_id,
       id_hotel,
       rol: 'RECEPCIONISTA',
-      estado: 'pendiente_aprobacion',
-      creado_en: new Date().toISOString(),
+      estado: 'pendiente',
     });
 
     if (error) throw error;

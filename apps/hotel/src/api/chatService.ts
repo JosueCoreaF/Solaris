@@ -58,7 +58,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   // Obtener token de Supabase — import estático, igual que el resto del proyecto
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
 
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,

@@ -13,11 +13,24 @@ const supabaseAdmin = createClient(
 );
 
 async function getUserFromToken(authHeader: string | undefined) {
-  if (!authHeader) return null;
-  const token = authHeader.replace('Bearer ', '');
-  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(authHeader.slice(7));
   if (error || !user) return null;
   return user;
+}
+
+async function resolveOwnerId(userId: string): Promise<string | null> {
+  // Propietario directo (owners.id_owner = auth.uid)
+  const { data: owner } = await supabaseAdmin
+    .from('owners').select('id_owner').eq('id_owner', userId).maybeSingle();
+  if (owner?.id_owner) return owner.id_owner;
+
+  // Staff (usuarios_roles.user_id)
+  const { data: role } = await supabaseAdmin
+    .from('usuarios_roles').select('owner_id')
+    .eq('user_id', userId).eq('estado', 'activo')
+    .not('owner_id', 'is', null).limit(1).maybeSingle();
+  return role?.owner_id ?? null;
 }
 
 // Map the UI plan id to Stripe Price ID (you should add these to your .env or DB)
@@ -35,18 +48,8 @@ router.post('/checkout', express.json(), async (req, res) => {
 
     const { plan_id, return_url } = req.body;
     
-    // Obtener owner asociado al usuario
-    const { data: roles } = await supabaseAdmin
-      .from('usuarios_roles')
-      .select('owner_id')
-      .eq('usuario_id', user.id)
-      .eq('estado', 'activo')
-      .not('owner_id', 'is', null);
-      
-    if (!roles || roles.length === 0) {
-       return res.status(400).json({ error: 'Perfil de propietario no encontrado.' });
-    }
-    const owner_id = roles[0].owner_id;
+    const owner_id = await resolveOwnerId(user.id);
+    if (!owner_id) return res.status(400).json({ error: 'Perfil de propietario no encontrado.' });
 
     // Si es plan básico, solo actualizamos DB
     if (plan_id === 'basico') {
@@ -100,24 +103,11 @@ router.get('/history', async (req, res) => {
     const user = await getUserFromToken(req.headers.authorization);
     if (!user) return res.status(401).json({ error: 'No autorizado' });
 
-    const { data: roles } = await supabaseAdmin
-      .from('usuarios_roles')
-      .select('owner_id')
-      .eq('usuario_id', user.id)
-      .eq('estado', 'activo');
+    const owner_id = await resolveOwnerId(user.id);
+    if (!owner_id) return res.status(400).json({ error: 'Owner no encontrado' });
 
-    const validRoles = roles?.filter(r => r.owner_id != null) || [];
-    if (validRoles.length === 0) return res.status(400).json({ error: 'Owner no encontrado' });
-    const owner_id = validRoles[0].owner_id;
-
-    const { data: history, error } = await supabaseAdmin
-      .from('historial_pagos')
-      .select('*')
-      .eq('owner_id', owner_id)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    res.json(history || []);
+    // historial_pagos no existe en el schema actual — retorna vacío
+    res.json([]);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -129,15 +119,8 @@ router.get('/status', async (req, res) => {
     const user = await getUserFromToken(req.headers.authorization);
     if (!user) return res.status(401).json({ error: 'No autorizado' });
 
-    const { data: roles, error: rolesErr } = await supabaseAdmin
-      .from('usuarios_roles')
-      .select('owner_id')
-      .eq('usuario_id', user.id)
-      .eq('estado', 'activo');
-
-    const validRoles = roles?.filter(r => r.owner_id != null) || [];
-    if (validRoles.length === 0) return res.status(400).json({ error: 'Perfil de propietario no encontrado.' });
-    const owner_id = validRoles[0].owner_id;
+    const owner_id = await resolveOwnerId(user.id);
+    if (!owner_id) return res.status(400).json({ error: 'Perfil de propietario no encontrado.' });
 
     // Obtener TODAS las suscripciones (para todos los módulos)
     const { data: suscripciones, error } = await supabaseAdmin
@@ -176,20 +159,8 @@ router.post('/portal', async (req, res) => {
     const user = await getUserFromToken(req.headers.authorization);
     if (!user) return res.status(401).json({ error: 'No autorizado' });
 
-    const { data: roles, error: rolesErr } = await supabaseAdmin
-      .from('usuarios_roles')
-      .select('owner_id')
-      .eq('usuario_id', user.id)
-      .eq('estado', 'activo')
-      .not('owner_id', 'is', null);
-
-    if (rolesErr) {
-      console.error('[Portal] Error fetching roles:', rolesErr);
-      return res.status(500).json({ error: 'Error interno obteniendo rol.' });
-    }
-
-    if (!roles || roles.length === 0) return res.status(400).json({ error: 'Perfil de propietario no encontrado en Portal.' });
-    const owner_id = roles[0].owner_id;
+    const owner_id = await resolveOwnerId(user.id);
+    if (!owner_id) return res.status(400).json({ error: 'Perfil de propietario no encontrado.' });
 
     const { data: suscripcion, error: subErr } = await supabaseAdmin
       .from('suscripciones_owner')
@@ -269,15 +240,8 @@ router.post('/upgrade', express.json(), async (req, res) => {
     const { plan_id, tipo_modulo = 'hotel' } = req.body;
     if (!plan_id) return res.status(400).json({ error: 'plan_id es requerido' });
 
-    const { data: roles } = await supabaseAdmin
-      .from('usuarios_roles')
-      .select('owner_id')
-      .eq('usuario_id', user.id)
-      .eq('estado', 'activo');
-
-    const validRoles = roles?.filter(r => r.owner_id != null) || [];
-    if (validRoles.length === 0) return res.status(400).json({ error: 'Owner no encontrado' });
-    const owner_id = validRoles[0].owner_id;
+    const owner_id = await resolveOwnerId(user.id);
+    if (!owner_id) return res.status(400).json({ error: 'Owner no encontrado' });
 
     // Obtener precio del plan para el historial
     const { data: planData } = await supabaseAdmin
@@ -337,14 +301,7 @@ router.post('/upgrade', express.json(), async (req, res) => {
     }
 
     if (!updateErr) {
-      // Registrar pago en el historial
-      await supabaseAdmin.from('historial_pagos').insert({
-        owner_id,
-        monto,
-        concepto: `Suscripción ${plan_id.toUpperCase()}`,
-        metodo_pago: 'tarjeta',
-        estado: 'completado'
-      });
+      // historial_pagos no existe en schema actual — omitido
     }
 
     if (updateErr) {
@@ -367,15 +324,8 @@ router.post('/addon', express.json(), async (req, res) => {
 
     const { tipo_modulo = 'hotel' } = req.body;
 
-    const { data: roles } = await supabaseAdmin
-      .from('usuarios_roles')
-      .select('owner_id')
-      .eq('usuario_id', user.id)
-      .eq('estado', 'activo');
-
-    const validRoles = roles?.filter(r => r.owner_id != null) || [];
-    if (validRoles.length === 0) return res.status(400).json({ error: 'Owner no encontrado' });
-    const owner_id = validRoles[0].owner_id;
+    const owner_id = await resolveOwnerId(user.id);
+    if (!owner_id) return res.status(400).json({ error: 'Owner no encontrado' });
 
     const { data: sub } = await supabaseAdmin
       .from('suscripciones_owner')
@@ -404,14 +354,7 @@ router.post('/addon', express.json(), async (req, res) => {
         });
     }
 
-    // Registrar pago
-    await supabaseAdmin.from('historial_pagos').insert({
-      owner_id,
-      monto: montoAddon,
-      concepto: `Cupo Extra - ${tipo_modulo.toUpperCase()}`,
-      metodo_pago: 'tarjeta',
-      estado: 'completado'
-    });
+    // historial_pagos no existe en schema actual — omitido
 
     res.json({ success: true, negocios_extra: currentExtras + 1 });
   } catch (err: any) {

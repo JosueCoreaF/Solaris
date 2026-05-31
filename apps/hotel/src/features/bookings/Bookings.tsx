@@ -211,7 +211,7 @@ export const Bookings: React.FC = () => {
     try {
       const rangeStart = toDateKey(addDays(viewMonth, -45));
       const rangeEnd = toDateKey(addDays(viewMonth, 45));
-      const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+      const activeHotelId = localStorage.getItem('active_hotel_id') || '';
       const [h, hab, hues, res, emps, bloq, configData] = await Promise.all([
         fetchHoteles(),
         fetchHabitaciones(),

@@ -1,72 +1,288 @@
 // ============================================================================
-// TIPOS Y MODELOS - Base de datos Hotel PMS
+// TIPOS Y MODELOS — alineados con database/schema.sql
 // ============================================================================
 
-export type HabitacionEstado = 'activo' | 'inactivo' | 'en_mantenimiento';
-export type EstadoReserva = 'pendiente' | 'confirmada' | 'cancelada' | 'completada';
-export type Moneda = 'USD' | 'HNL';
+// ── Enumeraciones ─────────────────────────────────────────────────────────────
 
-// Habitación
-export interface Habitacion {
-  id_habitacion: string;
-  id_hotel: string;
-  numero_habitacion: string;
-  tipo_habitacion: string;
-  estado: HabitacionEstado;
-  capacidad_personas: number;
-  precio_noche_usd: number;
-  precio_noche_hnl: number;
-  created_at: string;
-  updated_at: string;
+export type HabitacionEstado   = 'disponible' | 'ocupada' | 'mantenimiento' | 'bloqueada' | 'limpieza';
+export type EstadoReserva      = 'pendiente' | 'confirmada' | 'cancelada' | 'check_in' | 'check_out' | 'no_show';
+export type EstadoPago         = 'pagado' | 'cortesia' | 'credito' | 'deuda' | 'abonada';
+export type MetodoPago         = 'efectivo' | 'tarjeta' | 'transferencia' | 'deposito' | 'canje' | 'otro';
+export type Moneda             = 'USD' | 'HNL';
+export type TipoReserva        = 'noche' | 'hora' | 'pasadia';
+export type EstadoOwner        = 'activo' | 'inactivo' | 'suspendido';
+export type EstadoHotel        = 'activo' | 'inactivo' | 'mantenimiento';
+export type TipoModulo         = 'hotel' | 'gym' | 'restaurant' | 'store';
+export type RolUsuario         = 'PROPIETARIO' | 'ADMIN' | 'RECEPCIONISTA' | 'MANTENIMIENTO' | 'CONTADOR' | 'MESERO' | 'COCINA' | 'ENTRENADOR' | 'VENDEDOR';
+export type EstadoUsuarioRol   = 'activo' | 'inactivo' | 'suspendido' | 'pendiente_aprobacion';
+
+// ── Owner ─────────────────────────────────────────────────────────────────────
+
+export interface Owner {
+  id_owner:          string;
+  nombre_empresa:    string;
+  email_contacto:    string;
+  telefono_contacto?: string;
+  estado:            EstadoOwner;
+  created_at:        string;
+  updated_at:        string;
 }
 
-// Reserva
-export interface Reserva {
-  id_reserva: string;
-  id_habitacion: string;
-  id_huesped: string;
-  check_in: string;
-  check_out: string;
-  estado: EstadoReserva;
-  total_reserva: number;
-  moneda_pago: Moneda;
-  notas?: string;
-  created_at: string;
-  updated_at: string;
-}
+// ── Hotel ─────────────────────────────────────────────────────────────────────
 
-// Configuración Hotelera
-export interface ConfiguracionHotelera {
-  id_config: string;
-  id_hotel: string;
-  tipo_cambio_base: number;
-  moneda_base: Moneda;
-  nombre_hotel: string;
-  ciudad: string;
-  pais: string;
-  created_at: string;
-  updated_at: string;
-}
-
-// Hotel
 export interface Hotel {
-  id_hotel: string;
-  nombre: string;
-  ciudad: string;
-  pais: string;
-  estado: HabitacionEstado;
-  created_at: string;
-  updated_at: string;
+  id_hotel:           string;
+  owner_id:           string;
+  id_module:          string;
+  nombre_hotel:       string;
+  ciudad:             string;
+  direccion:          string;
+  telefono?:          string;
+  correo_contacto?:   string;
+  estrellas?:         number;
+  estado:             EstadoHotel;
+  enlace_google_maps?: string;
+  slug?:              string;
+  created_at:         string;
+  updated_at:         string;
 }
 
-// Pago
-export interface Pago {
-  id_pago: string;
-  id_reserva: string;
-  monto: number;
-  moneda: Moneda;
-  metodo_pago: string;
-  estado: string;
-  created_at: string;
-  updated_at: string;
+// ── Configuración Hotelera ────────────────────────────────────────────────────
+
+export interface ConfiguracionHotelera {
+  id_config:                  string;
+  owner_id:                   string;
+  id_hotel:                   string;
+  hora_check_in:              string;   // 'HH:MM:SS'
+  hora_check_out:             string;
+  moneda:                     Moneda;
+  moneda_alterna?:            string;
+  tipo_cambio_base?:          number;
+  tipo_cambio_actualizado_en?: string;
+  porcentaje_impuesto?:       number;
+  tasa_turistica?:            number;
+  descuento_tercera_edad?:    number;
+  edad_tercera_edad?:         number;
+  permite_sobreventa:         boolean;
+  auto_confirmar_pagos?:      boolean;
+  permitir_edicion_personal?: boolean;
+  horas_anticipacion_reserva?: number;
+  umbral_ocupacion?:          number;
+  orientacion_calendario?:    string;
+  nombre_red_hoteles?:        string;
+  ciudad_base?:               string;
+  created_at:                 string;
+  updated_at:                 string;
+}
+
+// ── Tipos de Habitación ───────────────────────────────────────────────────────
+
+export interface TipoHabitacion {
+  id_tipo_habitacion: string;
+  owner_id:           string;
+  nombre_tipo:        string;
+  descripcion?:       string;
+  capacidad_base?:    number;
+  estado?:            'activo' | 'inactivo';
+  created_at:         string;
+  updated_at:         string;
+}
+
+// ── Habitación ────────────────────────────────────────────────────────────────
+
+export interface Habitacion {
+  id_habitacion:       string;
+  owner_id:            string;
+  id_hotel:            string;
+  id_tipo_habitacion:  string;
+  id_tarifa_default?:  string;
+  codigo_habitacion:   string;
+  nombre_habitacion:   string;
+  nombre_alias?:       string;
+  piso?:               number;
+  capacidad:           number;
+  numero_camas:        number;
+  tarifa_noche:        number;
+  imagen_360?:         string;
+  estado:              HabitacionEstado;
+  created_at:          string;
+  updated_at:          string;
+  // Joins enriquecidos (vista habitaciones_con_detalles)
+  tipo?:               string;
+  comodidades?:        string[];
+  imagenes?:           string[];
+  hotel?:              string;
+}
+
+// ── Huésped ───────────────────────────────────────────────────────────────────
+
+export interface Huesped {
+  id_huesped:          string;
+  owner_id:            string;
+  nombre_completo:     string;
+  correo:              string;
+  telefono?:           string;
+  documento_identidad?: string;
+  rtn?:                string;
+  ciudad?:             string;
+  direccion?:          string;
+  fecha_registro:      string;
+  created_at:          string;
+  updated_at:          string;
+}
+
+// ── Empresa ───────────────────────────────────────────────────────────────────
+
+export interface Empresa {
+  id_empresa:        string;
+  owner_id:          string;
+  nombre:            string;
+  rtn:               string;
+  contacto_nombre?:  string;
+  contacto_telefono?: string;
+  contacto_correo?:  string;
+  direccion?:        string;
+  limite_credito:    number;
+  dias_credito:      number;
+  estado:            'activo' | 'inactivo' | 'suspendido';
+  notas?:            string;
+  created_at:        string;
+  updated_at:        string;
+}
+
+// ── Reserva ───────────────────────────────────────────────────────────────────
+
+export interface ReservaHotel {
+  id_reserva_hotel:  string;
+  owner_id:          string;
+  id_huesped:        string;
+  id_hotel:          string;
+  id_habitacion:     string;
+  id_empresa?:       string;
+  check_in:          string;
+  check_out:         string;
+  adultos:           number;
+  ninos:             number;
+  estado:            EstadoReserva;
+  estado_display?:   string;
+  tipo_reserva:      TipoReserva;
+  total_reserva:     number;
+  moneda:            Moneda;
+  estado_pago:       EstadoPago;
+  anticipo:          number;
+  es_cortesia:       boolean;
+  observaciones?:    string;
+  created_at:        string;
+  updated_at:        string;
+  // Joins
+  huesped?:          string;
+  habitacion?:       string;
+  hotel?:            string;
+  pagos?:            PagoHotel[];
+}
+
+// ── Pago ──────────────────────────────────────────────────────────────────────
+
+export interface PagoHotel {
+  id_pago_hotel:            string;
+  owner_id:                 string;
+  id_reserva_hotel:         string;
+  monto:                    number;
+  monto_en_moneda_reserva:  number;
+  metodo_pago:              MetodoPago;
+  referencia?:              string;
+  moneda:                   Moneda;
+  estado:                   'registrado' | 'aplicado' | 'anulado';
+  notas?:                   string;
+  fecha_pago:               string;
+  created_at:               string;
+  updated_at:               string;
+}
+
+// ── Servicio Adicional ────────────────────────────────────────────────────────
+
+export interface ServicioAdicional {
+  id_servicio:    string;
+  owner_id:       string;
+  nombre:         string;
+  descripcion?:   string;
+  precio_defecto: number;
+  activo:         boolean;
+  created_at:     string;
+}
+
+// ── Saldo Cliente ─────────────────────────────────────────────────────────────
+
+export interface SaldoCliente {
+  id_saldo:         string;
+  owner_id:         string;
+  id_huesped:       string;
+  monto:            number;
+  tipo:             'credito' | 'debito' | 'devolucion' | 'ajuste';
+  descripcion:      string;
+  aplicado:         boolean;
+  fecha_creacion:   string;
+  fecha_aplicacion?: string;
+  created_at:       string;
+  updated_at:       string;
+}
+
+// ── Bloqueo Habitación ────────────────────────────────────────────────────────
+
+export interface BloqueoHabitacion {
+  id_bloqueo:    string;
+  owner_id:      string;
+  id_habitacion: string;
+  fecha_inicio:  string;
+  fecha_fin:     string;
+  motivo:        string;
+  created_at:    string;
+  updated_at:    string;
+}
+
+// ── Factura ───────────────────────────────────────────────────────────────────
+
+export interface Factura {
+  id_factura:           string;
+  owner_id:             string;
+  id_hotel?:            string;
+  fecha:                string;
+  proveedor:            string;
+  no_factura?:          string;
+  rtn_proveedor?:       string;
+  tipo:                 'general' | 'caja_chica';
+  categoria_general_id?: number;
+  categoria_chica_id?:  number;
+  descripcion?:         string;
+  subtotal?:            number;
+  isv_15?:              number;
+  isv_18?:              number;
+  monto_total:          number;
+  imagen_url?:          string;
+  created_by?:          string;
+  created_at:           string;
+}
+
+// ── Usuario Rol ───────────────────────────────────────────────────────────────
+
+export interface UsuarioRol {
+  id:              string;
+  owner_id:        string;
+  usuario_id:      string;
+  id_module?:      string;
+  tipo_negocio?:   TipoModulo;
+  id_negocio?:     string;
+  id_hotel?:       string;
+  rol:             RolUsuario;
+  estado:          EstadoUsuarioRol;
+  creado_en:       string;
+  actualizado_en:  string;
+}
+
+// ── Respuesta API genérica ────────────────────────────────────────────────────
+
+export interface ApiResponse<T> {
+  data?:    T;
+  error?:   string;
+  message?: string;
 }

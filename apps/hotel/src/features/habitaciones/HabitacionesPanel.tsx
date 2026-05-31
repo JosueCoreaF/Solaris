@@ -22,7 +22,7 @@ interface Habitacion {
   tipo?: string;
   capacidad?: number;
   tarifa_noche?: number;
-  estado?: 'disponible' | 'ocupada' | 'mantenimiento' | 'fuera_servicio' | 'bloqueada' | 'limpieza';
+  estado?: 'disponible' | 'ocupada' | 'mantenimiento' | 'bloqueada' | 'limpieza';
   piso?: number;
   numero_camas?: number;
   imagen_360?: string | null;
@@ -35,25 +35,23 @@ type HabForm = Omit<Habitacion, 'id_habitacion' | 'hotel'> & {
   comodidades: string[];
 };
 
-const ESTADOS: Habitacion['estado'][] = ['disponible', 'ocupada', 'mantenimiento', 'fuera_servicio', 'bloqueada', 'limpieza'];
+const ESTADOS: Habitacion['estado'][] = ['disponible', 'ocupada', 'mantenimiento', 'bloqueada', 'limpieza'];
 const TIPOS = ['simple', 'doble', 'triple', 'Semidoble'];
 
-const ESTADO_LABELS: Record<Habitacion['estado'], string> = {
-  disponible: 'Disponible',
-  ocupada: 'Ocupada',
+const ESTADO_LABELS: Record<NonNullable<Habitacion['estado']>, string> = {
+  disponible:    'Disponible',
+  ocupada:       'Ocupada',
   mantenimiento: 'Mantenimiento',
-  fuera_servicio: 'Fuera de servicio',
-  bloqueada: 'Bloqueada',
-  limpieza: 'Limpieza',
+  bloqueada:     'Bloqueada',
+  limpieza:      'Limpieza',
 };
 
-const ESTADO_COLORS: Record<Habitacion['estado'], string> = {
-  disponible: '#22c55e',
-  ocupada: '#ef4444',
+const ESTADO_COLORS: Record<NonNullable<Habitacion['estado']>, string> = {
+  disponible:    '#22c55e',
+  ocupada:       '#ef4444',
   mantenimiento: '#f59e0b',
-  fuera_servicio: '#d97706',
-  bloqueada: '#6366f1',
-  limpieza: '#06b6d4',
+  bloqueada:     '#6366f1',
+  limpieza:      '#06b6d4',
 };
 
 const COMODIDADES_OPCIONES = [

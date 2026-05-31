@@ -111,7 +111,7 @@ export async function obtenerPreferenciasUsuario(): Promise<UserPreferences | nu
     const { data, error } = await supabase
       .from('preferencias_usuario')
       .select('tema, idioma, notificaciones_activas, login_automatico, recordar_dispositivo')
-      .eq('usuario_id', user.id)
+      .eq('user_id', user.id)
       .single();
 
     if (data) {
@@ -273,7 +273,7 @@ export async function obtenerMiActividad(limite: number = 50) {
     const { data, error } = await supabase
       .from('bitacora_actividad')
       .select('*')
-      .eq('usuario_id', user.id)
+      .eq('user_id', user.id)
       .order('timestamp', { ascending: false })
       .limit(limite);
 
@@ -341,7 +341,7 @@ export async function obtenerPermisosUsuario() {
     const { data, error } = await supabase
       .from('usuarios_roles')
       .select('rol')
-      .eq('usuario_id', user.id)
+      .eq('user_id', user.id)
       .single();
 
     if (error) {

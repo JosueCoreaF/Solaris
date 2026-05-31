@@ -10,7 +10,12 @@ router.get('/hotelera', async (req: Request, res: Response) => {
     if (!supabaseAdmin) {
       return res.status(500).json({ error: 'Supabase admin client not configured' });
     }
-    const hotelId = req.headers['x-hotel-id'] || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+    const hotelId = req.headers['x-hotel-id'];
+
+    // Sin hotel seleccionado → retorna null sin error (el frontend lo maneja)
+    if (!hotelId || hotelId === '') {
+      return res.json({ data: null });
+    }
 
     if (hotelId === 'all') {
       const { data, error } = await supabaseAdmin
@@ -53,24 +58,11 @@ router.get('/hotelera', async (req: Request, res: Response) => {
     }
 
     if (!data) {
-      // Obtener el owner_id del hotel
-      const { data: hotelData, error: hotelErr } = await supabaseAdmin
-        .from('hoteles')
-        .select('owner_id')
-        .eq('id_hotel', hotelId)
-        .single();
-      
-      if (hotelErr || !hotelData?.owner_id) {
-        return res.status(400).json({ error: 'El hotel especificado no tiene un propietario asociado o no existe.' });
-      }
-      const owner_id = hotelData.owner_id;
-
       // Si no existe configuración para este hotel, crear una con valores por defecto
       const { data: newConfig, error: insertError } = await supabaseAdmin
         .from('configuracion_hotelera')
         .insert([{
           id_hotel: hotelId,
-          owner_id,
           hora_check_in: '14:00:00',
           hora_check_out: '12:00:00',
           moneda: 'HNL',
@@ -125,7 +117,7 @@ router.get('/hotelera', async (req: Request, res: Response) => {
 router.put('/hotelera', async (req: Request, res: Response) => {
   try {
     const { moneda_principal, moneda_alterna, tipo_cambio_base, tasa_isv, tasa_turistica, nombre_red_hoteles } = req.body;
-    const hotelId = req.headers['x-hotel-id'] || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+    const hotelId = req.headers['x-hotel-id'];
 
     if (!moneda_principal || tipo_cambio_base === undefined) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -251,13 +243,15 @@ router.post('/tipos-habitacion', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    const hotelId = req.headers['x-hotel-id'] as string;
+    if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
+
     const { data, error } = await supabase
       .from('tipos_habitacion')
       .insert([{
-        owner_id,
+        id_hotel: hotelId,
         nombre_tipo: nombre,
         descripcion,
-        tarifa_base: parseFloat(precio_base),
         capacidad_base: 1,
         estado: 'activo',
       }])
@@ -341,7 +335,7 @@ router.put('/amenidades/:id', async (_req: Request, res: Response) => {
 router.put('/parametros-reserva', async (req: Request, res: Response) => {
   try {
     const { hora_checkin, hora_checkout } = req.body;
-    const hotelId = req.headers['x-hotel-id'] || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+    const hotelId = req.headers['x-hotel-id'];
 
     if (!supabaseAdmin) {
       return res.status(500).json({ error: 'Supabase admin client not configured' });
@@ -718,14 +712,17 @@ router.get('/hoteles', async (req: Request, res: Response) => {
       .select('*')
       .order('nombre_hotel', { ascending: true });
 
-    if (ownerIds.length > 0 && hotelIds.length > 0) {
-      const ownerIdsCsv = ownerIds.join(',');
-      const hotelIdsCsv = hotelIds.join(',');
-      query = query.or(`owner_id.in.(${ownerIdsCsv}),id_hotel.in.(${hotelIdsCsv})`);
-    } else if (ownerIds.length > 0) {
-      query = query.in('owner_id', ownerIds);
-    } else if (hotelIds.length > 0) {
+    if (hotelIds.length > 0) {
       query = query.in('id_hotel', hotelIds);
+    } else if (ownerIds.length > 0) {
+      // hoteles no tiene owner_id — filtrar via business_modules
+      const { data: mods } = await supabaseAdmin!
+        .from('business_modules')
+        .select('id_module')
+        .in('owner_id', ownerIds);
+      const moduleIds = (mods || []).map((m: any) => m.id_module);
+      if (moduleIds.length === 0) return res.json([]);
+      query = query.in('id_module', moduleIds);
     }
 
     const { data, error } = await query;
@@ -754,13 +751,32 @@ router.post('/hoteles', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'El nombre_hotel es obligatorio' });
     }
 
-    const { data, error } = await supabaseAdmin
+    // Buscar o crear business_module para este owner
+    const { data: existingMod } = await supabaseAdmin!
+      .from('business_modules')
+      .select('id_module')
+      .eq('owner_id', owner_id)
+      .eq('tipo_modulo', 'hotel')
+      .limit(1)
+      .maybeSingle();
+
+    let id_module = existingMod?.id_module;
+    if (!id_module) {
+      const { data: newMod } = await supabaseAdmin!
+        .from('business_modules')
+        .insert({ owner_id, tipo_modulo: 'hotel', nombre_modulo: nombre_hotel, estado: 'activo' })
+        .select('id_module')
+        .single();
+      id_module = newMod?.id_module;
+    }
+
+    const { data, error } = await supabaseAdmin!
       .from('hoteles')
       .insert([{
-        owner_id,
+        id_module,
         nombre_hotel,
-        ciudad: ciudad || null,
-        direccion: direccion || null,
+        ciudad: ciudad || 'Sin definir',
+        direccion: direccion || 'Sin definir',
         telefono: telefono || null,
         correo_contacto: correo_contacto || null,
         estrellas: estrellas ? Number(estrellas) : 3,

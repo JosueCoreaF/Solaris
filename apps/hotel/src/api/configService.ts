@@ -4,7 +4,7 @@ const API_BASE = 'http://localhost:4000/api/config';
 
 // Helper centralizado para inyectar token de autorización y cabecera de hotel activo
 async function fetchWithHotel(url: string, options?: RequestInit) {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   const token = (await supabase.auth.getSession()).data.session?.access_token || '';
   
   return fetch(url, {
