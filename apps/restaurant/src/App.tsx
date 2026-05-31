@@ -1,5 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
+import Dashboard from './components/Dashboard';
+
 
 const Welcome = () => (
   <main className="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center p-6">
@@ -19,6 +21,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Welcome />} />
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/dashboard" element={<Dashboard />} />
       </Routes>
     </Router>
   )
