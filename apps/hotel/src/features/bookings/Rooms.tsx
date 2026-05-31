@@ -50,7 +50,6 @@ type HabForm = Omit<Habitacion, 'id_habitacion' | 'hotel'> & {
 };
 
 const ESTADOS: Habitacion['estado'][] = ['disponible', 'ocupada', 'mantenimiento', 'fuera_servicio'];
-const TIPOS = ['simple', 'doble', 'triple', 'Semidoble',];
 
 const ESTADO_LABELS: Record<Habitacion['estado'], string> = {
   disponible: 'Disponible',
@@ -66,23 +65,12 @@ const ESTADO_COLORS: Record<Habitacion['estado'], string> = {
   fuera_servicio: '#ef4444',
 };
 
-const COMODIDADES_OPCIONES = [
-  { id: 'smart_tv', label: '📺 Smart TV' },
-  { id: 'wifi', label: '📶 Wi-Fi' },
-  { id: 'ac', label: '❄️ Aire Acondicionado (A/C)' },
-  { id: 'desayuno', label: '🍳 Desayuno de cortesía' },
-  { id: 'cama_extra', label: '🛏️ Se puede añadir cama extra (unipersonal)' },
-  { id: 'neverita', label: '🧊 Neverita / Minibar' },
-  { id: 'plancha', label: '💨 Plancha de ropa' },
-  { id: 'lavanderia', label: '🧺 Servicio de lavandería' },
-  { id: 'limpieza', label: '🧹 Limpieza diaria' }
-];
 
-function emptyForm(hotelId: string): HabForm {
+function emptyForm(hotelId: string, primerTipo = ''): HabForm {
   return {
     nombre_habitacion: '',
     nombre_alias: '',
-    tipo: 'doble',
+    tipo: primerTipo,
     capacidad: 2,
     tarifa_noche: 0,
     estado: 'disponible',
@@ -100,6 +88,8 @@ function emptyForm(hotelId: string): HabForm {
 export const Rooms: React.FC = () => {
   const [habitaciones, setHabitaciones] = useState<Habitacion[]>([]);
   const [hoteles, setHoteles] = useState<Hotel[]>([]);
+  const [tiposHabitacion, setTiposHabitacion] = useState<{ id: string; nombre: string }[]>([]);
+  const [amenidades, setAmenidades] = useState<{ id: string; nombre: string; icono: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -183,14 +173,18 @@ export const Rooms: React.FC = () => {
     try {
       const rangeStart = '2025-01-01';
       const rangeEnd = '2027-12-31';
-      const [habs, hots, bloq] = await Promise.all([
+      const [habs, hots, bloq, tipos, amenRes] = await Promise.all([
         apiFetch<Habitacion[]>('/bookings/habitaciones'),
         apiFetch<Hotel[]>('/bookings/hoteles'),
         apiFetch<any[]>(`/bookings/bloqueos?desde=${rangeStart}&hasta=${rangeEnd}`),
+        apiFetch<{ id: string; nombre: string }[]>('/config/tipos-habitacion'),
+        apiFetch<{ data: { id: string; nombre: string; icono: string }[] }>('/config/servicios'),
       ]);
       setHabitaciones(habs);
       setHoteles(hots);
       setBloqueos(bloq || []);
+      setTiposHabitacion(tipos || []);
+      setAmenidades((amenRes as any)?.data || (Array.isArray(amenRes) ? amenRes : []));
     } catch (e: any) {
       setError(e?.message ?? 'Error al cargar habitaciones');
     } finally {
@@ -234,7 +228,7 @@ export const Rooms: React.FC = () => {
     setEditando(null);
     const active = localStorage.getItem('active_hotel_id');
     const defaultHotelId = (active && active !== 'all') ? active : (hoteles[0]?.id_hotel ?? '');
-    setForm(emptyForm(defaultHotelId));
+    setForm(emptyForm(defaultHotelId, tiposHabitacion[0]?.nombre ?? ''));
     setModalOpen(true);
   }
 
@@ -243,7 +237,7 @@ export const Rooms: React.FC = () => {
     setForm({
       nombre_habitacion: h.nombre_habitacion,
       nombre_alias: h.nombre_alias ?? '',
-      tipo: h.tipo,
+      tipo: tiposHabitacion.find(t => t.nombre.toLowerCase() === (h.tipo ?? '').toLowerCase())?.nombre ?? h.tipo ?? '',
       capacidad: h.capacidad,
       tarifa_noche: h.tarifa_noche,
       estado: h.estado,
@@ -540,13 +534,17 @@ export const Rooms: React.FC = () => {
               {/* Tipo */}
               <label>
                 <div style={labelStyle}>Tipo</div>
-                <select
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                  value={form.tipo}
-                  onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}
-                >
-                  {TIPOS.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
-                </select>
+                {tiposHabitacion.length === 0 ? (
+                  <div style={{ fontSize: 12, color: '#f97316', padding: '8px 12px', background: '#fff7ed', borderRadius: 8, border: '1px solid #fed7aa' }}>No hay tipos creados. Crea uno primero en Configuración.</div>
+                ) : (
+                  <select
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                    value={form.tipo}
+                    onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}
+                  >
+                    {tiposHabitacion.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
+                  </select>
+                )}
               </label>
 
               {/* Estado */}
@@ -678,64 +676,43 @@ export const Rooms: React.FC = () => {
                 />
               </label>
 
-              {/* Comodidades */}
+              {/* Amenidades */}
               <div style={{ gridColumn: '1 / -1', marginTop: 10 }}>
-                <div style={labelStyle}>Comodidades / Servicios en Habitación</div>
+                <div style={labelStyle}>Servicios de la Habitación</div>
                 <p style={{ fontSize: 11, color: '#94a3b8', margin: '0 0 12px 0' }}>
-                  Selecciona los servicios y comodidades que incluye esta habitación. Se mostrarán con iconos premium en el portal de clientes.
+                  Selecciona los servicios que incluye esta habitación.
                 </p>
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                  gap: 10,
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: 12,
-                  padding: 16
-                }}>
-                  {COMODIDADES_OPCIONES.map(opc => {
-                    const checked = (form.comodidades || []).includes(opc.id);
-                    return (
-                      <label
-                        key={opc.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          cursor: 'pointer',
-                          padding: '8px 12px',
-                          background: checked ? '#ecfdf5' : '#fff',
-                          border: checked ? '1px solid #10b981' : '1px solid #e2e8f0',
-                          borderRadius: 8,
-                          transition: 'all 0.2s',
-                          fontSize: 13,
-                          fontWeight: checked ? 600 : 500,
-                          color: checked ? '#065f46' : '#334155',
-                          userSelect: 'none'
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={e => {
-                            if (e.target.checked) {
-                              setForm(f => ({ ...f, comodidades: [...(f.comodidades || []), opc.id] }));
-                            } else {
-                              setForm(f => ({ ...f, comodidades: (f.comodidades || []).filter(x => x !== opc.id) }));
-                            }
-                          }}
-                          style={{
-                            accentColor: '#10b981',
-                            cursor: 'pointer',
-                            width: 16,
-                            height: 16
-                          }}
-                        />
-                        <span>{opc.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
+                {amenidades.length === 0 ? (
+                  <div style={{ fontSize: 12, color: '#f97316', padding: '10px 14px', background: '#fff7ed', borderRadius: 8, border: '1px solid #fed7aa' }}>
+                    Sin servicios configurados. Agrégalos en <strong>Configuración &gt; Servicios</strong>.
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
+                    {amenidades.map(a => {
+                      const checked = (form.comodidades || []).includes(a.nombre);
+                      return (
+                        <label
+                          key={a.id}
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '8px 12px', background: checked ? '#ecfdf5' : '#fff', border: checked ? '1px solid #10b981' : '1px solid #e2e8f0', borderRadius: 8, transition: 'all 0.2s', fontSize: 13, fontWeight: checked ? 600 : 500, color: checked ? '#065f46' : '#334155', userSelect: 'none' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setForm(f => ({ ...f, comodidades: [...(f.comodidades || []), a.nombre] }));
+                              } else {
+                                setForm(f => ({ ...f, comodidades: (f.comodidades || []).filter(x => x !== a.nombre) }));
+                              }
+                            }}
+                            style={{ accentColor: '#10b981', cursor: 'pointer', width: 16, height: 16 }}
+                          />
+                          <span>{a.nombre}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 

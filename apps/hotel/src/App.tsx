@@ -10,7 +10,6 @@ import { Login } from './features/auth/Login';
 import { Register } from './features/auth/Register';
 import { Bookings } from './features/bookings/Bookings';
 import { HabitacionesPanel } from './features/habitaciones/HabitacionesPanel';
-import { Housekeeping } from './features/bookings/Housekeeping';
 import { Pagos } from './features/bookings/Pagos';
 import { Finance } from './features/finance/Finance';
 import { Config } from './features/admin/Config';
@@ -31,8 +30,8 @@ import apiClient from './services/api';
 export const App: React.FC = () => {
   useEffect(() => {
     apiClient.get('/health-check')
-      .then(res => console.log('🏥 [Health Check]:', res))
-      .catch(err => console.error('🏥 [Health Check Error]:', err));
+      .then(res => console.log('[Health Check]:', res))
+      .catch(err => console.error('[Health Check Error]:', err));
   }, []);
 
   return (
@@ -75,7 +74,6 @@ export const App: React.FC = () => {
                 <Route path="/perfil" element={<PerfilUsuario />} />
                 <Route path="/reservas" element={<Bookings />} />
                 <Route path="/habitaciones" element={<HabitacionesPanel />} />
-                <Route path="/limpieza" element={<Housekeeping />} />
                 <Route path="/pagos" element={<Pagos />} />
                 <Route path="/estado-cuenta" element={<EstadoCuenta />} />
                 <Route path="/clientes" element={<Clients />} />

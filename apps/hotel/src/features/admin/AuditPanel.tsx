@@ -223,7 +223,7 @@ export const AuditPanel: React.FC = () => {
               {/* Usuario y fecha en una sola fila destacada */}
               <div className="flex items-center gap-3 text-sm mb-2">
                 <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-full">
-                  <span className="text-base">👤</span>
+                  <span className="text-base">·</span>
                   <span className="font-semibold text-indigo-800">{usuario}</span>
                   {log.usuario_email && (
                     <span className="text-indigo-500 text-xs">{log.usuario_email}</span>
@@ -241,7 +241,7 @@ export const AuditPanel: React.FC = () => {
 
               {log.notas && (
                 <div className="text-sm text-gray-600 mt-1.5 italic">
-                  📌 {log.notas}
+                  {log.notas}
                 </div>
               )}
             </div>
@@ -257,7 +257,7 @@ export const AuditPanel: React.FC = () => {
           <div className="bg-gray-50 p-4 border-t border-gray-200 space-y-4">
             {/* Quién hizo el cambio */}
             <div className="p-3 bg-white rounded-lg border border-indigo-100">
-              <h4 className="font-semibold text-sm text-gray-700 mb-2">👤 Realizó el cambio</h4>
+              <h4 className="font-semibold text-sm text-gray-700 mb-2">Realizó el cambio</h4>
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div>
                   <span className="text-gray-500 text-xs">Usuario</span>
@@ -284,7 +284,7 @@ export const AuditPanel: React.FC = () => {
             {(log.datos_anteriores || log.datos_nuevos) && (
               <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
                 <div className="px-3 py-2 bg-gray-100 border-b border-gray-200">
-                  <h4 className="font-semibold text-sm text-gray-700">📋 Detalle de Cambios</h4>
+                  <h4 className="font-semibold text-sm text-gray-700">Detalle de Cambios</h4>
                 </div>
                 <div className="p-3">
                   {renderCambiosTabla(
@@ -343,7 +343,7 @@ export const AuditPanel: React.FC = () => {
   return (
     <div className="p-6 bg-white rounded-lg">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">🔍 Auditoría Exhaustiva</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Auditoría Exhaustiva</h1>
         <p className="text-gray-600">
           Rastreo detallado de todas las acciones en el sistema. Solo accesible por PROPIETARIO.
         </p>
@@ -424,7 +424,7 @@ export const AuditPanel: React.FC = () => {
         {/* Búsqueda */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            🔎 Búsqueda (mínimo 3 caracteres)
+            Búsqueda (mínimo 3 caracteres)
           </label>
           <input
             type="text"
@@ -524,7 +524,7 @@ export const AuditPanel: React.FC = () => {
           </div>
         ) : logs.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
-            📭 No hay registros de auditoría con los filtros seleccionados
+            Sin registros de auditoría con los filtros seleccionados
           </div>
         ) : (
           <>

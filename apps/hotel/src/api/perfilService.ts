@@ -126,7 +126,7 @@ export async function obtenerPreferenciasUsuario(): Promise<UserPreferences | nu
       if (localPrefs) {
         try {
           const parsed = JSON.parse(localPrefs);
-          console.log('✅ Preferencias cargadas desde localStorage:', parsed);
+          console.log('Preferencias cargadas desde localStorage:', parsed);
           return {
             tema: parsed.tema || 'claro',
             idioma: parsed.idioma || 'es',
@@ -172,7 +172,7 @@ export async function guardarPreferenciasUsuario(preferencias: Partial<UserPrefe
     };
     
     localStorage.setItem('userPreferences', JSON.stringify(prefsToSave));
-    console.log('✅ Preferencias guardadas en localStorage:', prefsToSave);
+    console.log('Preferencias guardadas en localStorage:', prefsToSave);
 
     // Si recordar_dispositivo está habilitado, guardar la cuenta
     if (preferencias.recordar_dispositivo) {
@@ -201,7 +201,7 @@ export async function guardarPreferenciasUsuario(preferencias: Partial<UserPrefe
         .select();
 
       if (!bdError) {
-        console.log('✅ Preferencias también guardadas en BD');
+        console.log('Preferencias también guardadas en BD');
       }
     } catch (bdError) {
       console.warn('BD no disponible (tabla no existe aún), usando localStorage:', bdError);
@@ -219,15 +219,15 @@ export async function guardarPreferenciasUsuario(preferencias: Partial<UserPrefe
           email: user.email,
         };
         localStorage.setItem('autoLoginSession', JSON.stringify(autoLoginData));
-        console.log('✅ Login automático habilitado - Credenciales guardadas');
+        console.log('Login automático habilitado - Credenciales guardadas');
       }
     } else {
       // Eliminar credenciales guardadas si se deshabilita
       localStorage.removeItem('autoLoginSession');
-      console.log('🔓 Login automático deshabilitado');
+      console.log('Login automático deshabilitado');
     }
 
-    return { success: true, message: '✅ Preferencias guardadas correctamente' };
+    return { success: true, message: 'Preferencias guardadas correctamente' };
   } catch (error) {
     console.error('Error saving preferences:', error);
     throw error;
@@ -385,7 +385,7 @@ export function guardarCuentaRecordada(account: SavedAccount) {
     }
     
     localStorage.setItem('savedAccounts', JSON.stringify(savedAccounts));
-    console.log('✅ Cuenta recordada:', account.email);
+    console.log('Cuenta recordada:', account.email);
   } catch (error) {
     console.error('Error saving account:', error);
   }
@@ -397,7 +397,7 @@ export function eliminarCuentaRecordada(email: string) {
     const savedAccounts = obtenerCuentasRecordadas();
     const filtered = savedAccounts.filter(a => a.email !== email);
     localStorage.setItem('savedAccounts', JSON.stringify(filtered));
-    console.log('✅ Cuenta eliminada:', email);
+    console.log('Cuenta eliminada:', email);
   } catch (error) {
     console.error('Error deleting account:', error);
   }

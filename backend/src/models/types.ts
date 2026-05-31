@@ -220,11 +220,10 @@ export interface SaldoCliente {
   monto:            number;
   tipo:             'credito' | 'debito' | 'devolucion' | 'ajuste';
   descripcion:      string;
-  aplicado:         boolean;
-  fecha_creacion:   string;
+  aplicado:          boolean;
   fecha_aplicacion?: string;
-  created_at:       string;
-  updated_at:       string;
+  created_at:        string;
+  updated_at:        string;
 }
 
 // ── Bloqueo Habitación ────────────────────────────────────────────────────────

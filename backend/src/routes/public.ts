@@ -7,7 +7,8 @@ import { sendBookingConfirmation, sendHotelNotificationEmail } from '../utils/em
 const router = Router();
 const db = () => supabaseAdmin ?? supabase;
 
-const isMultiTenant = process.env.SUPABASE_URL?.includes('yefaoqzyjfqpwrnzgofb') || false;
+// isMultiTenant no usado — schema actual usa id_hotel, no owner_id
+const isMultiTenant = false;
 
 async function getOwnerId(hotelId?: any): Promise<string> {
   if (!isMultiTenant) return '';
@@ -203,66 +204,7 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Faltan campos requeridos.' });
     }
 
-    // Resolver owner_id (requerido NOT NULL en huespedes y reservas_hotel)
-    const owner_id = await getOwnerId();
-
-    // 1. Obtener o crear huésped por DNI/Documento o Correo
-    const dniUpper = dni ? dni.trim().toUpperCase() : null;
-    const nombreUpper = nombre.trim().toUpperCase();
-    const correoFinal = correo?.trim() ? correo.trim().toLowerCase() : `WEB-${Date.now()}@PARTNERCENTRAL.LOCAL`;
-    const telefonoFinal = telefono?.trim() || null;
-    
-    let huespedId: string;
-    let huespedExistente: any = null;
-
-    if (dniUpper) {
-      const { data } = await db()
-        .from('huespedes')
-        .select('id_huesped, nombre_completo, correo, telefono')
-        .eq('documento_identidad', dniUpper)
-        .maybeSingle();
-      huespedExistente = data;
-    }
-
-    if (!huespedExistente && correoFinal && !correoFinal.startsWith('WEB-')) {
-      const { data } = await db()
-        .from('huespedes')
-        .select('id_huesped, nombre_completo, correo, telefono')
-        .eq('correo', correoFinal)
-        .maybeSingle();
-      huespedExistente = data;
-    }
-
-    if (huespedExistente) {
-      huespedId = huespedExistente.id_huesped;
-      // Actualizar datos de contacto y asegurar mayúsculas en nombre y DNI
-      await db()
-        .from('huespedes')
-        .update({
-          nombre_completo: nombreUpper,
-          telefono: telefonoFinal || huespedExistente.telefono,
-          documento_identidad: dniUpper || huespedExistente.documento_identidad || null,
-          correo: correoFinal || huespedExistente.correo
-        })
-        .eq('id_huesped', huespedId);
-    } else {
-      const { data: nuevoHuesped, error: errHuesped } = await db()
-        .from('huespedes')
-        .insert({
-          ...(isMultiTenant && owner_id ? { owner_id } : {}),
-          nombre_completo: nombreUpper,
-          documento_identidad: dniUpper || null,
-          correo: correoFinal,
-          telefono: telefonoFinal,
-        })
-        .select('id_huesped')
-        .single();
-
-      if (errHuesped) throw errHuesped;
-      huespedId = nuevoHuesped.id_huesped;
-    }
-
-    // 2. Obtener tarifa de la habitación desde la vista (tiene nombre_alias)
+    // 1. Obtener habitación primero (necesitamos id_hotel para crear huésped)
     const { data: habitacion, error: habErr } = await db()
       .from('habitaciones_con_detalles')
       .select('id_hotel, tarifa_noche, nombre_habitacion, nombre_alias')
@@ -310,6 +252,51 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
       }
     }
 
+    // 2. Obtener o crear huésped
+    const dniUpper = dni ? dni.trim().toUpperCase() : null;
+    const nombreUpper = nombre.trim().toUpperCase();
+    const correoFinal = correo?.trim() ? correo.trim().toLowerCase() : `WEB-${Date.now()}@PARTNERCENTRAL.LOCAL`;
+    const telefonoFinal = telefono?.trim() || null;
+
+    let huespedId: string;
+    let huespedExistente: any = null;
+
+    if (dniUpper) {
+      const { data } = await db().from('huespedes')
+        .select('id_huesped, nombre_completo, correo, telefono')
+        .eq('documento_identidad', dniUpper).maybeSingle();
+      huespedExistente = data;
+    }
+    if (!huespedExistente && correoFinal && !correoFinal.startsWith('WEB-')) {
+      const { data } = await db().from('huespedes')
+        .select('id_huesped, nombre_completo, correo, telefono')
+        .eq('correo', correoFinal).maybeSingle();
+      huespedExistente = data;
+    }
+
+    if (huespedExistente) {
+      huespedId = huespedExistente.id_huesped;
+      await db().from('huespedes').update({
+        nombre_completo: nombreUpper,
+        telefono: telefonoFinal || huespedExistente.telefono,
+        documento_identidad: dniUpper || huespedExistente.documento_identidad || null,
+        correo: correoFinal || huespedExistente.correo
+      }).eq('id_huesped', huespedId);
+    } else {
+      const { data: nuevoHuesped, error: errHuesped } = await db()
+        .from('huespedes')
+        .insert({
+          id_hotel: habitacion.id_hotel,
+          nombre_completo: nombreUpper,
+          documento_identidad: dniUpper || null,
+          correo: correoFinal,
+          telefono: telefonoFinal,
+        })
+        .select('id_huesped').single();
+      if (errHuesped) throw errHuesped;
+      huespedId = nuevoHuesped.id_huesped;
+    }
+
     // Calcular noches
     const ci = new Date(checkIn);
     const co = new Date(checkOut);
@@ -321,7 +308,6 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
     const { data: nuevaReserva, error: reservaErr } = await db()
       .from('reservas_hotel')
       .insert({
-        ...(isMultiTenant && owner_id ? { owner_id } : {}),
         id_huesped: huespedId,
         id_habitacion: habitacionId,
         id_hotel: habitacion.id_hotel,
@@ -331,7 +317,7 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
         ninos,
         estado: 'pendiente',
         total_reserva: totalEstimado,
-        moneda: 'USD',
+        moneda: 'HNL',
         observaciones: observaciones ? `[WEB] ${observaciones}` : '[WEB] Solicitud desde el Portal B2C',
         estado_pago: 'deuda', // pendiente de pago — reserva web
         anticipo: 0,
@@ -397,9 +383,9 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
               checkIn: checkIn,
               checkOut: checkOut,
               totalAmount: totalEstimado,
-              currency: 'USD',
+              currency: 'HNL',
               hotelName: hotel.nombre_hotel,
-              roomType: habitacion.tipos_habitacion?.nombre_tipo || 'Habitación Estándar',
+              roomType: (habitacion as any).tipo || 'Habitación Estándar',
               adults: adultos,
               children: ninos,
               services: [
@@ -436,11 +422,20 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
 // POST /api/public/chat/init
 router.post('/chat/init', async (req: Request, res: Response) => {
   try {
-    const { nombre, correo, telefono } = req.body;
-    
+    const { nombre, correo, telefono, hotel_id } = req.body;
+
     if (!nombre) {
       return res.status(400).json({ error: 'Nombre es requerido' });
     }
+
+    // Resolver id_hotel — requerido por el schema
+    let chatHotelId: string = hotel_id || (req.headers['x-hotel-id'] as string) || '';
+    if (!chatHotelId) {
+      const { data: firstHotel } = await supabaseAdmin
+        .from('hoteles').select('id_hotel').eq('estado', 'activo').limit(1).maybeSingle();
+      chatHotelId = firstHotel?.id_hotel || '';
+    }
+    if (!chatHotelId) return res.status(400).json({ error: 'hotel_id requerido' });
 
     const identifier = correo?.trim() || telefono?.trim() || `anon-${Date.now()}`;
     const channelName = `Cliente: ${nombre.split(' ')[0]}`;
@@ -462,6 +457,7 @@ router.post('/chat/init', async (req: Request, res: Response) => {
       const { data: nuevoHuesped } = await supabaseAdmin
         .from('huespedes')
         .insert({
+          id_hotel: chatHotelId,
           nombre_completo: nombre.trim().toUpperCase(),
           correo: correo?.trim() ? correo.trim().toLowerCase() : `CHAT-ANON-${Date.now()}@PARTNERCENTRAL.LOCAL`,
           telefono: telefono?.trim() || null
@@ -482,7 +478,7 @@ router.post('/chat/init', async (req: Request, res: Response) => {
       .order('created_at', { ascending: false });
 
     // Filtrar por metadata (si usamos JSONB, esto es más robusto en memoria para este caso simple)
-    let channel = existingChannels?.find((c: any) => 
+    let channel = existingChannels?.find((c: any) =>
       c.metadata?.email === correo || c.metadata?.phone === telefono || c.metadata?.identifier === identifier
     );
 
@@ -502,9 +498,10 @@ router.post('/chat/init', async (req: Request, res: Response) => {
 
       // Crear nuevo canal
       const insertData: Record<string, any> = {
+        id_hotel: chatHotelId,
         name: channelName,
         channel_type: 'cliente',
-        created_by: 'portal-web',
+        created_by: huespedId || 'portal-web',
         id_huesped: huespedId,
         metadata: {
           email: correo,
@@ -513,7 +510,6 @@ router.post('/chat/init', async (req: Request, res: Response) => {
           source: 'Portal B2C'
         }
       };
-      if (isMultiTenant && owner_id) insertData.owner_id = owner_id;
 
       const { data: newChannel, error: insertErr } = await supabaseAdmin
         .from('chat_channels')
@@ -532,9 +528,9 @@ router.post('/chat/init', async (req: Request, res: Response) => {
       }
     }
 
-    return res.json({ 
-      success: true, 
-      channelId: channel.id, 
+    return res.json({
+      success: true,
+      channelId: channel.id,
       guestId: channel.metadata?.identifier || identifier,
       messages
     });
@@ -549,7 +545,7 @@ router.get('/chat/messages/:channelId', async (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
     const { after } = req.query; // message_id para paginar (opcional en UI actual, pero lo dejamos listo)
-    
+
     // Obtener los últimos 50 mensajes de este canal
     let query = supabaseAdmin
       .from('chat_messages')
@@ -558,7 +554,7 @@ router.get('/chat/messages/:channelId', async (req: Request, res: Response) => {
       .eq('is_deleted', false)
       .order('created_at', { ascending: false })
       .limit(50);
-      
+
     if (after) {
       // Como el portal envía el timestamp de creación en 'after', filtramos por created_at > after
       query = query.gt('created_at', after);
@@ -579,7 +575,7 @@ router.get('/chat/messages/:channelId', async (req: Request, res: Response) => {
 router.post('/chat/send', async (req: Request, res: Response) => {
   try {
     const { channelId, guestId, nombre, content } = req.body;
-    
+
     if (!channelId || !content) {
       return res.status(400).json({ error: 'Faltan campos requeridos' });
     }
@@ -626,7 +622,7 @@ router.post('/chat/send', async (req: Request, res: Response) => {
         .select('metadata')
         .eq('id', channelId)
         .maybeSingle();
-      
+
       if (channelForBot && channelForBot.metadata?.bot_disabled) {
         await supabaseAdmin
           .from('chat_channels')
@@ -642,14 +638,14 @@ router.post('/chat/send', async (req: Request, res: Response) => {
 
     // Disparar procesamiento del chatbot en segundo plano
     void handleBotResponse(channelId, content);
- 
+
     return res.status(201).json({ success: true, message: messageData });
   } catch (error: any) {
     console.error('Error en /chat/send:', error);
     return res.status(500).json({ error: error.message || 'Error interno' });
   }
 });
- 
+
 // Función en segundo plano para procesar y responder con el chatbot
 async function handleBotResponse(channelId: string, content: string) {
   try {
@@ -690,7 +686,7 @@ async function handleBotResponse(channelId: string, content: string) {
 
       // Enviar mensaje de confirmación del bot
       const botResponse = "Entendido. He notificado a recepción y te he conectado con un agente humano. En un momento te asistiremos. 📞";
-      
+
       // Resolver owner_id para el mensaje del bot
       let botOwnerId: string | null = null;
       if (isMultiTenant) {
@@ -740,7 +736,7 @@ async function handleBotResponse(channelId: string, content: string) {
       let query = supabaseAdmin.from('huespedes').select('id_huesped').limit(1);
       if (channel.metadata?.email) query = query.eq('correo', channel.metadata.email);
       else if (channel.metadata?.phone) query = query.eq('telefono', channel.metadata.phone);
-      
+
       const { data: g } = await query.single();
       if (g) dbGuestId = g.id_huesped;
     }
@@ -764,11 +760,11 @@ async function handleBotResponse(channelId: string, content: string) {
     // Construir contexto del hotel
     const hotelContext = hotelData
       ? {
-          nombre: hotelData.nombre_hotel,
-          ciudad: hotelData.ciudad,
-          telefono: hotelData.telefono,
-          email: hotelData.correo_contacto,
-        }
+        nombre: hotelData.nombre_hotel,
+        ciudad: hotelData.ciudad,
+        telefono: hotelData.telefono,
+        email: hotelData.correo_contacto,
+      }
       : null;
 
     // Obtener catálogo de habitaciones para contexto seguro del bot público
@@ -789,7 +785,7 @@ async function handleBotResponse(channelId: string, content: string) {
       .eq('channel_id', channelId)
       .order('created_at', { ascending: false })
       .limit(10);
-      
+
     const formattedHistory = (history || []).reverse().map(msg => ({
       role: msg.sender_id.startsWith('bot') ? 'model' : 'user',
       parts: [{ text: msg.content }]
@@ -905,7 +901,7 @@ router.get('/disponibilidad', async (req: Request, res: Response) => {
       .from('habitaciones_con_detalles')
       .select('id_habitacion, id_hotel, nombre_habitacion, nombre_alias, tipo, tarifa_noche, numero_camas, capacidad, imagenes, imagen_360, comodidades')
       .eq('estado', 'disponible');
-    
+
     if (roomsError) throw roomsError;
 
     let availableRooms = rooms || [];

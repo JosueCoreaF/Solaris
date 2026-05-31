@@ -99,3 +99,34 @@ export async function eliminarTarifa(id: string): Promise<{ success: boolean }> 
     method: 'DELETE',
   });
 }
+
+export async function crearCategoria(data: {
+  nombre: string;
+  descripcion?: string;
+  activa?: boolean;
+}): Promise<Categoria> {
+  return apiFetch<Categoria>('/tarifas/categorias', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function actualizarCategoria(
+  id: string,
+  data: {
+    nombre?: string;
+    descripcion?: string;
+    activa?: boolean;
+  }
+): Promise<Categoria> {
+  return apiFetch<Categoria>(`/tarifas/categorias/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function eliminarCategoria(id: string): Promise<{ success: boolean; message?: string }> {
+  return apiFetch<{ success: boolean; message?: string }>(`/tarifas/categorias/${id}`, {
+    method: 'DELETE',
+  });
+}

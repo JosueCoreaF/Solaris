@@ -69,39 +69,39 @@ const fmtHNL = (n: number) => `L ${n.toLocaleString('es-HN', { minimumFractionDi
 /* ── Room amenity icons ── */
 const AMENITIES: Record<string, { icono: string; label: string }[]> = {
   suite: [
-    { icono: '📺', label: 'Smart TV 55"' }, { icono: '🛁', label: 'Jacuzzi' },
-    { icono: '📶', label: 'Wi-Fi' }, { icono: '❄️', label: 'A/C' },
-    { icono: '☕', label: 'Cafetera' }, { icono: '🔒', label: 'Caja fuerte' },
+    { icono: '', label: 'Smart TV 55"' }, { icono: '', label: 'Jacuzzi' },
+    { icono: '', label: 'Wi-Fi' }, { icono: '', label: 'A/C' },
+    { icono: '', label: 'Cafetera' }, { icono: '', label: 'Caja fuerte' },
   ],
   doble: [
-    { icono: '📺', label: 'Smart TV' }, { icono: '📶', label: 'Wi-Fi' },
-    { icono: '❄️', label: 'A/C' }, { icono: '☕', label: 'Cafetera' },
+    { icono: '', label: 'Smart TV' }, { icono: '', label: 'Wi-Fi' },
+    { icono: '', label: 'A/C' }, { icono: '', label: 'Cafetera' },
   ],
   individual: [
-    { icono: '📺', label: 'TV' }, { icono: '📶', label: 'Wi-Fi' },
-    { icono: '❄️', label: 'A/C' },
+    { icono: '', label: 'TV' }, { icono: '', label: 'Wi-Fi' },
+    { icono: '', label: 'A/C' },
   ],
   default: [
-    { icono: '📺', label: 'TV' }, { icono: '📶', label: 'Wi-Fi' },
-    { icono: '❄️', label: 'A/C' }, { icono: '☕', label: 'Cafetera' },
+    { icono: '', label: 'TV' }, { icono: '', label: 'Wi-Fi' },
+    { icono: '', label: 'A/C' }, { icono: '', label: 'Cafetera' },
   ],
 };
 
 const COMODIDADES_MAP: Record<string, { icono: string; label: string }> = {
-  smart_tv: { icono: '📺', label: 'Smart TV' },
-  wifi: { icono: '📶', label: 'Wi-Fi' },
-  ac: { icono: '❄️', label: 'A/C' },
-  desayuno: { icono: '🍳', label: 'Desayuno de Cortesia' },
-  cama_extra: { icono: '🛏️', label: 'Se puede añadir cama extra (unipersonal)' },
-  neverita: { icono: '🧊', label: 'Neverita / Minibar' },
-  plancha: { icono: '💨', label: 'Plancha' },
-  lavanderia: { icono: '🧺', label: 'Lavandería' },
-  limpieza: { icono: '🧹', label: 'Limpieza' },
+  smart_tv: { icono: '', label: 'Smart TV' },
+  wifi: { icono: '', label: 'Wi-Fi' },
+  ac: { icono: '', label: 'A/C' },
+  desayuno: { icono: '', label: 'Desayuno de Cortesia' },
+  cama_extra: { icono: '', label: 'Se puede añadir cama extra (unipersonal)' },
+  neverita: { icono: '', label: 'Neverita / Minibar' },
+  plancha: { icono: '', label: 'Plancha' },
+  lavanderia: { icono: '', label: 'Lavandería' },
+  limpieza: { icono: '', label: 'Limpieza' },
 };
 
 const getRoomAmenities = (tipo: string | null, customComodidades?: string[]) => {
   if (customComodidades && customComodidades.length > 0) {
-    return customComodidades.map(id => COMODIDADES_MAP[id] || { icono: '✨', label: id });
+    return customComodidades.map(id => COMODIDADES_MAP[id] || { icono: '', label: id });
   }
   const key = (tipo || '').toLowerCase();
   return AMENITIES[key] || AMENITIES.default;
@@ -144,7 +144,7 @@ const ChatbotWidget: React.FC<{
   const [msgs, setMsgs] = useState<{ from: 'bot' | 'user' | 'admin'; text: string; id?: string; senderName?: string }[]>([
     {
       from: 'bot', text: firstName
-        ? `¡Hola, ${firstName}! 👋 Soy el asistente de Hotel Verona. ¿En qué puedo ayudarte? Escribe "agente" para hablar con recepción directamente.`
+        ? `¡Hola, ${firstName}! Soy el asistente de Hotel Verona. ¿En qué puedo ayudarte? Escribe "agente" para hablar con recepción directamente.`
         : '¡Hola! Soy el asistente de Hotel Verona. ¿En qué puedo ayudarte? Escribe "agente" para hablar con recepción.'
     },
   ]);
@@ -428,7 +428,7 @@ const ChatbotWidget: React.FC<{
     seenMsgIds.current.clear();
     setMsgs([{
       from: 'bot', text: guestName
-        ? `¡Hola de nuevo, ${guestName.split(' ')[0]}! 👋 He reiniciado la conversación. ¿En qué puedo ayudarte?`
+        ? `¡Hola de nuevo, ${guestName.split(' ')[0]}! He reiniciado la conversación. ¿En qué puedo ayudarte?`
         : '¡Hola! He reiniciado la conversación. ¿En qué puedo ayudarte hoy?'
     }]);
   };
@@ -442,7 +442,7 @@ const ChatbotWidget: React.FC<{
         whileHover={{ scale: 1.12 }}
         whileTap={{ scale: 0.95 }}
       >
-        💬
+        Chat
       </motion.button>
     );
   }
@@ -455,12 +455,12 @@ const ChatbotWidget: React.FC<{
       exit={{ opacity: 0, y: 40 }}
     >
       <div className="portal-chatbot-head">
-        <strong>{liveMode ? '💬 Chat en vivo' : '✨ Asistente Hotel Verona'}</strong>
+        <strong>{liveMode ? 'Chat en vivo' : 'Asistente Hotel Verona'}</strong>
         <div style={{ display: 'flex', gap: '8px' }}>
           {liveMode && (
             <button onClick={resetChat} title="Reiniciar chat" style={{ fontSize: '14px', opacity: 0.8 }}>↻</button>
           )}
-          <button onClick={() => setOpen(false)}>✕</button>
+          <button onClick={() => setOpen(false)}>×</button>
         </div>
       </div>
       <div className="portal-chatbot-messages" ref={listRef}>
@@ -512,7 +512,7 @@ const ChatbotWidget: React.FC<{
       ) : (
         <form className="portal-chatbot-input" onSubmit={e => { e.preventDefault(); void send(); }}>
           <input value={input} onChange={e => setInput(e.target.value)} placeholder={liveMode ? 'Escribe tu mensaje…' : 'Escribe tu pregunta…'} />
-          <button type="submit">➤</button>
+          <button type="submit">Enviar</button>
         </form>
       )}
     </motion.div>
@@ -524,9 +524,9 @@ const ChatbotWidget: React.FC<{
    ══════════════════════════════════════════════ */
 const WizardSteps: React.FC<{ current: WizardStep; onStep: (s: WizardStep) => void; maxReached: WizardStep }> = ({ current, onStep, maxReached }) => {
   const steps = [
-    { num: 1 as const, label: 'Fechas', icon: '📅' },
-    { num: 2 as const, label: 'Habitación', icon: '🛏️' },
-    { num: 3 as const, label: 'Checkout', icon: '💳' },
+    { num: 1 as const, label: 'Fechas', icon: '1' },
+    { num: 2 as const, label: 'Habitación', icon: '2' },
+    { num: 3 as const, label: 'Checkout', icon: '3' },
   ];
 
   return (
@@ -594,7 +594,7 @@ const RoomCardImage: React.FC<{ roomId: string; nombre: string; imagenes?: strin
 
   if (loading) return <div className="portal-room-card-img portal-room-card-img-loading"><div className="portal-spinner-sm" /></div>;
   if (src) return <div className="portal-room-card-img"><img src={src} alt={nombre} /></div>;
-  return <div className="portal-room-card-img portal-room-card-img-empty"><span>🏨</span></div>;
+  return <div className="portal-room-card-img portal-room-card-img-empty"><span>—</span></div>;
 };
 
 /* ══════════════════════════════════════════════
@@ -654,10 +654,10 @@ const RoomDetailModal: React.FC<{
               <span>Sin imagen</span>
             </div>
           )}
-          <button className="portal-rdm-close" onClick={(e) => { e.stopPropagation(); onClose(); }} aria-label="Cerrar">✕</button>
+          <button className="portal-rdm-close" onClick={(e) => { e.stopPropagation(); onClose(); }} aria-label="Cerrar">×</button>
           {room.tipo && <span className="portal-rdm-badge">{room.tipo}</span>}
           {allImages.length > 1 && (
-            <span className="portal-rdm-photo-count">📷 {allImages.length} fotos</span>
+            <span className="portal-rdm-photo-count">{allImages.length} fotos</span>
           )}
         </div>
 
@@ -676,7 +676,7 @@ const RoomDetailModal: React.FC<{
           <div className="portal-rdm-header">
             <div>
               <h2>{(room as any).nombreAlias ?? (room as any).nombre_alias ?? ''}</h2>
-              <p className="portal-muted" style={{ marginTop: 4 }}>🏨 {room.hotel}</p>
+              <p className="portal-muted" style={{ marginTop: 4 }}>{room.hotel}</p>
             </div>
             <div className="portal-rdm-price">
               <small className="portal-rdm-price-label">Precio por noche</small>
@@ -692,21 +692,21 @@ const RoomDetailModal: React.FC<{
 
           <div className="portal-rdm-meta-row">
             <div className="portal-rdm-meta-item">
-              <span className="portal-rdm-meta-icon">👥</span>
+              <span className="portal-rdm-meta-icon">Capacidad</span>
               <div>
                 <strong>{room.capacidad} huésped{room.capacidad > 1 ? 'es' : ''}</strong>
                 <small>Capacidad máxima</small>
               </div>
             </div>
             <div className="portal-rdm-meta-item">
-              <span className="portal-rdm-meta-icon">🛏️</span>
+              <span className="portal-rdm-meta-icon">Tipo</span>
               <div>
                 <strong>{room.tipo ?? 'Estándar'}</strong>
                 <small>Tipo de habitación</small>
               </div>
             </div>
             <div className="portal-rdm-meta-item">
-              <span className="portal-rdm-meta-icon">🏷️</span>
+              <span className="portal-rdm-meta-icon">Código</span>
               <div>
                 <strong>{room.codigo}</strong>
                 <small>Código</small>
@@ -727,7 +727,7 @@ const RoomDetailModal: React.FC<{
           </div>
 
           <div className="portal-rdm-meta-item">
-            <span className="portal-rdm-meta-icon">✨</span>
+            <span className="portal-rdm-meta-icon">Extra</span>
             <div>
               <span>Cargo por persona extra (sobre capacidad): <strong>{fmtHNL(10 * (tipoCambio || 24))}</strong> ({fmtUSD(10)}) / persona / noche</span>
             </div>
@@ -751,7 +751,7 @@ const RoomDetailModal: React.FC<{
                 whileTap={{ scale: 0.97 }}
                 style={{ flex: 1, minWidth: '130px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
               >
-                🔮 Tour 360°
+                Tour 360°
               </motion.button>
             )}
             {room.disponible ? (
@@ -782,7 +782,7 @@ const RoomDetailModal: React.FC<{
             onClick={() => setLightboxIdx(null)}
           >
             <img src={allImages[lightboxIdx]} alt={room.nombre} onClick={e => e.stopPropagation()} />
-            <button className="portal-lightbox-close" onClick={() => setLightboxIdx(null)}>✕</button>
+            <button className="portal-lightbox-close" onClick={() => setLightboxIdx(null)}>×</button>
             {allImages.length > 1 && (
               <>
                 <button className="portal-lightbox-arrow portal-lightbox-prev" onClick={e => { e.stopPropagation(); setLightboxIdx((lightboxIdx - 1 + allImages.length) % allImages.length); }}>‹</button>
@@ -1597,7 +1597,7 @@ const PortalCliente: React.FC = () => {
           <strong>{nombreRedHoteles}</strong>
         </div>
         <button className="portal-mobile-toggle" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Menú">
-          {mobileMenuOpen ? '✕' : '☰'}
+          {mobileMenuOpen ? '×' : '☰'}
         </button>
         <div className={`portal-nav-links ${mobileMenuOpen ? 'open' : ''}`}>
           {(['home', 'habitaciones', 'reservar', 'novedades', 'info'] as PortalSection[]).map(s => (
@@ -1620,7 +1620,7 @@ const PortalCliente: React.FC = () => {
             <div className="portal-user-pill">
               {portalUser.avatar && <img src={portalUser.avatar} alt="" className="portal-user-avatar" referrerPolicy="no-referrer" />}
               <span className="portal-user-name">{portalUser.name.split(' ')[0]}</span>
-              <button className="portal-user-logout" onClick={handleLogout} title="Cerrar sesión">✕</button>
+              <button className="portal-user-logout" onClick={handleLogout} title="Cerrar sesión">×</button>
             </div>
           ) : (
             <div className="portal-social-login-nav">
@@ -1733,13 +1733,12 @@ const PortalCliente: React.FC = () => {
                 {/* Stats */}
                 <motion.div className="portal-stats-row" variants={stagger} initial="initial" animate="animate">
                   {[
-                    { value: rooms.length, label: 'Habitaciones', icon: '🛏️' },
-                    { value: hotels.length, label: hotels.length === 1 ? 'Sede' : 'Sedes', icon: '🏨' },
-                    { value: availableRooms.length, label: 'Disponibles hoy', icon: '✅' },
-                    { value: '4.8', label: 'Calificación', icon: '⭐' },
+                    { value: rooms.length, label: 'Habitaciones', icon: '' },
+                    { value: hotels.length, label: hotels.length === 1 ? 'Sede' : 'Sedes', icon: '' },
+                    { value: availableRooms.length, label: 'Disponibles hoy', icon: '' },
+                    { value: '4.8', label: 'Calificación', icon: '' },
                   ].map((s, i) => (
                     <motion.div key={i} className="portal-stat-card glass" variants={fadeUp}>
-                      <span className="portal-stat-icon">{s.icon}</span>
                       <strong>{s.value}</strong>
                       <span>{s.label}</span>
                     </motion.div>
@@ -1815,7 +1814,7 @@ const PortalCliente: React.FC = () => {
                         viewport={{ once: true }}
                         transition={{ delay: i * 0.1 }}
                       >
-                        <div className="portal-review-stars">{'⭐'.repeat(r.rating)}</div>
+                        <div className="portal-review-stars">{'★'.repeat(r.rating)}</div>
                         <p>&ldquo;{r.text}&rdquo;</p>
                         <div className="portal-review-author">
                           <div className="portal-review-avatar">{r.name[0]}</div>
@@ -1868,27 +1867,27 @@ const PortalCliente: React.FC = () => {
                   </div>
                   <div className="portal-date-inputs">
                     <label>
-                      <span>📅 Llegada</span>
+                      <span>Llegada</span>
                       <input type="date" className="input" value={filterCheckIn} min={today} onChange={e => handleCheckIn(e.target.value)} />
                     </label>
                     <label>
-                      <span> Hora llegada</span>
+                      <span>Hora llegada</span>
                       <select className="input" value={filterHoraIn} onChange={e => setFilterHoraIn(e.target.value)}>
                         {checkInTimeOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     </label>
                     <label>
-                      <span>📅 Salida</span>
+                      <span>Salida</span>
                       <input type="date" className="input" value={filterCheckOut} min={filterCheckIn ? addDays(filterCheckIn, 1) : today} onChange={e => setFilterCheckOut(e.target.value)} />
                     </label>
                     <label>
-                      <span>🕐 Hora salida</span>
+                      <span>Hora salida</span>
                       <select className="input" value={filterHoraOut} onChange={e => setFilterHoraOut(e.target.value)}>
                         {checkOutTimeOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     </label>
                     <label>
-                      <span>🏨 Hotel / Sede</span>
+                      <span>Hotel / Sede</span>
                       <select className="input" value={filterHotelId} onChange={e => setFilterHotelId(e.target.value)}>
                         <option value="all">Consolidado (Todos)</option>
                         {hotels.map(h => (
@@ -1952,8 +1951,8 @@ const PortalCliente: React.FC = () => {
                                       ))}
                                     </div>
                                     <div className="portal-room-meta">
-                                      <span>👥 {room.capacidad} huésped{room.capacidad > 1 ? 'es' : ''}</span>
-                                      <span>🏨 {room.hotel}</span>
+                                      <span>{room.capacidad} huésped{room.capacidad > 1 ? 'es' : ''}</span>
+                                      <span>{room.hotel}</span>
                                     </div>
                                     <div className="portal-room-price">
                                       <strong>{fmtHNL(Number(room.tarifaNoche))}</strong>
@@ -1981,7 +1980,7 @@ const PortalCliente: React.FC = () => {
                                           setActive360Name(room.nombreAlias ?? room.nombre);
                                         }}
                                       >
-                                        🔮 Recorrido 360°
+                                        Recorrido 360°
                                       </motion.button>
                                     )}
                                     {room.disponible ? (
@@ -2039,7 +2038,7 @@ const PortalCliente: React.FC = () => {
                     {wizardStep === 1 && (
                       <motion.div key="s1" className="wizard-pane" {...fadeUp}>
                         <div className="wizard-pane-inner glass">
-                          <h3>📅 Selecciona tus fechas</h3>
+                          <h3>Selecciona tus fechas</h3>
                           <div className="portal-date-presets" style={{ marginBottom: 14 }}>
                             {quickPresets.map(p => (
                               <button key={p.label} className={`portal-preset-btn${filterCheckIn === p.ci && filterCheckOut === p.co ? ' active' : ''}`}
@@ -2050,7 +2049,7 @@ const PortalCliente: React.FC = () => {
                           </div>
                           <div className="wizard-dates-grid">
                             <label style={{ gridColumn: '1 / -1' }}>
-                              <span>🏨 Selecciona el Hotel / Sede</span>
+                              <span>Selecciona el Hotel / Sede</span>
                               <select className="input input-lg" value={filterHotelId} onChange={e => setFilterHotelId(e.target.value)}>
                                 <option value="all">Consolidado (Todos los hoteles)</option>
                                 {hotels.map(h => (
@@ -2059,21 +2058,21 @@ const PortalCliente: React.FC = () => {
                               </select>
                             </label>
                             <label>
-                              <span>📅 Fecha de llegada</span>
+                              <span>Fecha de llegada</span>
                               <input type="date" className="input input-lg" value={filterCheckIn} min={today} onChange={e => handleCheckIn(e.target.value)} />
                             </label>
                             <label>
-                              <span> Hora de llegada</span>
+                              <span>Hora de llegada</span>
                               <select className="input input-lg" value={filterHoraIn} onChange={e => setFilterHoraIn(e.target.value)}>
                                 {checkInTimeOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                               </select>
                             </label>
                             <label>
-                              <span>📅 Fecha de salida</span>
+                              <span>Fecha de salida</span>
                               <input type="date" className="input input-lg" value={filterCheckOut} min={filterCheckIn ? addDays(filterCheckIn, 1) : today} onChange={e => setFilterCheckOut(e.target.value)} />
                             </label>
                             <label>
-                              <span>🕐 Hora de salida</span>
+                              <span>Hora de salida</span>
                               <select className="input input-lg" value={filterHoraOut} onChange={e => setFilterHoraOut(e.target.value)}>
                                 {checkOutTimeOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                               </select>
@@ -2131,7 +2130,7 @@ const PortalCliente: React.FC = () => {
                     {/* ── STEP 2: Room ── */}
                     {wizardStep === 2 && (
                       <motion.div key="s2" className="wizard-pane" {...fadeUp}>
-                        <h3>🛏️ Elige tu habitación</h3>
+                        <h3>Elige tu habitación</h3>
                         <p className="portal-muted" style={{ marginBottom: 20 }}>
                           {availableRooms.length} habitación{availableRooms.length !== 1 ? 'es' : ''} disponible{availableRooms.length !== 1 ? 's' : ''} para tus fechas
                         </p>
@@ -2179,7 +2178,7 @@ const PortalCliente: React.FC = () => {
                                             ))}
                                           </div>
                                           <div className="wizard-room-bottom">
-                                            <span className="portal-room-meta-inline">👥 {room.capacidad} · 🏨 {room.hotel}</span>
+                                            <span className="portal-room-meta-inline">{room.capacidad} pers. · {room.hotel}</span>
                                             <div className="wizard-room-pricing">
                                               <strong>{fmtHNL(Number(room.tarifaNoche))}</strong>
                                               <small style={{ opacity: .6 }}>{fmtUSD(Number(room.tarifaNoche) / (tipoCambio || 24))}</small>
@@ -2243,7 +2242,7 @@ const PortalCliente: React.FC = () => {
                     {/* ── STEP 3: Checkout ── */}
                     {wizardStep === 3 && (
                       <motion.div key="s3" className="wizard-pane" {...fadeUp}>
-                        <h3>💳 Confirma tu reserva</h3>
+                        <h3>Confirma tu reserva</h3>
 
                         <div className="wizard-checkout-layout">
                           {/* Left: form */}
@@ -2343,7 +2342,7 @@ const PortalCliente: React.FC = () => {
                                     />
                                     <div>
                                       <strong style={{ display: 'block', color: 'var(--text-h)', fontSize: '0.95rem' }}>
-                                        🛏️ Solicitar Cama Extra Unipersonal
+                                        Solicitar Cama Extra Unipersonal
                                         {!comodidadesDispo.cama_extra && (
                                           <span style={{ marginLeft: '8px', color: '#ff4d4f', fontWeight: '500', fontSize: '0.85rem' }}>
                                             (Sin existencias)
@@ -2529,7 +2528,7 @@ const PortalCliente: React.FC = () => {
                             {extrasCount > 0 && cargoExtraHNL > 0 && (
                               <>
                                 <div className="wizard-summary-line wizard-summary-extras">
-                                  <span>👥 Persona{extrasCount > 1 ? 's' : ''} extra ({extrasCount}) × {nights} noche{nights !== 1 ? 's' : ''}</span>
+                                  <span>Persona{extrasCount > 1 ? 's' : ''} extra ({extrasCount}) × {nights} noche{nights !== 1 ? 's' : ''}</span>
                                   <span>{fmtHNL(subtotalExtrasHNL)}</span>
                                 </div>
                                 <div className="wizard-summary-line" style={{ opacity: .6, fontSize: '0.85rem' }}>
@@ -2540,7 +2539,7 @@ const PortalCliente: React.FC = () => {
                             )}
                             {formCamaExtra && (
                               <div className="wizard-summary-line wizard-summary-extras" style={{ marginTop: '4px' }}>
-                                <span>🛏️ Cama extra unipersonal</span>
+                                <span>Cama extra unipersonal</span>
                                 <span style={{ color: 'var(--accent)', fontWeight: 'bold' }}>Solicitada</span>
                               </div>
                             )}
@@ -2634,7 +2633,7 @@ const PortalCliente: React.FC = () => {
                       >
                         <div className="portal-blog-icon">{post.icon}</div>
                         {post.event_date && (
-                          <div className="portal-blog-date">📅 {new Date(post.event_date + 'T00:00:00').toLocaleDateString('es-HN', { dateStyle: 'medium' })}</div>
+                          <div className="portal-blog-date">{new Date(post.event_date + 'T00:00:00').toLocaleDateString('es-HN', { dateStyle: 'medium' })}</div>
                         )}
                         <h3>{post.title}</h3>
                         <p>{post.content}</p>
@@ -2679,15 +2678,14 @@ const PortalCliente: React.FC = () => {
                     <h3>Políticas generales</h3>
                     <div className="portal-policies-grid">
                       {[
-                        { icon: '🕐', label: 'Check-in', value: '3:00 PM' },
-                        { icon: '🕛', label: 'Check-out', value: '12:00 PM' },
-                        { icon: '💰', label: 'Moneda base', value: 'Dólares (USD)' },
-                        { icon: '🖳️', label: 'Tipo de cambio', value: `L ${tipoCambio.toFixed(2)} / USD` },
-                        { icon: '💳', label: 'Pagos', value: 'Efectivo y tarjetas' },
-                        { icon: '🧳', label: 'ISV', value: isvPercent > 0 ? `${isvPercent}% incluido` : 'No aplica' },
+                        { label: 'Check-in', value: '3:00 PM' },
+                        { label: 'Check-out', value: '12:00 PM' },
+                        { label: 'Moneda base', value: 'Dólares (USD)' },
+                        { label: 'Tipo de cambio', value: `L ${tipoCambio.toFixed(2)} / USD` },
+                        { label: 'Pagos', value: 'Efectivo y tarjetas' },
+                        { label: 'ISV', value: isvPercent > 0 ? `${isvPercent}% incluido` : 'No aplica' },
                       ].map(p => (
                         <div key={p.label} className="portal-policy-item">
-                          <span className="portal-policy-icon">{p.icon}</span>
                           <div>
                             <strong>{p.label}</strong>
                             <span>{p.value}</span>

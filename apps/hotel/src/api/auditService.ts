@@ -157,24 +157,24 @@ class AuditService {
     switch (accion) {
       case 'INSERT':
       case 'CREATE_USER':
-        return '✚';
+        return 'CREAR';
       case 'UPDATE':
       case 'CHANGE_ROLE':
-        return '✏️';
+        return 'EDITAR';
       case 'DELETE':
-        return '🗑️';
+        return 'ELIMINAR';
       case 'LOGIN':
-        return '🔓';
+        return 'ACCESO';
       case 'LOGOUT':
-        return '🔒';
+        return 'BLOQUEO';
       case 'ACCESS_REPORT':
-        return '👁️';
+        return 'VER';
       case 'APPLY_BALANCE':
-        return '💰';
+        return 'PAGO';
       case 'CANCEL_PAYMENT':
-        return '❌';
+        return 'ERROR';
       case 'CREATE_INVOICE':
-        return '📄';
+        return 'DOC';
       default:
         return '•';
     }

@@ -215,7 +215,7 @@ COMMENT ON TABLE public.tipos_habitacion IS
 CREATE TABLE public.categorias_tarifa (
   id_categoria  uuid        NOT NULL DEFAULT gen_random_uuid(),
   id_hotel      uuid        NOT NULL REFERENCES public.hoteles(id_hotel) ON DELETE CASCADE,
-  nombre        varchar     NOT NULL CHECK (nombre IN ('Normal','Corporativa','Especial')),
+  nombre        varchar     NOT NULL,
   descripcion   text,
   activa        boolean     NOT NULL DEFAULT true,
   created_at    timestamptz NOT NULL DEFAULT now(),

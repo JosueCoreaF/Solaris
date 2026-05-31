@@ -209,8 +209,9 @@ const ChatOperativo: React.FC = () => {
   const { addToast } = useToast();
   const navigate = useNavigate();
 
-  const userId   = user?.email ?? user?.id ?? 'guest';
-  const userName = user?.email?.split('@')[0] ?? 'Usuario';
+  // sender_id en chat_messages es UUID (auth.users.id), usar id primero
+  const userId   = user?.id ?? user?.email ?? 'guest';
+  const userName = user?.user_metadata?.full_name ?? user?.email?.split('@')[0] ?? 'Usuario';
   const [channels, setChannels]     = useState<ChatChannel[]>([]);
   const [activeId, setActiveId]     = useState<string | null>(null);
   const [messages, setMessages]     = useState<ChatMessage[]>([]);
@@ -625,7 +626,7 @@ const ChatOperativo: React.FC = () => {
     if (!text.trim() || !activeId || sending) return;
     const c = text.trim(); setText(''); setSending(true);
     if (activeId) emitStopTyping(activeId, { userId, userName });
-    try { await sendMessage(activeId, c); } catch { setText(c); } finally { setSending(false); }
+    try { await sendMessage(activeId, c, 'text', { sender_name: userName }); } catch { setText(c); } finally { setSending(false); }
   }, [text, activeId, sending, userId, userName]);
 
   const handleTyping = (val: string) => {
@@ -722,7 +723,9 @@ const ChatOperativo: React.FC = () => {
           {!active ? (
             <div className="chat-welcome-container">
               <div className="chat-welcome-card">
-                <div className="chat-welcome-icon">💬</div>
+                <div className="chat-welcome-icon">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                </div>
                 <h3 style={{ color: 'var(--text-h)', fontWeight: 700, fontSize: 16, margin: 0 }}>Buzón Operativo Verona</h3>
                 <p style={{ fontSize: 13, lineHeight: 1.5, margin: 0 }}>Selecciona un canal de la barra lateral para ver mensajes o iniciar una conversación.</p>
               </div>
@@ -794,13 +797,13 @@ const ChatOperativo: React.FC = () => {
                                       onClick={() => handleMentionClick(p.type!, p.id!)}
                                     >
                                       <span className="mention-icon">
-                                        {p.type === 'reserva' && '📅'}
-                                        {p.type === 'pago' && '💵'}
-                                        {p.type === 'huesped' && '👤'}
-                                        {p.type === 'habitacion' && '🏨'}
-                                        {p.type === 'factura' && '📄'}
-                                        {p.type === 'cierre' && '📊'}
-                                        {p.type === 'personal' && '💼'}
+                                        {p.type === 'reserva' && 'R'}
+                                        {p.type === 'pago' && 'P'}
+                                        {p.type === 'huesped' && 'H'}
+                                        {p.type === 'habitacion' && 'Hab'}
+                                        {p.type === 'factura' && 'F'}
+                                        {p.type === 'cierre' && 'C'}
+                                        {p.type === 'personal' && 'Per'}
                                       </span>
                                       <span className="mention-text">@{p.type}:{p.id?.slice(0, 8)}</span>
                                     </span>
@@ -838,45 +841,45 @@ const ChatOperativo: React.FC = () => {
                   <div className="chat-suggestions-dropdown">
                     <div className="chat-suggestion-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span>Menciones (Usa ⇅ para navegar, Enter para insertar)</span>
-                      <button 
+                      <button
                         onClick={() => setShowSuggestions(false)}
                         style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}
                       >
-                        Cerrar ✕
+                        Cerrar
                       </button>
                     </div>
                     
                     {/* Filtros rápidos interactivos */}
                     <div className="chat-suggestion-tabs">
-                      <button 
+                      <button
                         className={`chat-sug-tab-btn ${suggestionFilter === 'all' ? 'active' : ''}`}
                         onClick={() => { setSuggestionFilter('all'); setSelectedSugIdx(0); }}
                       >
-                        🏷️ Todos
+                        Todos
                       </button>
-                      <button 
+                      <button
                         className={`chat-sug-tab-btn ${suggestionFilter === 'reserva' ? 'active' : ''}`}
                         onClick={() => { setSuggestionFilter('reserva'); setSelectedSugIdx(0); }}
                       >
-                        📅 Reservas
+                        Reservas
                       </button>
-                      <button 
+                      <button
                         className={`chat-sug-tab-btn ${suggestionFilter === 'pago' ? 'active' : ''}`}
                         onClick={() => { setSuggestionFilter('pago'); setSelectedSugIdx(0); }}
                       >
-                        💵 Pagos
+                        Pagos
                       </button>
-                      <button 
+                      <button
                         className={`chat-sug-tab-btn ${suggestionFilter === 'habitacion' ? 'active' : ''}`}
                         onClick={() => { setSuggestionFilter('habitacion'); setSelectedSugIdx(0); }}
                       >
-                        🏨 Habitaciones
+                        Habitaciones
                       </button>
-                      <button 
+                      <button
                         className={`chat-sug-tab-btn ${suggestionFilter === 'huesped' ? 'active' : ''}`}
                         onClick={() => { setSuggestionFilter('huesped'); setSelectedSugIdx(0); }}
                       >
-                        👤 Huéspedes
+                        Huéspedes
                       </button>
                     </div>
 
@@ -889,10 +892,6 @@ const ChatOperativo: React.FC = () => {
                         >
                           <div className="chat-sug-title">
                             <span className={`chat-sug-badge ${item.type}`}>
-                              {item.type === 'reserva' && '📅'}
-                              {item.type === 'pago' && '💵'}
-                              {item.type === 'habitacion' && '🏨'}
-                              {item.type === 'huesped' && '👤'}
                               {item.type.toUpperCase()}
                             </span>
                             <span style={{ fontWeight: 600 }}>{item.label}</span>
@@ -967,8 +966,8 @@ const ChatOperativo: React.FC = () => {
                   >
                     @
                   </button>
-                  <button className="chat-emoji-toggle-btn" onClick={() => setShowEmojiPicker(p => !p)} title="Insertar emoji">
-                    😊
+                  <button className="chat-emoji-toggle-btn" onClick={() => setShowEmojiPicker(p => !p)} title="Insertar emoji" style={{ fontSize: 14, fontWeight: 700 }}>
+                    +
                   </button>
                   <button className="chat-send-btn" disabled={!text.trim() || sending} onClick={() => void handleSend()}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -996,11 +995,11 @@ const ChatOperativo: React.FC = () => {
               value={newType}
               onChange={e => setNewType(e.target.value as ChatChannel['channel_type'])}
             >
-              <option value="general">💬 General</option>
-              <option value="hotel">🏨 Hotel</option>
-              <option value="operativo">⚙️ Operativo</option>
-              <option value="privado">🔒 Privado</option>
-              <option value="cierre">📊 Cierre</option>
+              <option value="general">General</option>
+              <option value="hotel">Hotel</option>
+              <option value="operativo">Operativo</option>
+              <option value="privado">Privado</option>
+              <option value="cierre">Cierre</option>
             </select>
             <div className="chat-modal-row">
               <button className="chat-modal-btn cancel" onClick={() => setShowModal(false)}>Cancelar</button>

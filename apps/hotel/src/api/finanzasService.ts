@@ -1,20 +1,26 @@
+import { supabase } from './supabase';
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
 const apiFetch = async (endpoint: string, options?: RequestInit): Promise<any> => {
   const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+  const token = (await supabase.auth.getSession()).data.session?.access_token || '';
+
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       'X-Hotel-ID': activeHotelId,
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...options?.headers,
     },
   });
-  
+
   if (!response.ok) {
-    throw new Error(`API Error: ${response.statusText}`);
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error ?? `API Error: ${response.statusText}`);
   }
-  
+
   return response.json();
 };
 

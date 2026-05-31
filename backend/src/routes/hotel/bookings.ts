@@ -392,40 +392,8 @@ router.post('/habitaciones', async (req, res) => {
     id_tipo_habitacion = tipoHab?.id_tipo_habitacion;
   }
 
-  // Fallback: primer tipo del hotel
   if (!id_tipo_habitacion) {
-    const { data: cualquierTipo } = await db()
-      .from('tipos_habitacion')
-      .select('id_tipo_habitacion')
-      .eq('id_hotel', id_hotel)
-      .limit(1)
-      .maybeSingle();
-    id_tipo_habitacion = cualquierTipo?.id_tipo_habitacion;
-  }
-
-  // Si no existe ningún tipo, crear los tipos base automáticamente
-  if (!id_tipo_habitacion) {
-    const tiposBase = ['Simple', 'Doble', 'Triple', 'Suite'];
-    const { data: nuevostipos } = await db()
-      .from('tipos_habitacion')
-      .insert(tiposBase.map(nombre_tipo => ({
-        id_hotel,
-        nombre_tipo,
-        descripcion: `Habitación ${nombre_tipo.toLowerCase()}`,
-        capacidad_base: nombre_tipo === 'Simple' ? 1 : nombre_tipo === 'Triple' ? 3 : 2,
-        estado: 'activo',
-      })))
-      .select('id_tipo_habitacion, nombre_tipo');
-
-    if (!nuevostipos || nuevostipos.length === 0) {
-      return res.status(400).json({ error: 'No se pudieron crear los tipos de habitación base.' });
-    }
-
-    // Seleccionar el tipo que coincide con el solicitado o el primero
-    const tipoSolicitado = tipo
-      ? nuevostipos.find((t: any) => t.nombre_tipo.toLowerCase() === tipo.toLowerCase())
-      : null;
-    id_tipo_habitacion = (tipoSolicitado ?? nuevostipos[0]).id_tipo_habitacion;
+    return res.status(400).json({ error: `El tipo de habitación "${tipo || ''}" no existe para este hotel. Créalo primero en Configuración > Tipos de habitación.` });
   }
 
   // Generar codigo_habitacion único automáticamente
@@ -499,7 +467,7 @@ router.post('/habitaciones', async (req, res) => {
 // PATCH y PUT /api/bookings/habitaciones/:id
 const updateHabitacionHandler = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
-  const { nombre_habitacion, tipo, capacidad, tarifa_noche, estado, piso, id_hotel, numero_camas, imagenes, imagen_360, comodidades } = req.body;
+  const { nombre_habitacion, nombre_alias, tipo, capacidad, tarifa_noche, estado, piso, id_hotel, numero_camas, imagenes, imagen_360, comodidades } = req.body;
 
   // Buscar id_tipo_habitacion filtrado por hotel (tipos son hotel-específicos)
   let id_tipo_habitacion = undefined;
@@ -526,6 +494,7 @@ const updateHabitacionHandler = async (req: express.Request, res: express.Respon
 
   const updateFields: any = {};
   if (nombre_habitacion !== undefined) updateFields.nombre_habitacion = nombre_habitacion;
+  if (nombre_alias !== undefined) updateFields.nombre_alias = nombre_alias || null;
   if (capacidad !== undefined) updateFields.capacidad = capacidad;
   if (tarifa_noche !== undefined) updateFields.tarifa_noche = tarifa_noche;
   if (estado !== undefined) updateFields.estado = estado;
@@ -686,11 +655,11 @@ router.get('/huespedes/:id', async (req, res) => {
   // 4) Saldos disponibles
   const { data: saldos } = await db()
     .from('saldos_clientes')
-    .select('id_saldo, monto, descripcion, tipo, fecha_creacion, aplicado')
+    .select('id_saldo, monto, descripcion, tipo, created_at, aplicado')
     .eq('id_huesped', id)
     .eq('aplicado', false)
     .eq('tipo', 'credito')
-    .order('fecha_creacion', { ascending: true });
+    .order('created_at', { ascending: true });
 
   const saldoTotal = (saldos ?? []).reduce((sum: number, s: any) => sum + s.monto, 0);
 
@@ -1190,7 +1159,7 @@ router.get('/saldos', async (req, res) => {
       .from('saldos_clientes')
       .select('*, huesped:huespedes(nombre_completo)')
       .in('id_huesped', idsHuespedes)
-      .order('fecha_creacion', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error) return res.status(500).json({ error: error.message });
     return res.json(data ?? []);
@@ -1198,7 +1167,7 @@ router.get('/saldos', async (req, res) => {
     const { data, error } = await db()
       .from('saldos_clientes')
       .select('*, huesped:huespedes(nombre_completo)')
-      .order('fecha_creacion', { ascending: false });
+      .order('created_at', { ascending: false });
     if (error) return res.status(500).json({ error: error.message });
     return res.json(data ?? []);
   }
@@ -1268,12 +1237,12 @@ router.get('/estado-cuenta/:id_huesped', async (req, res) => {
     .from('saldos_clientes')
     .select('*')
     .eq('id_huesped', id_huesped)
-    .order('fecha_creacion', { ascending: false });
+    .order('created_at', { ascending: false });
 
   for (const s of saldos ?? []) {
     movimientos.push({
       id: s.id_saldo,
-      fecha: s.fecha_creacion,
+      fecha: s.created_at,
       tipo: s.tipo === 'credito' ? (s.aplicado ? 'credito_aplicado' : 'credito') : s.tipo,
       descripcion: s.descripcion,
       monto: s.monto,

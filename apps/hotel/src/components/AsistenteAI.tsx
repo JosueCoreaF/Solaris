@@ -61,10 +61,10 @@ REGLAS DE NEGOCIO Y MULTI-SEDE / CADENA:
 `;
 
 const SUGGESTIONS = [
-  { label: '📊 Estado del Hotel', prompt: 'Dame un resumen ejecutivo analítico del estado actual del hotel con base en los datos de la base de datos.' },
-  { label: '✍️ Redactar Correo', prompt: 'Ayúdame a redactar un correo amable y formal para confirmar la reserva de un huésped que llegará mañana a las 4:00 PM.' },
-  { label: '💵 Explicar Impuestos', prompt: 'Explícame detalladamente cómo se calcula el Impuesto de Turismo (4%) y el ISV (15%) en una reserva de 3 noches con tarifa de $100 USD la noche.' },
-  { label: '📊 Borrador de Turno', prompt: 'Ayúdame a estructurar una plantilla elegante para hacer el reporte de entrega de turno de recepción.' }
+  { label: 'Estado del Hotel', prompt: 'Dame un resumen ejecutivo analítico del estado actual del hotel con base en los datos de la base de datos.' },
+  { label: 'Redactar Correo', prompt: 'Ayúdame a redactar un correo amable y formal para confirmar la reserva de un huésped que llegará mañana a las 4:00 PM.' },
+  { label: 'Explicar Impuestos', prompt: 'Explícame detalladamente cómo se calcula el Impuesto de Turismo (4%) y el ISV (15%) en una reserva de 3 noches con tarifa de $100 USD la noche.' },
+  { label: 'Borrador de Turno', prompt: 'Ayúdame a estructurar una plantilla elegante para hacer el reporte de entrega de turno de recepción.' }
 ];
 
 const parseRetrySeconds = (errorMessage: string): number | null => {
@@ -281,16 +281,16 @@ export const AsistenteAI: React.FC = () => {
       setMessages([
         {
           role: 'model',
-          text: `👋 ¡Hola! Soy **Verona AI**, tu copiloto inteligente de soporte conectado a la base de datos en tiempo real. 
+          text: `Hola. Soy **Verona AI**, tu copiloto inteligente de soporte conectado a la base de datos en tiempo real.
 
 ¿En qué te puedo asistir hoy? Puedo ayudarte a:
-- 📅 **Crear nuevas reservas** y registrar nuevos huéspedes en segundos.
-- ⚙️ **Modificar o cancelar reservas** directamente desde el chat en tiempo real.
-- 📊 Analizar el estado de ocupación y reservas reales del hotel.
-- ✍️ Redactar respuestas y correos profesionales a huéspedes.
-- 💵 Explicar cálculos de impuestos (15% ISV, 4% Turismo).
-- 🧹 Crear listas de control operativas o reportes de turnos.
-- 📋 Resolver dudas sobre políticas del hotel.`,
+- **Crear nuevas reservas** y registrar nuevos huéspedes en segundos.
+- **Modificar o cancelar reservas** directamente desde el chat en tiempo real.
+- Analizar el estado de ocupación y reservas reales del hotel.
+- Redactar respuestas y correos profesionales a huéspedes.
+- Explicar cálculos de impuestos (15% ISV, 4% Turismo).
+- Crear listas de control operativas o reportes de turnos.
+- Resolver dudas sobre políticas del hotel.`,
           timestamp: getFormattedTime()
         }
       ]);
@@ -619,7 +619,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
 
       if (functionCallParts.length > 0) {
         // Push a status message to show the user that action is running
-        setMessages(prev => [...prev, { role: 'model', text: `⚙️ *Procesando ${functionCallParts.length} acciones automáticas en la base de datos...*`, timestamp: getFormattedTime() }]);
+        setMessages(prev => [...prev, { role: 'model', text: `*Procesando ${functionCallParts.length} acciones automáticas en la base de datos...*`, timestamp: getFormattedTime() }]);
 
         try {
           // Execute function calls sequentially to avoid race conditions (e.g. two reservations on same room)
@@ -728,20 +728,20 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
           let finalReply = '';
           if (!followUpResponse.ok) {
             console.warn(`Error en seguimiento de acción AI: ${followUpResponse.status}. Usando fallback local.`);
-            finalReply = `✨ **¡Acciones completadas con éxito en la base de datos!**\n\nEl asistente ha procesado correctamente las siguientes tareas directamente en el sistema:\n\n` +
+            finalReply = `**Acciones completadas con éxito en la base de datos.**\n\nEl asistente ha procesado correctamente las siguientes tareas directamente en el sistema:\n\n` +
               results.map(r => {
                 if (r.name === 'toggleRoomBlock') {
-                  return `- 🔓/🔒 **Gestión de Disponibilidad:** ${r.resultText}`;
+                  return `- **Gestión de Disponibilidad:** ${r.resultText}`;
                 } else if (r.name === 'createReservation') {
-                  return `- 📅 **Creación de Reserva:** ${r.resultText}`;
+                  return `- **Creación de Reserva:** ${r.resultText}`;
                 } else if (r.name === 'updateReservation') {
-                  return `- ⚙️ **Modificación de Reserva:** ${r.resultText}`;
+                  return `- **Modificación de Reserva:** ${r.resultText}`;
                 } else if (r.name === 'cancelReservation') {
-                  return `- ❌ **Cancelación de Reserva:** ${r.resultText}`;
+                  return `- **Cancelación de Reserva:** ${r.resultText}`;
                 } else if (r.name === 'createGuest') {
-                  return `- 👤 **Registro de Huésped:** ${r.resultText}`;
+                  return `- **Registro de Huésped:** ${r.resultText}`;
                 } else if (r.name === 'splitReservation') {
-                  return `- ✂️ **División de Estancia:** ${r.resultText}`;
+                  return `- **División de Estancia:** ${r.resultText}`;
                 }
                 return `- **Acción:** ${r.resultText}`;
               }).join('\n') +
@@ -765,7 +765,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
           setMessages(prev => {
             const copy = [...prev];
             copy.pop(); // Remove loader
-            return [...copy, { role: 'model', text: `❌ **Error al ejecutar las acciones:** ${err.message || 'Error desconocido.'}`, timestamp: getFormattedTime() }];
+            return [...copy, { role: 'model', text: `**Error al ejecutar las acciones:** ${err.message || 'Error desconocido.'}`, timestamp: getFormattedTime() }];
           });
         }
         return;
@@ -792,12 +792,12 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
         const bufferedRetry = baseRetry + buffer;
 
         setRateLimitCountdown(bufferedRetry);
-        cleanErrorMessage = `⏳ **Límite de Consultas Alcanzado (Frecuencia Excesiva)**\n\n` +
+        cleanErrorMessage = `**Límite de Consultas Alcanzado (Frecuencia Excesiva)**\n\n` +
           `El motor de inteligencia artificial de Gemini ha alcanzado su límite de cuota por minuto del plan gratuito.\n\n` +
           `Para garantizar que la conexión se restablezca por completo, hemos añadido un **margen de seguridad de ${buffer} segundos** al tiempo sugerido. Por favor, espera **${bufferedRetry} segundos** antes de enviar tu mensaje.\n\n` +
           `*(El canal de chat se reactivará automáticamente cuando el contador llegue a cero)*`;
       } else {
-        cleanErrorMessage = `⚠️ **Error de Conexión:** ${errMsg || 'No se pudo comunicar con el asistente.'}`;
+        cleanErrorMessage = `**Error de Conexión:** ${errMsg || 'No se pudo comunicar con el asistente.'}`;
       }
 
       setMessages(prev => [
@@ -818,7 +818,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
       const initial = [
         {
           role: 'model',
-          text: `👋 ¡Hola! He reiniciado la conversación. 
+          text: `He reiniciado la conversación.
 
 ¿En qué te puedo asistir hoy?`,
           timestamp: getFormattedTime()
@@ -1176,7 +1176,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
         onClick={() => setIsOpen(!isOpen)}
         title="Asistente Verona AI (Gemini)"
       >
-        {isOpen ? '✕' : '✨'}
+        {isOpen ? '×' : 'AI'}
       </button>
 
       {/* Slide-in Chat Panel */}
@@ -1192,7 +1192,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
             {/* Header */}
             <div className="verona-ai-header">
               <div className="verona-ai-header-info">
-                <div className="verona-ai-logo">✨</div>
+                <div className="verona-ai-logo">AI</div>
                 <div>
                   <div className="verona-ai-header-title">Verona AI</div>
                   <div className="verona-ai-header-sub">
@@ -1201,7 +1201,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
                 </div>
               </div>
               <button className="verona-ai-clear-btn" onClick={handleClearHistory} title="Limpiar conversación">
-                🗑️ Reiniciar
+                Reiniciar
               </button>
             </div>
 
@@ -1210,7 +1210,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
               {messages.map((msg, index) => (
                 <div key={index} className={`verona-ai-msg-row ${msg.role}`}>
                   <div className={`verona-ai-msg-avatar ${msg.role}`}>
-                    {msg.role === 'model' ? '✨' : (user?.email?.[0]?.toUpperCase() || 'P')}
+                    {msg.role === 'model' ? 'AI' : (user?.email?.[0]?.toUpperCase() || 'P')}
                   </div>
                   <div className={`verona-ai-bubble ${msg.role}`}>
                     {renderMessageContent(msg.text)}
@@ -1225,7 +1225,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
 
               {loading && (
                 <div className="verona-ai-msg-row model">
-                  <div className="verona-ai-msg-avatar model">✨</div>
+                  <div className="verona-ai-msg-avatar model">AI</div>
                   <div className="verona-ai-bubble model">
                     <div className="ai-loading-dots">
                       <div className="ai-dot" />
@@ -1266,9 +1266,9 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={
                   isVerifying
-                    ? "🔄 Verificando disponibilidad real..."
+                    ? "Verificando disponibilidad..."
                     : rateLimitCountdown !== null
-                      ? `⏳ Espera ${rateLimitCountdown}s para consultar...`
+                      ? `Espera ${rateLimitCountdown}s para consultar...`
                       : "Pregunta a Verona AI..."
                 }
                 disabled={loading || rateLimitCountdown !== null || isVerifying}

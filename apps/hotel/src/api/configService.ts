@@ -6,7 +6,7 @@ const API_BASE = 'http://localhost:4000/api/config';
 async function fetchWithHotel(url: string, options?: RequestInit) {
   const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   const token = (await supabase.auth.getSession()).data.session?.access_token || '';
-  
+
   return fetch(url, {
     ...options,
     headers: {
@@ -49,6 +49,17 @@ export async function actualizarConfigHotelera(config: {
   tasa_isv?: number;
   tasa_turistica?: number;
   nombre_red_hoteles?: string;
+  hora_checkin?: string;
+  hora_checkout?: string;
+  descuento_tercera_edad?: number;
+  edad_tercera_edad?: number;
+  permite_sobreventa?: boolean;
+  auto_confirmar_pagos?: boolean;
+  permitir_edicion_personal?: boolean;
+  horas_anticipacion_reserva?: number;
+  umbral_ocupacion?: number;
+  orientacion_calendario?: string;
+  ciudad_base?: string;
 }, hotelId?: string) {
   try {
     const headers: Record<string, string> = {};
@@ -74,131 +85,106 @@ export async function actualizarConfigHotelera(config: {
 }
 
 // Tipos de Habitación
-export async function obtenerTiposHabitacion() {
-  try {
-    const response = await fetchWithHotel(`${API_BASE}/tipos-habitacion`, {
-      method: 'GET',
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    return result.data || result;
-  } catch (error) {
-    console.error('Error obtaining room types:', error);
-    throw error;
-  }
-}
-
-export async function crearTipoHabitacion(tipo: {
+export interface TipoHabitacion {
+  id: string;
   nombre: string;
   descripcion: string;
-  precio_base: number;
-  id_hotel?: string;
-}) {
-  try {
-    const response = await fetchWithHotel(`${API_BASE}/tipos-habitacion`, {
-      method: 'POST',
-      body: JSON.stringify(tipo),
-    });
+  capacidad_base: number;
+  estado: 'activo' | 'inactivo';
+}
 
-    if (!response.ok) {
-      throw new Error(`Error: ${response.statusText}`);
-    }
+export async function obtenerTiposHabitacion(): Promise<TipoHabitacion[]> {
+  const response = await fetchWithHotel(`${API_BASE}/tipos-habitacion`, { method: 'GET' });
+  if (!response.ok) throw new Error(response.statusText);
+  const result = await response.json();
+  return result.data || result;
+}
 
-    const result = await response.json();
-    return result.data || result;
-  } catch (error) {
-    console.error('Error creating room type:', error);
-    throw error;
+export async function crearTipoHabitacion(tipo: Omit<TipoHabitacion, 'id'>): Promise<TipoHabitacion> {
+  const response = await fetchWithHotel(`${API_BASE}/tipos-habitacion`, {
+    method: 'POST',
+    body: JSON.stringify(tipo),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || response.statusText);
+  }
+  const result = await response.json();
+  return result.data || result;
+}
+
+export async function actualizarTipoHabitacion(id: string, tipo: Partial<Omit<TipoHabitacion, 'id'>>): Promise<TipoHabitacion> {
+  const response = await fetchWithHotel(`${API_BASE}/tipos-habitacion/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(tipo),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || response.statusText);
+  }
+  const result = await response.json();
+  return result.data || result;
+}
+
+export async function eliminarTipoHabitacion(id: string): Promise<void> {
+  const response = await fetchWithHotel(`${API_BASE}/tipos-habitacion/${id}`, { method: 'DELETE' });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || response.statusText);
   }
 }
 
-export async function actualizarTipoHabitacion(
-  id: string,
-  tipo: {
-    nombre: string;
-    descripcion: string;
-    precio_base: number;
-  }
-) {
-  try {
-    const response = await fetchWithHotel(`${API_BASE}/tipos-habitacion/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(tipo),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    return result.data || result;
-  } catch (error) {
-    console.error('Error updating room type:', error);
-    throw error;
-  }
+// Servicios de habitación
+export interface Servicio {
+  id: string;
+  nombre: string;
+  icono: string;
+  es_acumulable: boolean;
+  cantidad_total: number;
 }
 
-export async function eliminarTipoHabitacion(id: string) {
-  try {
-    const response = await fetchWithHotel(`${API_BASE}/tipos-habitacion/${id}`, {
-      method: 'DELETE',
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error: ${response.statusText}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Error deleting room type:', error);
-    throw error;
-  }
+export async function obtenerServicios(): Promise<Servicio[]> {
+  const response = await fetchWithHotel(`${API_BASE}/servicios`, { method: 'GET' });
+  if (!response.ok) throw new Error(response.statusText);
+  const result = await response.json();
+  return result.data || result;
 }
 
-// Amenidades
-export async function obtenerAmenidades() {
-  try {
-    const response = await fetchWithHotel(`${API_BASE}/amenidades`, {
-      method: 'GET',
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    return result.data || result;
-  } catch (error) {
-    console.error('Error obtaining amenities:', error);
-    throw error;
-  }
+export async function crearServicio(s: Omit<Servicio, 'id'>): Promise<Servicio> {
+  const response = await fetchWithHotel(`${API_BASE}/servicios`, {
+    method: 'POST',
+    body: JSON.stringify(s),
+  });
+  if (!response.ok) throw new Error(response.statusText);
+  const result = await response.json();
+  return result.data || result;
 }
 
-export async function actualizarAmenidad(
-  id: string,
-  activa: boolean
-) {
-  try {
-    const response = await fetchWithHotel(`${API_BASE}/amenidades/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ activa }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    return result.data || result;
-  } catch (error) {
-    console.error('Error updating amenity:', error);
-    throw error;
-  }
+export async function actualizarServicio(id: string, s: Partial<Omit<Servicio, 'id'>>): Promise<Servicio> {
+  const response = await fetchWithHotel(`${API_BASE}/servicios/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(s),
+  });
+  if (!response.ok) throw new Error(response.statusText);
+  const result = await response.json();
+  return result.data || result;
 }
+
+export async function eliminarServicio(id: string): Promise<void> {
+  const response = await fetchWithHotel(`${API_BASE}/servicios/${id}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(response.statusText);
+  return response.json();
+  // legacy aliases kept for backward compat
+}
+
+// Legacy aliases (no eliminar — aún importados en Config.tsx hasta que se migre)
+export const obtenerAmenidades = obtenerServicios;
+export const crearAmenidad = (a: { nombre: string; descripcion: string }) =>
+  crearServicio({ nombre: a.nombre, icono: a.descripcion || '', es_acumulable: false, cantidad_total: 0 });
+export const actualizarAmenidad = (id: string, u: any) => actualizarServicio(id, u);
+export const eliminarAmenidad = eliminarServicio;
+
+
 
 // Parámetros de Reserva
 export async function actualizarParametrosReserva(params: {

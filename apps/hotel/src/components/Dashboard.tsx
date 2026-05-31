@@ -187,7 +187,7 @@ export const Dashboard: React.FC = () => {
                 <Calendar size={24} className="text-amber-600" />
               </div>
             </div>
-            <p className="text-xs text-amber-600 font-medium">📍 Check-in próximos 3 días</p>
+            <p className="text-xs text-amber-600 font-medium">Check-in próximos 3 días</p>
             <p className="text-xs text-slate-500 mt-2">
               {kpis.reservasPendientes === 0 ? 'Sin ingresos pendientes' : 'Requieren preparación'}
             </p>
@@ -208,7 +208,7 @@ export const Dashboard: React.FC = () => {
             </div>
             <div className="flex gap-1">
               {[...Array(5)].map((_, i) => (
-                <span key={i} className={`text-lg ${i < Math.round(kpis.scoreClientes / 20) ? '⭐' : '☆'}`}></span>
+                <span key={i} className="text-lg" style={{ color: i < Math.round(kpis.scoreClientes / 20) ? '#f59e0b' : '#d1d5db' }}>★</span>
               ))}
             </div>
             <p className="text-xs text-slate-500 mt-2">Basado en operaciones</p>
@@ -326,7 +326,7 @@ export const Dashboard: React.FC = () => {
                     return (
                       <div key={hId} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-lg border border-slate-100 hover:shadow-sm transition-shadow">
                         <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-                          <span>🏢</span> {hotelName}
+                          {hotelName}
                         </span>
                         <span className="text-xs font-semibold text-slate-900">
                           L. {monto.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
@@ -517,7 +517,7 @@ export const Dashboard: React.FC = () => {
 
           {/* Info Card */}
           <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
-            <h4 className="text-sm font-medium text-blue-900 mb-2">💡 Tip</h4>
+            <h4 className="text-sm font-medium text-blue-900 mb-2">Tip</h4>
             <p className="text-xs text-blue-700 leading-relaxed">
               Sincroniza tus reservas regularmente para mantener todas las métricas actualizadas.
             </p>

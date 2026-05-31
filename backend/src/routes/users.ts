@@ -1,5 +1,6 @@
 import express from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
+import { getAuthUser, getOwnerHotelIdsForUser } from '../utils/tenantHelper.js';
 
 const router = express.Router();
 
@@ -59,26 +60,23 @@ router.post('/crear', async (req, res) => {
 
     const userId = authData.user.id;
 
-    // Resolve owner_id for multi-tenant insert
-    const isMultiTenant = process.env.SUPABASE_URL?.includes('yefaoqzyjfqpwrnzgofb') || false;
-    let owner_id: string | null = null;
-    if (isMultiTenant) {
-      const { data: ownerData } = await supabaseAdmin!.from('owners').select('id_owner').limit(1).maybeSingle();
-      owner_id = ownerData?.id_owner || null;
-      if (!owner_id) {
-        return res.status(500).json({ error: 'No se pudo resolver el owner_id del sistema' });
-      }
+    // Resolver owner_id desde el JWT del usuario autenticado
+    const caller = await getAuthUser(req);
+    if (!caller) return res.status(401).json({ error: 'No autorizado' });
+    const { ownerIds } = await getOwnerHotelIdsForUser(caller);
+    const owner_id = ownerIds[0];
+    if (!owner_id) {
+      return res.status(400).json({ error: 'No se pudo resolver el owner_id del propietario autenticado' });
     }
 
-    // Insert role entry directly into usuarios_roles using supabaseAdmin (bypasses RLS)
+    // Insert en usuarios_roles (supabaseAdmin bypassa RLS)
+    // Las columnas created_at y updated_at tienen DEFAULT en el schema
     const insertPayload: Record<string, any> = {
-      usuario_id: userId,
+      user_id: userId,
+      owner_id,
       id_hotel: null,
-      rol: rol,
-      estado: estado,
-      creado_en: new Date().toISOString(),
-      actualizado_en: new Date().toISOString(),
-      ...(isMultiTenant && owner_id ? { owner_id } : {}),
+      rol,
+      estado,
     };
 
     const { error: roleError } = await supabaseAdmin!.from('usuarios_roles').insert(insertPayload);

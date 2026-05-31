@@ -1,6 +1,6 @@
 import express from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
-import { getAuthUser } from '../utils/tenantHelper.js';
+import { getAuthUser, getOwnerHotelIdsForUser } from '../utils/tenantHelper.js';
 
 const router = express.Router();
 
@@ -58,27 +58,55 @@ router.post('/crear', async (req, res) => {
 
 /**
  * GET /api/roles/usuarios
- * Lista usuarios con roles del hotel activo
+ * Lista usuarios con roles y email del owner autenticado
  */
 router.get('/usuarios', async (req, res) => {
   try {
-    const hotelId = req.headers['x-hotel-id'] as string;
+    const caller = await getAuthUser(req);
+    if (!caller) return res.status(401).json({ error: 'No autorizado' });
+    const { ownerIds } = await getOwnerHotelIdsForUser(caller);
+    const owner_id = ownerIds[0];
 
     let query = supabaseAdmin!
-      .from('usuarios_roles')
-      .select('id, user_id, owner_id, id_hotel, rol, estado, created_at')
-      .order('created_at', { ascending: false });
+      .from('usuarios_roles_con_email')
+      .select('*')
+      .order('creado_en', { ascending: false });
 
-    if (hotelId && hotelId !== 'all') {
-      query = query.eq('id_hotel', hotelId);
-    }
+    if (owner_id) query = query.eq('owner_id', owner_id);
 
     const { data, error } = await query;
     if (error) throw error;
-
     return res.json(data || []);
   } catch (err) {
     console.error('Error en /roles/usuarios:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+/**
+ * PUT /api/roles/estado
+ * Cambiar estado de un usuario
+ */
+router.put('/estado', async (req, res) => {
+  try {
+    const { user_id, estado } = req.body;
+    if (!user_id || !estado) return res.status(400).json({ error: 'user_id y estado requeridos' });
+
+    const caller = await getAuthUser(req);
+    if (!caller) return res.status(401).json({ error: 'No autorizado' });
+    const { ownerIds } = await getOwnerHotelIdsForUser(caller);
+    const owner_id = ownerIds[0];
+    if (!owner_id) return res.status(400).json({ error: 'owner_id no resuelto' });
+
+    const { error } = await supabaseAdmin!
+      .from('usuarios_roles')
+      .update({ estado })
+      .eq('user_id', user_id)
+      .eq('owner_id', owner_id);
+
+    if (error) return res.status(400).json({ error: error.message });
+    return res.json({ success: true });
+  } catch (err) {
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

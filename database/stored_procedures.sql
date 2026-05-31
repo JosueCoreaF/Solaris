@@ -43,6 +43,29 @@ GRANT SELECT ON public.habitaciones_con_detalles TO authenticated;
 
 
 -- =============================================================================
+-- VISTA: usuarios_roles_con_email
+-- Une usuarios_roles con auth.users para exponer el email del staff
+-- =============================================================================
+DROP VIEW IF EXISTS public.usuarios_roles_con_email CASCADE;
+
+CREATE OR REPLACE VIEW public.usuarios_roles_con_email AS
+SELECT
+  ur.id,
+  ur.user_id,
+  ur.owner_id,
+  ur.id_hotel,
+  ur.rol,
+  ur.estado,
+  ur.created_at  AS creado_en,
+  ur.updated_at  AS actualizado_en,
+  au.email
+FROM  public.usuarios_roles ur
+LEFT JOIN auth.users au ON au.id = ur.user_id;
+
+GRANT SELECT ON public.usuarios_roles_con_email TO authenticated, service_role;
+
+
+-- =============================================================================
 -- fn_verificar_disponibilidad_servicio
 -- =============================================================================
 CREATE OR REPLACE FUNCTION public.fn_verificar_disponibilidad_servicio(

@@ -21,14 +21,6 @@ const IconReservations = () => (
     <path d="M7 4v3M17 4v3M5 9h14M6.5 6h11A1.5 1.5 0 0 1 19 7.5v10a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 17.5v-10A1.5 1.5 0 0 1 6.5 6z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
-const IconCleaning = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    <polyline points="14 2 14 8 20 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    <line x1="16" y1="13" x2="8" y2="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    <line x1="16" y1="17" x2="8" y2="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-  </svg>
-);
 const IconPayments = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5zm0 3.5h16M8 14h3m2 0h3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -107,7 +99,6 @@ const getSidebarSections = (role: string) => {
           { to: '/pagos', label: 'Pagos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/clientes', label: 'Clientes', icon: IconClients, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/estado-cuenta', label: 'Estado de Cuenta', icon: IconWallet, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
-          { to: '/limpieza', label: 'Limpieza', icon: IconCleaning, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'] },
           { to: '/chat', label: 'Chat', icon: IconChat, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'] },
         ],
       },
@@ -151,7 +142,7 @@ export const Sidebar: React.FC = () => {
   const { hotel: syncHotel } = useSync();
   const [unreadCount, setUnreadCount] = useState(0);
   const [hoteles, setHoteles] = useState<any[]>([]);
-  const [activeHotelId, setActiveHotelId] = useState(localStorage.getItem('active_hotel_id') || 'all');
+  const [activeHotelId, setActiveHotelId] = useState(localStorage.getItem('active_hotel_id') || '');
   const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
@@ -159,12 +150,23 @@ export const Sidebar: React.FC = () => {
       .then(data => {
         if (data && Array.isArray(data)) {
           setHoteles(data);
+          // Garantizar selección de hotel individual activo
+          const current = localStorage.getItem('active_hotel_id') || '';
+          const exists = current && current !== 'all' && data.some((h: any) => h.id_hotel === current);
+          if ((!exists || current === 'all') && data.length > 0) {
+            const firstId = data[0].id_hotel;
+            localStorage.setItem('active_hotel_id', firstId);
+            setActiveHotelId(firstId);
+          } else if (current && current !== 'all') {
+            setActiveHotelId(current);
+          }
         }
       })
       .catch(err => console.error('Error loading hotels in sidebar:', err));
   }, []);
 
   const handleHotelChange = (val: string) => {
+    if (val === 'all') return;
     localStorage.setItem('active_hotel_id', val);
     setActiveHotelId(val);
     setModalOpen(false);
@@ -212,9 +214,9 @@ export const Sidebar: React.FC = () => {
               fontSize: 14,
               cursor: 'pointer'
             }}
-            title={activeHotelId === 'all' ? 'Modo Consolidado (Todos)' : 'Hotel Individual Activo'}
+            title="Hotel Individual Activo"
           >
-            {activeHotelId === 'all' ? '🌍' : '🏢'}
+            🏨
           </div>
         </div>
 
@@ -265,7 +267,7 @@ export const Sidebar: React.FC = () => {
 
         <div style={{ padding: '4px 8px', marginTop: 2 }}>
           <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>
-            🏨 Propiedad Activa
+            Propiedad Activa
           </label>
           <button
             onClick={() => setModalOpen(true)}
@@ -289,7 +291,7 @@ export const Sidebar: React.FC = () => {
             onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--shell-border-strong)'}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {activeHotelId === 'all' ? '🌍 Consolidado (Todos)' : `🏢 ${syncHotel ? syncHotel.nombre_hotel : (hoteles.find(h => h.id_hotel === activeHotelId)?.nombre_hotel || 'Cargando...')}`}
+              {syncHotel ? syncHotel.nombre_hotel : (hoteles.find(h => h.id_hotel === activeHotelId)?.nombre_hotel || 'Cargando...')}
             </div>
             <div style={{ color: 'var(--muted)', display: 'flex', flexShrink: 0 }}>
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
@@ -400,31 +402,6 @@ export const Sidebar: React.FC = () => {
             </div>
 
             <div style={{ padding: '12px', maxHeight: '60vh', overflowY: 'auto' }}>
-              <div
-                onClick={() => handleHotelChange('all')}
-                style={{
-                  padding: '14px 16px',
-                  borderRadius: '10px',
-                  marginBottom: 8,
-                  backgroundColor: activeHotelId === 'all' ? 'var(--accent-bg)' : 'transparent',
-                  border: activeHotelId === 'all' ? '1px solid var(--accent-border)' : '1px solid transparent',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => { if (activeHotelId !== 'all') e.currentTarget.style.backgroundColor = 'var(--sidebar-item-hover)' }}
-                onMouseLeave={(e) => { if (activeHotelId !== 'all') e.currentTarget.style.backgroundColor = 'transparent' }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: '8px', background: 'var(--sidebar-item-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🌍</div>
-                  <div>
-                    <div style={{ color: 'var(--text-h)', fontWeight: 600, fontSize: 15 }}>Consolidado Total</div>
-                    <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>Ver métricas de todos los hoteles</div>
-                  </div>
-                </div>
-                {activeHotelId === 'all' && <span style={{ color: 'var(--accent)' }}><IconCheck /></span>}
-              </div>
-
               {hoteles.map((h: any) => (
                 <div
                   key={h.id_hotel}
@@ -443,7 +420,7 @@ export const Sidebar: React.FC = () => {
                   onMouseLeave={(e) => { if (activeHotelId !== h.id_hotel) e.currentTarget.style.backgroundColor = 'transparent' }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '8px', background: 'var(--sidebar-item-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🏢</div>
+                    <div style={{ width: 40, height: 40, borderRadius: '8px', background: 'var(--sidebar-item-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>Htl</div>
                     <div>
                       <div style={{ color: 'var(--text-h)', fontWeight: 600, fontSize: 15 }}>{h.nombre_hotel}</div>
                       <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>{h.ciudad || 'Operación regular'}</div>
