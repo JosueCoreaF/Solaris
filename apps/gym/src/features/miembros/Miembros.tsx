@@ -1,0 +1,214 @@
+import React, { useEffect, useState } from 'react';
+import { Plus, Search, Edit2, Trash2, X } from 'lucide-react';
+import { fetchMiembros, crearMiembro, actualizarMiembro, eliminarMiembro, type Miembro } from '../../api/miembrosService';
+import { useToast } from '../../components/Toast';
+
+const EMPTY: Partial<Miembro> = {
+  nombre_completo: '', correo: '', telefono: '', documento_identidad: '',
+  genero: 'masculino', estado: 'activo', observaciones: '',
+};
+
+const estadoBadge: Record<string, string> = {
+  activo: 'badge-green', inactivo: 'badge-gray', suspendido: 'badge-red',
+};
+
+export const Miembros: React.FC = () => {
+  const { addToast } = useToast();
+  const [miembros, setMiembros] = useState<Miembro[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busqueda, setBusqueda] = useState('');
+  const [modal, setModal] = useState(false);
+  const [editando, setEditando] = useState<Miembro | null>(null);
+  const [form, setForm] = useState<Partial<Miembro>>(EMPTY);
+  const [guardando, setGuardando] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try { setMiembros(await fetchMiembros()); } catch { addToast('Error cargando miembros', 'error'); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const abrir = (m?: Miembro) => {
+    setEditando(m ?? null);
+    setForm(m ? { ...m } : EMPTY);
+    setModal(true);
+  };
+
+  const cerrar = () => { setModal(false); setEditando(null); setForm(EMPTY); };
+
+  const guardar = async () => {
+    if (!form.nombre_completo || !form.correo) { addToast('Nombre y correo son requeridos', 'warning'); return; }
+    setGuardando(true);
+    try {
+      if (editando) {
+        const updated = await actualizarMiembro(editando.id_miembro, form);
+        setMiembros(prev => prev.map(m => m.id_miembro === updated.id_miembro ? updated : m));
+        addToast('Miembro actualizado', 'success');
+      } else {
+        const nuevo = await crearMiembro(form);
+        setMiembros(prev => [nuevo, ...prev]);
+        addToast('Miembro registrado', 'success');
+      }
+      cerrar();
+    } catch (e: any) { addToast(e.message || 'Error al guardar', 'error'); } finally { setGuardando(false); }
+  };
+
+  const eliminar = async (m: Miembro) => {
+    if (!confirm(`¿Eliminar a ${m.nombre_completo}?`)) return;
+    try {
+      await eliminarMiembro(m.id_miembro);
+      setMiembros(prev => prev.filter(x => x.id_miembro !== m.id_miembro));
+      addToast('Miembro eliminado', 'success');
+    } catch { addToast('Error al eliminar', 'error'); }
+  };
+
+  const filtrados = miembros.filter(m =>
+    m.nombre_completo.toLowerCase().includes(busqueda.toLowerCase()) ||
+    m.correo.toLowerCase().includes(busqueda.toLowerCase()) ||
+    (m.documento_identidad ?? '').includes(busqueda)
+  );
+
+  return (
+    <div>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 className="page-title">Miembros</h1>
+          <p className="page-subtitle">{miembros.length} miembro(s) registrado(s)</p>
+        </div>
+        <button className="btn-primary" onClick={() => abrir()}>
+          <Plus size={16} /> Nuevo Miembro
+        </button>
+      </div>
+
+      <div style={{ background: 'var(--card-bg)', border: '1px solid var(--shell-border)', borderRadius: 16, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--shell-border-subtle)', display: 'flex', gap: 10 }}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: 320 }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+            <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Buscar por nombre, correo o documento..."
+              value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+          </div>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>Cargando...</div>
+        ) : filtrados.length === 0 ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>
+            {busqueda ? 'No hay resultados para tu búsqueda' : 'No hay miembros registrados'}
+          </div>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Correo</th>
+                <th>Teléfono</th>
+                <th>Documento</th>
+                <th>Estado</th>
+                <th>Registro</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.map(m => (
+                <tr key={m.id_miembro}>
+                  <td style={{ fontWeight: 600, color: 'var(--text-h)' }}>{m.nombre_completo}</td>
+                  <td>{m.correo}</td>
+                  <td>{m.telefono || '—'}</td>
+                  <td>{m.documento_identidad || '—'}</td>
+                  <td><span className={`badge ${estadoBadge[m.estado] ?? 'badge-gray'}`}>{m.estado}</span></td>
+                  <td style={{ color: 'var(--muted)', fontSize: 12 }}>{new Date(m.created_at).toLocaleDateString('es-HN')}</td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 6 }}
+                        title="Editar" onClick={() => abrir(m)}>
+                        <Edit2 size={14} />
+                      </button>
+                      <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#dc2626', padding: 4, borderRadius: 6 }}
+                        title="Eliminar" onClick={() => eliminar(m)}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {modal && (
+        <div className="modal-overlay" onClick={cerrar}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-h)', margin: 0 }}>
+                {editando ? 'Editar Miembro' : 'Nuevo Miembro'}
+              </h3>
+              <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--muted)' }} onClick={cerrar}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group" style={{ gridColumn: '1/-1' }}>
+                  <label className="form-label">Nombre Completo *</label>
+                  <input className="form-input" value={form.nombre_completo ?? ''} onChange={e => setForm(p => ({ ...p, nombre_completo: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Correo *</label>
+                  <input className="form-input" type="email" value={form.correo ?? ''} onChange={e => setForm(p => ({ ...p, correo: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Teléfono</label>
+                  <input className="form-input" value={form.telefono ?? ''} onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Documento de Identidad</label>
+                  <input className="form-input" value={form.documento_identidad ?? ''} onChange={e => setForm(p => ({ ...p, documento_identidad: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Género</label>
+                  <select className="form-select" value={form.genero ?? 'masculino'} onChange={e => setForm(p => ({ ...p, genero: e.target.value as any }))}>
+                    <option value="masculino">Masculino</option>
+                    <option value="femenino">Femenino</option>
+                    <option value="otro">Otro</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Fecha de Nacimiento</label>
+                  <input className="form-input" type="date" value={form.fecha_nacimiento ?? ''} onChange={e => setForm(p => ({ ...p, fecha_nacimiento: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Estado</label>
+                  <select className="form-select" value={form.estado ?? 'activo'} onChange={e => setForm(p => ({ ...p, estado: e.target.value as any }))}>
+                    <option value="activo">Activo</option>
+                    <option value="inactivo">Inactivo</option>
+                    <option value="suspendido">Suspendido</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Contacto de Emergencia</label>
+                  <input className="form-input" value={form.contacto_emergencia ?? ''} onChange={e => setForm(p => ({ ...p, contacto_emergencia: e.target.value }))} />
+                </div>
+                <div className="form-group" style={{ gridColumn: '1/-1' }}>
+                  <label className="form-label">Dirección</label>
+                  <input className="form-input" value={form.direccion ?? ''} onChange={e => setForm(p => ({ ...p, direccion: e.target.value }))} />
+                </div>
+                <div className="form-group" style={{ gridColumn: '1/-1' }}>
+                  <label className="form-label">Observaciones</label>
+                  <textarea className="form-input" rows={2} value={form.observaciones ?? ''} onChange={e => setForm(p => ({ ...p, observaciones: e.target.value }))} />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={cerrar}>Cancelar</button>
+              <button className="btn-primary" onClick={guardar} disabled={guardando}>
+                {guardando ? 'Guardando...' : editando ? 'Guardar Cambios' : 'Registrar Miembro'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
