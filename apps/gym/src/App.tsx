@@ -1,27 +1,43 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import './index.css'
-
-const Welcome = () => (
-  <main className="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center p-6">
-    <div className="max-w-3xl rounded-3xl border border-slate-700 bg-slate-900/90 p-10 shadow-2xl shadow-slate-950/30">
-      <h1 className="text-4xl font-bold mb-4">PartnerCentral Gym</h1>
-      <p className="text-slate-300 leading-8">
-        Este es el esqueleto inicial para el módulo de gimnasio. Aquí puedes conectar tu AuthGuard, SyncContext y las rutas específicas de gym.
-      </p>
-      <p className="mt-6 text-slate-400">Puerto de desarrollo: <strong>5175</strong></p>
-    </div>
-  </main>
-)
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { SyncProvider } from './context/SyncContext';
+import { ToastProvider } from './components/Toast';
+import { AuthGuard, GuestGuard } from './components/AuthGuard';
+import { Layout } from './components/Layout';
+import { Dashboard } from './components/Dashboard';
+import { Login } from './features/auth/Login';
+import { Miembros } from './features/miembros/Miembros';
+import { Inscripciones } from './features/inscripciones/Inscripciones';
+import { Clases } from './features/clases/Clases';
+import { Pagos } from './features/pagos/Pagos';
+import { Reportes } from './features/reportes/Reportes';
+import { Config } from './features/config/Config';
 
 function App() {
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<Welcome />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Router>
-  )
+    <AuthProvider>
+      <SyncProvider>
+        <ToastProvider>
+          <Router>
+            <Routes>
+              <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
+              <Route element={<AuthGuard><Layout /></AuthGuard>}>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/miembros" element={<Miembros />} />
+                <Route path="/inscripciones" element={<Inscripciones />} />
+                <Route path="/clases" element={<Clases />} />
+                <Route path="/pagos" element={<Pagos />} />
+                <Route path="/reportes" element={<Reportes />} />
+                <Route path="/config" element={<Config />} />
+              </Route>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Router>
+        </ToastProvider>
+      </SyncProvider>
+    </AuthProvider>
+  );
 }
 
-export default App
+export default App;
