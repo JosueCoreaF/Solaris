@@ -29,6 +29,8 @@ export default defineConfig(({ mode }) => {
         JSON.stringify(process.env.VITE_API_BASE_URL || 'http://localhost:4000/api'),
       'import.meta.env.VITE_MEDIA_BUCKET':
         JSON.stringify(process.env.VITE_MEDIA_BUCKET || 'solaris-media'),
+      'import.meta.env.VITE_HUB_URL':
+        JSON.stringify(process.env.VITE_HUB_URL || 'http://localhost:5174'),
     },
   };
 });
