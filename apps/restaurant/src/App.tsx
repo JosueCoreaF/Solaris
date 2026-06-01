@@ -1,6 +1,16 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
-import Dashboard from './components/Dashboard';
+import Dashboard from '../src/Pages/Dashboard';
+import reporte_comida from '../src/Pages/reporte_comida'
+import reporte_pedido from '../src/Pages/reporte_pedido'
+import reporte_productos from '../src/Pages/reporte_productos'
+import reporteingreso from '../src/Pages/reporte_promocio'
+import reporte_promociones from '../src/Pages/reporteingreso'
+import Reporteingreso from '../src/Pages/reporteingreso';
+import Reporte_promocio from '../src/Pages/reporte_promocio';
+import Reporte_pedido from '../src/Pages/reporte_pedido';
+import Reporte_productos from '../src/Pages/reporte_productos';
+import Reporte_Comida from '../src/Pages/reporte_comida';
 
 
 const Welcome = () => (
@@ -22,6 +32,11 @@ function App() {
         <Route path="/" element={<Welcome />} />
         <Route path="*" element={<Navigate to="/" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
+         <Route path="/reportes/ingresos" element={<Reporteingreso />} />
+        <Route path="/reportes/promocion" element={<Reporte_promocio/>} />
+        <Route path="/reportes/pedidos" element={<Reporte_pedido />} />
+        <Route path="/reportes/producto" element={<Reporte_productos/>} />
+        <Route path="/reportes/plato" element={<Reporte_Comida/>} />
       </Routes>
     </Router>
   )

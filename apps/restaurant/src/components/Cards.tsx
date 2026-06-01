@@ -1,7 +1,8 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+
 import { useNavigate } from 'react-router-dom'
 
 export default function Cards() {
+  const navigate = useNavigate() 
   return (
     <div className="flex gap-6 p-8">
       
@@ -15,7 +16,12 @@ export default function Cards() {
         <div className="p-4">
           <h3 className="font-bold text-lg">Ingresos del restaurante</h3>
           <p className="text-gray-600 mb-4">Ver informacion de los ingresos del restaurante</p>
-          <button className="bg-blue-500 text-white px-4 py-2 rounded w-full">Entrar</button>
+           <button 
+            onClick={() => navigate('/reportes/ingresos')}  
+            className="bg-blue-500 text-white px-4 py-2 rounded w-full"
+          >
+            Entrar
+          </button>
         </div>
       </div>
       
@@ -25,10 +31,15 @@ export default function Cards() {
           alt="Productos"
           className="w-full h-40 object-cover rounded-t-lg"
         />
-        <div className="p-4">
+        <div className="p-4 ">
           <h3 className="font-bold text-lg">Productos</h3>
           <p className="text-gray-600 mb-4">Ver informacion de los productos solicitados</p>
-          <button className="bg-blue-500 text-white px-4 py-2 rounded w-full">Entrar</button>
+          <button 
+            onClick={() => navigate('/reportes/producto')}  
+            className="bg-blue-500 text-white px-4 py-2 rounded w-full"
+          >
+            Entrar
+          </button>
         </div>
       </div>
 
@@ -38,10 +49,15 @@ export default function Cards() {
           alt="Productos"
           className="w-full h-40 object-cover rounded-t-lg"
         />
-        <div className="p-4">
+        <div className="p-4 mb-4">
           <h3 className="font-bold text-lg">Pedidos</h3>
           <p className="text-gray-600 mb-4">Ver los pedidos hechos a proveedores de tu restaurante</p>
-          <button className="bg-blue-500 text-white px-4 py-2 rounded w-full">Entrar</button>
+           <button 
+            onClick={() => navigate('/reportes/pedidos')}  
+            className="bg-blue-500 text-white px-4 py-2 rounded w-full"
+          >
+            Entrar
+          </button>
         </div>
       </div>
 
@@ -51,10 +67,15 @@ export default function Cards() {
           alt="Productos"
           className="w-full h-40 object-cover rounded-t-lg"
         />
-        <div className="p-4">
+        <div className="p-4 mb-4">
           <h3 className="font-bold text-lg">Promociones</h3>
           <p className="text-gray-600 mb-4">Ver las promociones mas vendidas de tu restaurante</p>
-          <button className="bg-blue-500 text-white px-4 py-2 rounded w-full">Entrar</button>
+          <button 
+            onClick={() => navigate('/reportes/promocion')} 
+            className="bg-blue-500 text-white px-4 py-2 rounded w-full"
+          >
+            Entrar
+          </button>
         </div>
       </div>
 
@@ -64,10 +85,15 @@ export default function Cards() {
           alt="Productos"
           className="w-full h-40 object-cover rounded-t-lg"
         />
-        <div className="p-4">
+        <div className="p-4 mb-4">
           <h3 className="font-bold text-lg">Platos</h3>
           <p className="text-gray-600 mb-4">Ver los productos que mas movimiento tienen</p>
-          <button className="bg-blue-500 text-white px-4 py-2 rounded w-full">Entrar</button>
+           <button 
+            onClick={() => navigate('/reportes/plato')} 
+            className="bg-blue-500 text-white px-4 py-2 rounded w-full"
+          >
+            Entrar
+          </button>
         </div>
       </div>
       
