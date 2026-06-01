@@ -1764,7 +1764,7 @@ export const Bookings: React.FC = () => {
                 { icon: '🔍', label: 'Ver detalles', action: () => { closeCtxMenu(); setDetailReserva(ctxMenu!.reserva); } },
                 null,
                 !isPast && { icon: '❌', label: 'Cancelar reserva', danger: true, action: () => { closeCtxMenu(); handleCancelClick(ctxMenu!.reserva.id_reserva_hotel); } },
-              ].filter((item): item is { icon: string; label: string; danger?: boolean; action: () => void } | null => item !== false).map((item, i) =>
+              ].filter((item: any) => item !== false).map((item: any, i: number) =>
                 item === null ? (
                   <div key={i} style={{ height: 1, background: '#f1f5f9', margin: '4px 0' }} />
                 ) : (
