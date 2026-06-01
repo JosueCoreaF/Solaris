@@ -339,6 +339,29 @@ export const Sidebar: React.FC = () => {
           ))}
         </nav>
 
+        {/* Volver al Hub */}
+        <div style={{ padding: '8px 16px 4px' }}>
+          <button
+            onClick={() => {
+              const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
+              window.location.href = hubUrl;
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+              padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.12)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; }}
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+            Volver al Panel
+          </button>
+        </div>
+
         <footer className="sidebar-footer">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingBottom: 4 }}>
             <strong>{user?.email?.split('@')[0] ?? 'Usuario'}</strong>

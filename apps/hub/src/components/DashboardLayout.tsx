@@ -21,6 +21,14 @@ import {
 
 const PORTAL_BASE = import.meta.env.VITE_PORTAL_BASE_URL || 'http://localhost:5177';
 
+// URLs de cada módulo — en dev usa localhost, en prod usa las env vars de Vercel
+const MODULE_URLS: Record<string, string> = {
+  hotel:      import.meta.env.VITE_HOTEL_URL      || 'http://localhost:5173',
+  gym:        import.meta.env.VITE_GYM_URL        || 'http://localhost:5175',
+  restaurant: import.meta.env.VITE_RESTAURANT_URL || 'http://localhost:5176',
+  store:      import.meta.env.VITE_STORE_URL      || 'http://localhost:5178',
+};
+
 interface DashboardContextType {
   modules: any[];
   kpis: any;
@@ -103,24 +111,15 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     await supabase.auth.signOut();
   };
 
-  const routeByModuleType = (type: string) => {
-    const normalized = type?.toLowerCase?.() ?? 'hotel';
-    switch (normalized) {
-      case 'gym': return 5175;
-      case 'restaurant': return 5176;
-      case 'store': return 5177;
-      case 'hotel':
-      default: return 5173;
-    }
-  };
-
   const handleEnterBusiness = (moduleType: string, referenceId: string) => {
-    const port = routeByModuleType(moduleType);
+    const normalized = moduleType?.toLowerCase?.() ?? 'hotel';
+    const base = MODULE_URLS[normalized] || MODULE_URLS.hotel;
+    const params = new URLSearchParams({ business_id: referenceId });
     if (session) {
-      window.location.href = `http://localhost:${port}/?access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}&business_id=${encodeURIComponent(referenceId)}`;
-    } else {
-      window.location.href = `http://localhost:${port}/?business_id=${encodeURIComponent(referenceId)}`;
+      params.set('access_token', session.access_token);
+      params.set('refresh_token', session.refresh_token);
     }
+    window.location.href = `${base}/?${params.toString()}`;
   };
 
   const urgentNotifCount = notifications.filter(n => n.severity === 'high').length;
