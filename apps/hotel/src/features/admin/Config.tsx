@@ -99,6 +99,7 @@ export const Config: React.FC = () => {
   const [hotelCorreo, setHotelCorreo] = useState('');
   const [hotelEstrellas, setHotelEstrellas] = useState(3);
   const [hotelMaps, setHotelMaps] = useState('');
+  const [hotelSlug, setHotelSlug] = useState('');
 
   // Estados para Parámetros de Configuración
   const [nombreRed, setNombreRed] = useState('');
@@ -178,6 +179,7 @@ export const Config: React.FC = () => {
         setHotelCorreo(activeHotel.correo_contacto || '');
         setHotelEstrellas(Number(activeHotel.estrellas ?? 3));
         setHotelMaps(activeHotel.enlace_google_maps || '');
+        setHotelSlug(activeHotel.slug || '');
       }
 
       if (!activeId) {
@@ -255,7 +257,8 @@ export const Config: React.FC = () => {
           telefono: hotelTelefono,
           correo_contacto: hotelCorreo,
           estrellas: hotelEstrellas,
-          enlace_google_maps: hotelMaps
+          enlace_google_maps: hotelMaps,
+          slug: hotelSlug.trim() || null,
         });
 
         if (res && res.success) {
@@ -750,18 +753,43 @@ export const Config: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Slug del portal */}
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>
+                      Slug del Portal Público <span style={{ fontWeight: 400, color: '#94a3b8' }}>(URL de reservas en solarys.uk)</span>
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 13, color: '#94a3b8', whiteSpace: 'nowrap' }}>solarys.uk/</span>
+                      <input
+                        type="text"
+                        value={hotelSlug}
+                        onChange={e => setHotelSlug(
+                          e.target.value.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9-]/g, '').replace(/\s+/g, '-')
+                        )}
+                        style={inputStyle}
+                        placeholder="hotel-nombre-ciudad"
+                      />
+                    </div>
+                    {hotelSlug && (
+                      <a href={`https://solarys.uk/${hotelSlug}`} target="_blank" rel="noreferrer"
+                        style={{ display: 'inline-block', fontSize: 11, color: '#4f46e5', fontWeight: 600, marginTop: 6, textDecoration: 'none' }}>
+                        Ver portal: solarys.uk/{hotelSlug}
+                      </a>
+                    )}
+                  </div>
+
                   <div style={{ gridColumn: '1 / -1' }}>
                     <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>Enlace de Ubicación (Google Maps)</label>
-                    <input 
-                      type="url" 
-                      value={hotelMaps} 
-                      onChange={e => setHotelMaps(e.target.value)} 
-                      style={inputStyle} 
+                    <input
+                      type="url"
+                      value={hotelMaps}
+                      onChange={e => setHotelMaps(e.target.value)}
+                      style={inputStyle}
                       placeholder="Ej. https://maps.app.goo.gl/abcdefg"
                     />
                     {hotelMaps && (
                       <a href={hotelMaps} target="_blank" rel="noreferrer" style={{ display: 'inline-block', fontSize: 11, color: '#4f46e5', fontWeight: 600, marginTop: 6, textDecoration: 'none' }}>
-                        🌍 Probar enlace de mapas en nueva pestaña
+                        Ver en mapa
                       </a>
                     )}
                   </div>

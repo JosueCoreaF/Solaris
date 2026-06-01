@@ -4,11 +4,12 @@ const { spawn, execSync } = require('child_process');
 
 const DIRECTORIO = __dirname;
 const servicios = [
-    { id: 'hub', name: 'HUB', color: 'blue', port: 5174 },
-    { id: 'backend', name: 'BACKEND', color: 'green', port: 4000 },
-    { id: 'hotel', name: 'HOTEL', color: 'yellow', port: 5173 },
-    { id: 'restaurant', name: 'RESTAURANT', color: 'red', port: 5176 },
-    { id: 'gym', name: 'GYM', color: 'magenta', port: 5175 }
+    { id: 'hub',        name: 'HUB',        color: 'blue',    port: 5174 },
+    { id: 'backend',    name: 'BACKEND',    color: 'green',   port: 4000 },
+    { id: 'hotel',      name: 'HOTEL',      color: 'yellow',  port: 5173 },
+    { id: 'portal',     name: 'PORTAL',     color: 'cyan',    port: 5177 },
+    { id: 'restaurant', name: 'RESTAURANT', color: 'red',     port: 5176 },
+    { id: 'gym',        name: 'GYM',        color: 'magenta', port: 5175 }
 ];
 
 const screen = blessed.screen({ smartCSR: true, title: 'Solaris Control Panel' });

@@ -190,6 +190,7 @@ CREATE TABLE public.configuracion_hotelera (
   orientacion_calendario      varchar     DEFAULT 'vertical',
   nombre_red_hoteles          varchar     DEFAULT 'Hotel Manager',
   ciudad_base                 varchar,
+  cargo_persona_extra         numeric     DEFAULT 0.00 CHECK (cargo_persona_extra >= 0),
   created_at                  timestamptz NOT NULL DEFAULT now(),
   updated_at                  timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT configuracion_hotelera_pkey   PRIMARY KEY (id_config),

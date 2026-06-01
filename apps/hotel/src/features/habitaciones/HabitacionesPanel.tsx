@@ -5,6 +5,7 @@ import {
   BedDouble, Plus, Pencil, X, Calendar, Loader2, Trash2,
   CheckCircle2, Wrench, Lock, Sparkles, Search,
   Building2, Users, ChevronDown, Tag, ConciergeBell, Edit3,
+  Upload, ImagePlus,
 } from 'lucide-react';
 import { supabase } from '../../api/supabase';
 import apiClient from '../../services/api';
@@ -316,7 +317,8 @@ export const HabitacionesPanel: React.FC = () => {
   const [saving, setSaving]             = useState(false);
   const [deleting, setDeleting]         = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Habitacion | null>(null);
-  const [uploading360, setUploading360] = useState(false);
+  const [uploading360,    setUploading360]    = useState(false);
+  const [uploadingImagen, setUploadingImagen] = useState(false);
 
   const [bloqueos, setBloqueos]         = useState<any[]>([]);
   const [selectedRoomForCalendar, setSelectedRoomForCalendar] = useState<Habitacion | null>(null);
@@ -334,24 +336,46 @@ export const HabitacionesPanel: React.FC = () => {
     toastTimer.current = setTimeout(() => setToast(null), 4000);
   }, []);
 
-  // ── 360 Upload ──
+  // ── Función reutilizable de upload vía backend (bypasea RLS de storage) ──
+  async function uploadImagen(file: File, folder: string): Promise<string> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('folder', folder);
+
+    const res = await apiClient.post('/media/upload', formData);
+    const url = (res as any)?.url || (res as any)?.data?.url;
+    if (!url) throw new Error('No se recibió URL del servidor.');
+    return url;
+  }
+
+  // ── Upload imagen 360 ──
   async function handleUpload360(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
     setUploading360(true);
     try {
-      const fileExt = file.name.split('.').pop() || 'jpg';
-      const fileName = `habitaciones/360_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const bucketName = import.meta.env.VITE_MEDIA_BUCKET || 'hotel-verona-media';
-      const { error } = await supabase.storage.from(bucketName).upload(fileName, file, { cacheControl: '3600', upsert: true });
-      if (error) throw error;
-      const { data: urlData } = supabase.storage.from(bucketName).getPublicUrl(fileName);
-      if (!urlData?.publicUrl) throw new Error('No se pudo generar la URL pública.');
-      setForm(f => ({ ...f, imagen_360: urlData.publicUrl }));
-      showToast('Imagen 360° subida con éxito.');
+      const url = await uploadImagen(file, 'habitaciones/360');
+      setForm(f => ({ ...f, imagen_360: url }));
+      showToast('Imagen 360° subida.');
     } catch (err: any) {
-      showToast(`Error al subir imagen: ${err.message}`, 'err');
+      showToast(err.message, 'err');
     } finally { setUploading360(false); }
+  }
+
+  // ── Upload imágenes normales (múltiples) ──
+  async function handleUploadImagenes(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    e.target.value = '';
+    setUploadingImagen(true);
+    try {
+      const urls = await Promise.all(files.map(f => uploadImagen(f, 'habitaciones/fotos')));
+      setForm(f => ({ ...f, imagenes: [...(f.imagenes || []), ...urls] }));
+      showToast(`${urls.length} imagen${urls.length !== 1 ? 'es' : ''} subida${urls.length !== 1 ? 's' : ''}.`);
+    } catch (err: any) {
+      showToast(err.message, 'err');
+    } finally { setUploadingImagen(false); }
   }
 
   const load = useCallback(async () => {
@@ -1077,33 +1101,66 @@ export const HabitacionesPanel: React.FC = () => {
                 </label>
 
                 {/* Imagen 360 */}
-                <label className="col-span-2">
+                <div className="col-span-2">
                   <span style={lbl}>Imagen Panorámica 360°</span>
                   <div className="flex gap-2 mt-1">
                     <input type="text" className={`${inp} flex-1 mt-0`}
-                      placeholder="https://ejemplo.com/foto360.jpg"
+                      placeholder="Pega una URL o sube un archivo"
                       value={form.imagen_360 || ''}
                       onChange={e => setForm(f => ({ ...f, imagen_360: e.target.value }))} />
                     <div className="relative flex-shrink-0">
                       <input type="file" accept="image/*" onChange={handleUpload360} disabled={uploading360}
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
                       <button type="button" disabled={uploading360}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-white transition-colors"
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white transition-colors"
                         style={{ background: uploading360 ? '#94a3b8' : '#10b981' }}>
-                        {uploading360 ? <><Loader2 size={13} className="animate-spin" /> Subiendo</> : <>📁 Subir</>}
+                        {uploading360 ? <><Loader2 size={13} className="animate-spin" />Subiendo</> : <><Upload size={13} />Subir</>}
                       </button>
                     </div>
                   </div>
-                </label>
+                  {form.imagen_360 && (
+                    <a href={form.imagen_360} target="_blank" rel="noopener noreferrer"
+                      className="text-[11px] text-blue-500 hover:underline mt-1 block truncate">
+                      {form.imagen_360}
+                    </a>
+                  )}
+                </div>
 
-                {/* Imágenes */}
-                <label className="col-span-2">
-                  <span style={lbl}>Imágenes adicionales (URLs, una por línea)</span>
-                  <textarea className={`${inp} resize-none`} rows={2}
-                    placeholder="https://ejemplo.com/foto1.jpg"
+                {/* Imágenes normales */}
+                <div className="col-span-2">
+                  <span style={lbl}>Imágenes de la habitación</span>
+                  {/* Botón subir múltiples archivos */}
+                  <div className="relative mt-1 mb-2">
+                    <input type="file" accept="image/*" multiple onChange={handleUploadImagenes}
+                      disabled={uploadingImagen}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                    <button type="button" disabled={uploadingImagen}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed text-sm font-medium transition-colors"
+                      style={{ borderColor: uploadingImagen ? '#cbd5e1' : '#94a3b8', color: uploadingImagen ? '#94a3b8' : '#64748b' }}>
+                      {uploadingImagen
+                        ? <><Loader2 size={14} className="animate-spin" /> Subiendo imágenes...</>
+                        : <><ImagePlus size={14} /> Subir fotos desde el dispositivo</>}
+                    </button>
+                  </div>
+                  {/* Lista de URLs subidas */}
+                  {(form.imagenes || []).length > 0 && (
+                    <div className="space-y-1 mb-2">
+                      {(form.imagenes || []).map((url, i) => (
+                        <div key={i} className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1.5">
+                          <img src={url} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0 bg-slate-200" onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
+                          <span className="text-xs text-slate-500 truncate flex-1">{url.split('/').pop()}</span>
+                          <button type="button" onClick={() => setForm(f => ({ ...f, imagenes: (f.imagenes||[]).filter((_,j)=>j!==i) }))}
+                            className="text-slate-400 hover:text-red-500 flex-shrink-0"><X size={12} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Textarea para pegar URLs manualmente */}
+                  <textarea className={`${inp} resize-none text-xs`} rows={2}
+                    placeholder="O pega URLs manualmente, una por línea"
                     value={(form.imagenes || []).join('\n')}
                     onChange={e => setForm(f => ({ ...f, imagenes: e.target.value.split('\n').map(u => u.trim()).filter(Boolean) }))} />
-                </label>
+                </div>
 
                 {/* Servicios */}
                 <div className="col-span-2">

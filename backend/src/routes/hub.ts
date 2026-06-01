@@ -187,8 +187,27 @@ router.post(['/business', '/businesses'], checkPlanLimits, async (req, res) => {
     if (modErr) return res.status(400).json({ error: modErr.message });
 
     let businessId = mod.id_module;
+    let hotelSlug: string | null = null;
 
     if (tipo_modulo.toLowerCase() === 'hotel') {
+      // Generar slug único a partir del nombre
+      const baseSlug = nombre_modulo
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-z0-9\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-');
+
+      hotelSlug = baseSlug;
+      let attempt = 1;
+      while (true) {
+        const { data: existing } = await db.from('hoteles').select('id_hotel').eq('slug', hotelSlug).maybeSingle();
+        if (!existing) break;
+        attempt++;
+        hotelSlug = `${baseSlug}-${attempt}`;
+      }
+
       const { data: hotel, error: hotelErr } = await db
         .from('hoteles')
         .insert({
@@ -199,6 +218,7 @@ router.post(['/business', '/businesses'], checkPlanLimits, async (req, res) => {
           telefono:        telefono  ?? null,
           correo_contacto: correo_contacto ?? null,
           estado:          'activo',
+          slug:            hotelSlug,
         })
         .select()
         .single();
@@ -210,7 +230,7 @@ router.post(['/business', '/businesses'], checkPlanLimits, async (req, res) => {
       businessId = hotel.id_hotel;
     }
 
-    return res.status(201).json({ success: true, businessId, moduleId: mod.id_module, type: tipo_modulo, name: nombre_modulo });
+    return res.status(201).json({ success: true, businessId, moduleId: mod.id_module, type: tipo_modulo, name: nombre_modulo, slug: hotelSlug });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -244,11 +264,15 @@ router.get('/dashboard-summary', async (req, res) => {
     if (moduleIds.length > 0) {
       const { data: h } = await db
         .from('hoteles')
-        .select('id_hotel, nombre_hotel, estado, id_module')
+        .select('id_hotel, nombre_hotel, estado, id_module, slug')
         .in('id_module', moduleIds)
         .eq('estado', 'activo');
       hoteles = h || [];
     }
+
+    // Mapa de slug por id_module para enriquecer los módulos
+    const slugByModule: Record<string, string> = {};
+    hoteles.forEach((h: any) => { if (h.id_module && h.slug) slugByModule[h.id_module] = h.slug; });
 
     const moduleSet = new Set((modules || []).map((m: any) => m.id_module));
     const combinedModules = [
@@ -258,6 +282,7 @@ router.get('/dashboard-summary', async (req, res) => {
         reference_id: m.id_module,
         is_active: m.estado === 'activo',
         name: m.nombre_modulo,
+        slug: slugByModule[m.id_module] ?? null,
       })),
       ...hoteles
         .filter((h: any) => !moduleSet.has(h.id_module))
@@ -267,6 +292,7 @@ router.get('/dashboard-summary', async (req, res) => {
           reference_id: h.id_module || h.id_hotel,
           is_active: h.estado === 'activo',
           name: h.nombre_hotel,
+          slug: h.slug ?? null,
         })),
     ];
 

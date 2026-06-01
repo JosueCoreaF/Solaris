@@ -23,7 +23,6 @@ import { Clients } from './features/clients/Clients';
 import { ClienteDetalle } from './features/clients/ClienteDetalle';
 import { ToastProvider } from './components/Toast';
 import ChatOperativo from './components/ChatOperativo';
-import PortalCliente from './components/PortalCliente';
 import { FinanceAIProvider, FloatingAIProgressWidget } from './context/FinanceAIContext';
 import apiClient from './services/api';
 
@@ -60,7 +59,6 @@ export const App: React.FC = () => {
               />
 
               {/* Portal público para clientes (sin auth requerida) */}
-              <Route path="/portal" element={<PortalCliente />} />
 
               {/* Rutas protegidas */}
               <Route

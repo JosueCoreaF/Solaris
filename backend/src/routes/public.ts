@@ -32,6 +32,131 @@ async function getOwnerId(hotelId?: any): Promise<string> {
   return ownerId;
 }
 
+// GET /api/public/hotel/:slug — datos públicos de un hotel por su slug
+router.get('/hotel/:slug', async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params;
+
+    // Query 1: hotel básico (sin nested select para evitar problemas de FK en PostgREST)
+    const { data: hotel, error: hotelErr } = await db()
+      .from('hoteles')
+      .select('id_hotel, nombre_hotel, slug, ciudad, direccion, telefono, correo_contacto, estrellas, enlace_google_maps, estado')
+      .ilike('slug', slug)          // ilike para búsqueda case-insensitive
+      .eq('estado', 'activo')
+      .maybeSingle();
+
+    if (hotelErr) {
+      console.error('[portal/hotel/:slug] error hoteles:', hotelErr.message);
+      return res.status(500).json({ error: hotelErr.message });
+    }
+    if (!hotel) {
+      console.warn('[portal/hotel/:slug] no encontrado:', slug);
+      return res.status(404).json({ error: 'Hotel no encontrado.' });
+    }
+
+    // Query 2: configuración del hotel (query separada)
+    const { data: config } = await db()
+      .from('configuracion_hotelera')
+      .select('moneda, tipo_cambio_base, porcentaje_impuesto, tasa_turistica, hora_check_in, hora_check_out, cargo_persona_extra')
+      .eq('id_hotel', hotel.id_hotel)
+      .maybeSingle();
+
+    return res.json({
+      id:                 hotel.id_hotel,
+      nombre:             hotel.nombre_hotel,
+      slug:               hotel.slug,
+      ciudad:             hotel.ciudad,
+      direccion:          hotel.direccion,
+      telefono:           hotel.telefono,
+      correo:             hotel.correo_contacto,
+      estrellas:          hotel.estrellas ?? 3,
+      mapsUrl:            hotel.enlace_google_maps,
+      moneda:             config?.moneda             ?? 'HNL',
+      tipoCambio:         Number(config?.tipo_cambio_base    ?? 26.58),
+      tasaIsv:            Number(config?.porcentaje_impuesto ?? 0.15),
+      tasaTuristica:      Number(config?.tasa_turistica      ?? 0.04),
+      horaCheckin:        (config?.hora_check_in  as string)?.substring(0, 5) ?? '15:00',
+      horaCheckout:       (config?.hora_check_out as string)?.substring(0, 5) ?? '12:00',
+      cargoPersonaExtra:  Number(config?.cargo_persona_extra ?? 0),
+    });
+  } catch (err: any) {
+    console.error('[portal/hotel/:slug] catch:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/public/buscar-huesped — busca huésped por correo en un hotel
+router.post('/buscar-huesped', async (req: Request, res: Response) => {
+  try {
+    const { correo, id_hotel } = req.body;
+    if (!correo || !id_hotel) return res.status(400).json({ error: 'correo e id_hotel son requeridos' });
+
+    const { data, error } = await db()
+      .from('huespedes')
+      .select('id_huesped, nombre_completo, correo, telefono, documento_identidad')
+      .eq('id_hotel', id_hotel)
+      .ilike('correo', correo.trim())
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!data) return res.json({ encontrado: false });
+
+    return res.json({
+      encontrado: true,
+      huesped: {
+        id:       data.id_huesped,
+        nombre:   data.nombre_completo,
+        correo:   data.correo,
+        telefono: data.telefono,
+        dni:      data.documento_identidad,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/public/registrar-huesped — registra nuevo huésped en el hotel
+router.post('/registrar-huesped', async (req: Request, res: Response) => {
+  try {
+    const { nombre_completo, correo, telefono, id_hotel } = req.body;
+    if (!nombre_completo || !correo || !id_hotel)
+      return res.status(400).json({ error: 'nombre_completo, correo e id_hotel son requeridos' });
+
+    // Verificar si ya existe (correo único por hotel)
+    const { data: existing } = await db()
+      .from('huespedes')
+      .select('id_huesped, nombre_completo, correo, telefono')
+      .eq('id_hotel', id_hotel)
+      .ilike('correo', correo.trim())
+      .maybeSingle();
+
+    if (existing) {
+      return res.json({
+        registrado: false,
+        encontrado: true,
+        huesped: { id: existing.id_huesped, nombre: existing.nombre_completo, correo: existing.correo, telefono: existing.telefono },
+      });
+    }
+
+    const { data, error } = await db()
+      .from('huespedes')
+      .insert({ id_hotel, nombre_completo: nombre_completo.trim(), correo: correo.trim().toLowerCase(), telefono: telefono?.trim() || null })
+      .select('id_huesped, nombre_completo, correo, telefono')
+      .single();
+
+    if (error) throw error;
+
+    return res.status(201).json({
+      registrado: true,
+      huesped: { id: data.id_huesped, nombre: data.nombre_completo, correo: data.correo, telefono: data.telefono },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/public/validar-nuevo-huesped
 router.post('/validar-nuevo-huesped', async (req: Request, res: Response) => {
   try {
@@ -894,13 +1019,17 @@ router.get('/hoteles', async (req: Request, res: Response) => {
 // GET /api/public/disponibilidad
 router.get('/disponibilidad', async (req: Request, res: Response) => {
   try {
-    const { checkIn, checkOut } = req.query;
+    const { checkIn, checkOut, hotel_id } = req.query;
 
-    // Obtener todas las habitaciones marcadas como disponibles desde la vista 3NF
-    const { data: rooms, error: roomsError } = await db()
+    let roomQuery = db()
       .from('habitaciones_con_detalles')
       .select('id_habitacion, id_hotel, nombre_habitacion, nombre_alias, tipo, tarifa_noche, numero_camas, capacidad, imagenes, imagen_360, comodidades')
       .eq('estado', 'disponible');
+
+    if (hotel_id) roomQuery = roomQuery.eq('id_hotel', hotel_id as string);
+
+    // Obtener todas las habitaciones marcadas como disponibles desde la vista 3NF
+    const { data: rooms, error: roomsError } = await roomQuery;
 
     if (roomsError) throw roomsError;
 
@@ -936,20 +1065,33 @@ router.get('/disponibilidad', async (req: Request, res: Response) => {
     }
 
     // Renombrar campos para el frontend
+    // Obtener cargo_persona_extra de cada hotel (una sola query para todos los hoteles únicos)
+    const hotelIds = [...new Set(availableRooms.map((h: any) => h.id_hotel).filter(Boolean))];
+    const cargoMap: Record<string, number> = {};
+    if (hotelIds.length > 0) {
+      const { data: configs } = await db()
+        .from('configuracion_hotelera')
+        .select('id_hotel, cargo_persona_extra')
+        .in('id_hotel', hotelIds);
+      (configs || []).forEach((c: any) => {
+        cargoMap[c.id_hotel] = Number(c.cargo_persona_extra ?? 0);
+      });
+    }
+
     const formatted = availableRooms.map((h: any) => ({
-      id: h.id_habitacion,
-      id_hotel: h.id_hotel,
-      nombre: h.nombre_habitacion,
-      nombreAlias: h.nombre_alias,
-      tipo: h.tipo,
-      tarifaNoche: h.tarifa_noche,
-      numeroCamas: h.numero_camas,
-      capacidad: h.capacidad,
-      cargoPersonaExtra: 0, // no existe en la vista, valor por defecto
-      imagenes: h.imagenes || [],
-      imagen_360: h.imagen_360,
-      comodidades: h.comodidades || [],
-      disponible: true
+      id:              h.id_habitacion,
+      id_hotel:        h.id_hotel,
+      nombre:          h.nombre_habitacion,
+      nombreAlias:     h.nombre_alias,
+      tipo:            h.tipo,
+      tarifaNoche:     h.tarifa_noche,
+      numeroCamas:     h.numero_camas,
+      capacidad:       h.capacidad,
+      cargoPersonaExtra: cargoMap[h.id_hotel] ?? 0,
+      imagenes:        h.imagenes || [],
+      imagen_360:      h.imagen_360,
+      comodidades:     h.comodidades || [],
+      disponible:      true,
     }));
 
     return res.json(formatted);

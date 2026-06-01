@@ -4,6 +4,10 @@
 -- Aislamiento multi-tenant: habitacion → hotel → business_modules.owner_id
 -- =============================================================================
 
+-- Migración: agregar cargo_persona_extra a configuracion_hotelera
+ALTER TABLE public.configuracion_hotelera
+  ADD COLUMN IF NOT EXISTS cargo_persona_extra numeric DEFAULT 0.00 CHECK (cargo_persona_extra >= 0);
+
 
 -- =============================================================================
 -- VISTA: habitaciones_con_detalles
