@@ -1,9 +1,25 @@
 /**
  * ExportadorDatos.tsx
- * Interfaz premium para exportar módulos de la base de datos en CSV o JSON.
+ * Interfaz premium y formal para la exportación de bases de datos operativas en CSV o JSON.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Users,
+  Calendar,
+  Briefcase,
+  Wallet,
+  CreditCard,
+  MessageSquare,
+  Tags,
+  Download,
+  Database,
+  Info,
+  RefreshCw,
+  AlertCircle,
+  ShieldCheck,
+  FileText
+} from 'lucide-react';
 import { supabase } from '../../api/supabase';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
@@ -25,84 +41,11 @@ interface ModuleConfig {
   endpoint: string;
   label: string;
   description: string;
-  icon: string;
+  icon: React.ReactNode;
   color: string;
-  gradient: string;
+  badgeColor: string;
   hasDateFilter: boolean;
 }
-
-const MODULES: ModuleConfig[] = [
-  {
-    key: 'clientes',
-    endpoint: 'huespedes',
-    label: 'Clientes',
-    description: 'Huéspedes registrados con sus datos de contacto',
-    icon: '🧑‍💼',
-    color: '#6366f1',
-    gradient: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-    hasDateFilter: false,
-  },
-  {
-    key: 'reservas',
-    endpoint: 'reservas',
-    label: 'Reservas',
-    description: 'Historial de reservas por rango de fechas',
-    icon: '📅',
-    color: '#0ea5e9',
-    gradient: 'linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%)',
-    hasDateFilter: true,
-  },
-  {
-    key: 'empresas',
-    endpoint: 'empresas',
-    label: 'Empresas',
-    description: 'Empresas con crédito y datos de contacto',
-    icon: '🏢',
-    color: '#f59e0b',
-    gradient: 'linear-gradient(135deg, #f59e0b 0%, #f97316 100%)',
-    hasDateFilter: false,
-  },
-  {
-    key: 'saldos',
-    endpoint: 'saldos',
-    label: 'Estados de Cuenta',
-    description: 'Saldos y movimientos por cliente',
-    icon: '📊',
-    color: '#10b981',
-    gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-    hasDateFilter: true,
-  },
-  {
-    key: 'pagos',
-    endpoint: 'pagos',
-    label: 'Pagos',
-    description: 'Registro de todos los pagos recibidos',
-    icon: '💳',
-    color: '#ec4899',
-    gradient: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
-    hasDateFilter: true,
-  },
-  {
-    key: 'chats',
-    endpoint: 'chats',
-    label: 'Chats',
-    description: 'Historial de mensajes y canales operativos',
-    icon: '💬',
-    color: '#14b8a6',
-    gradient: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
-    hasDateFilter: true,
-  },
-  {
-    key: 'tarifas',
-    endpoint: 'tarifas',
-    label: 'Tarifas',
-    description: 'Configuración de tarifas por tipo y categoría',
-    icon: '💰',
-    color: '#a78bfa',
-    gradient: 'linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%)',
-    hasDateFilter: false,
-  },
-];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -120,6 +63,79 @@ export const ExportadorDatos: React.FC = () => {
   });
 
   const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+
+  const MODULES: ModuleConfig[] = [
+    {
+      key: 'clientes',
+      endpoint: 'huespedes',
+      label: 'Huéspedes',
+      description: 'Listado completo de clientes registrados con sus datos de contacto.',
+      icon: <Users className="w-5 h-5" />,
+      color: 'blue',
+      badgeColor: 'bg-blue-50 border-blue-100 text-blue-600',
+      hasDateFilter: false,
+    },
+    {
+      key: 'reservas',
+      endpoint: 'reservas',
+      label: 'Reservas del Hotel',
+      description: 'Historial detallado de reservas de estadías filtradas por rango de fechas.',
+      icon: <Calendar className="w-5 h-5" />,
+      color: 'indigo',
+      badgeColor: 'bg-indigo-50 border-indigo-100 text-indigo-600',
+      hasDateFilter: true,
+    },
+    {
+      key: 'empresas',
+      endpoint: 'empresas',
+      label: 'Empresas & Créditos',
+      description: 'Directorio de empresas corporativas y cuentas con crédito activo.',
+      icon: <Briefcase className="w-5 h-5" />,
+      color: 'amber',
+      badgeColor: 'bg-amber-50 border-amber-100 text-amber-600',
+      hasDateFilter: false,
+    },
+    {
+      key: 'saldos',
+      endpoint: 'saldos',
+      label: 'Estados de Cuenta',
+      description: 'Saldos insolutos, créditos pendientes y movimientos financieros de clientes.',
+      icon: <Wallet className="w-5 h-5" />,
+      color: 'emerald',
+      badgeColor: 'bg-emerald-50 border-emerald-100 text-emerald-600',
+      hasDateFilter: true,
+    },
+    {
+      key: 'pagos',
+      endpoint: 'pagos',
+      label: 'Transacciones de Pago',
+      description: 'Libro de transacciones y conciliaciones de pagos físicos y digitales.',
+      icon: <CreditCard className="w-5 h-5" />,
+      color: 'rose',
+      badgeColor: 'bg-rose-50 border-rose-100 text-rose-600',
+      hasDateFilter: true,
+    },
+    {
+      key: 'chats',
+      endpoint: 'chats',
+      label: 'Chats & Canales',
+      description: 'Historial completo de mensajes operativos y registros de canales de chat.',
+      icon: <MessageSquare className="w-5 h-5" />,
+      color: 'teal',
+      badgeColor: 'bg-teal-50 border-teal-100 text-teal-600',
+      hasDateFilter: true,
+    },
+    {
+      key: 'tarifas',
+      endpoint: 'tarifas',
+      label: 'Esquema de Tarifas',
+      description: 'Catálogo formal de tarifas, categorías configuradas y tipos de habitación.',
+      icon: <Tags className="w-5 h-5" />,
+      color: 'violet',
+      badgeColor: 'bg-violet-50 border-violet-100 text-violet-600',
+      hasDateFilter: false,
+    },
+  ];
 
   // ── Load counts ──────────────────────────────────────────────────────────────
   const loadCounts = useCallback(async () => {
@@ -185,259 +201,181 @@ export const ExportadorDatos: React.FC = () => {
   };
 
   return (
-    <div id="exportador-datos" style={{ padding: '28px 32px', minHeight: '100vh', background: 'var(--shell-bg)' }}>
-      {/* ── Header ── */}
-      <div style={{ marginBottom: 32 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10 }}>
-          <div style={{
-            width: 48, height: 48, borderRadius: 14,
-            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 24, boxShadow: '0 4px 20px rgba(99,102,241,0.35)',
-          }}>
-            💾
+    <div className="min-h-screen bg-gradient-to-tr from-slate-50 via-slate-50/50 to-blue-50/20 text-slate-700 p-8 relative overflow-hidden font-sans">
+      {/* Ambient glows */}
+      <div className="absolute top-[-200px] right-[-100px] w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(99,102,241,0.03),transparent_60%)] pointer-events-none"></div>
+
+      {/* Header Premium */}
+      <div className="mb-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative z-10 border-b border-slate-200/60 pb-6">
+        <div>
+          <div className="inline-flex items-center gap-2 bg-indigo-50 border border-indigo-100 text-indigo-600 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-3 shadow-sm">
+            <ShieldCheck className="w-3.5 h-3.5" /> Seguridad de Datos
           </div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: 'var(--text-h)', letterSpacing: -0.5 }}>
-              Exportar Datos
-            </h1>
-            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 14, marginTop: 2 }}>
-              Descarga una copia de tus datos en CSV o JSON para respaldo o análisis
-            </p>
-          </div>
+          <h1 className="text-3xl font-light tracking-tight text-slate-900 flex items-center gap-3">
+            <Database className="w-8 h-8 text-indigo-600 stroke-[1.5]" />
+            Exportación & Respaldos
+          </h1>
+          <p className="text-slate-500 text-xs mt-1.5 font-normal flex items-center gap-1.5">
+            <Info className="w-3.5 h-3.5 text-indigo-400" />
+            Descarga de manera formal y segura copias completas de la base de datos operativa del hotel activo.
+          </p>
         </div>
 
-        {/* Stats bar */}
-        <div style={{
-          display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 20,
-          padding: '14px 20px',
-          background: 'var(--shell-panel)',
-          borderRadius: 14,
-          border: '1px solid var(--shell-border-subtle)',
-        }}>
-          {MODULES.map(mod => (
-            <div key={mod.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-              <span style={{ fontSize: 16 }}>{mod.icon}</span>
-              <span style={{ color: 'var(--muted)' }}>{mod.label}:</span>
-              <span style={{ fontWeight: 700, color: mod.color }}>
-                {loadingCounts ? '…' : ((counts[mod.key] ?? 0)).toLocaleString()}
-              </span>
-            </div>
-          ))}
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={loadCounts}
+            className="flex items-center justify-center p-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-slate-500 hover:text-slate-800 transition-all shadow-sm active:scale-95 cursor-pointer"
+            title="Recargar Volúmenes"
+          >
+            <RefreshCw size={16} className={`${loadingCounts ? 'animate-spin' : ''}`} />
+          </button>
         </div>
       </div>
 
-      {/* ── Cards Grid ── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
-        gap: 20,
-      }}>
+      {/* Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 relative z-10">
         {MODULES.map((mod) => {
           const count = counts[mod.key];
           const df = dateFilters[mod.endpoint] || { desde: '', hasta: '' };
           const isDownloadingCSV = downloading === `${mod.key}-csv`;
           const isDownloadingJSON = downloading === `${mod.key}-json`;
-          const isAnyDownloading = isDownloadingCSV || isDownloadingJSON;
 
           return (
             <div
               key={mod.key}
-              id={`export-card-${mod.key}`}
-              style={{
-                background: 'var(--shell-panel-strong)',
-                border: '1px solid var(--shell-border-subtle)',
-                borderRadius: 18,
-                overflow: 'hidden',
-                boxShadow: '0 2px 16px rgba(0,0,0,0.08)',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                display: 'flex', flexDirection: 'column',
-              }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-3px)';
-                (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 32px rgba(0,0,0,0.14)`;
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
-                (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 16px rgba(0,0,0,0.08)';
-              }}
+              className="bg-white/80 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl flex flex-col justify-between transition-all duration-300 hover:scale-[1.01] hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/5 hover:border-slate-300 shadow-sm overflow-hidden relative group"
             >
-              {/* Card header with gradient */}
-              <div style={{
-                background: mod.gradient,
-                padding: '20px 22px 16px',
-                display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-              }}>
-                <div>
-                  <div style={{ fontSize: 32, marginBottom: 8 }}>{mod.icon}</div>
-                  <h3 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: '#fff', letterSpacing: -0.3 }}>
-                    {mod.label}
-                  </h3>
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.78)' }}>
-                    {mod.description}
-                  </p>
-                </div>
-                <div style={{
-                  background: 'rgba(255,255,255,0.18)',
-                  backdropFilter: 'blur(8px)',
-                  borderRadius: 10,
-                  padding: '8px 14px',
-                  textAlign: 'center',
-                  minWidth: 64,
-                }}>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: '#fff' }}>
-                    {loadingCounts ? '…' : (count ?? 0).toLocaleString()}
-                  </div>
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.78)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    registros
-                  </div>
-                </div>
-              </div>
+              {/* Corner soft glow */}
+              <div className="absolute -right-8 -top-8 w-24 h-24 bg-gradient-to-br from-indigo-500/5 to-blue-500/5 rounded-full blur-xl group-hover:scale-150 transition-all duration-500"></div>
 
-              {/* Card body */}
-              <div style={{ padding: '16px 22px 20px', flex: 1 }}>
-                {/* Date filter */}
+              <div>
+                {/* Card Top Header */}
+                <div className="flex items-center justify-between mb-4 relative z-10">
+                  <div className={`p-3 rounded-2xl border ${mod.badgeColor} shadow-inner`}>
+                    {mod.icon}
+                  </div>
+
+                  <div className="text-right">
+                    <div className="text-2xl font-bold tracking-tight text-slate-800">
+                      {loadingCounts ? (
+                        <div className="w-8 h-5 bg-slate-100 animate-pulse rounded-md ml-auto"></div>
+                      ) : (
+                        (count ?? 0).toLocaleString()
+                      )}
+                    </div>
+                    <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
+                      Registros
+                    </div>
+                  </div>
+                </div>
+
+                {/* Info */}
+                <div className="mb-6 relative z-10">
+                  <h3 className="text-base font-semibold text-slate-800">{mod.label}</h3>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">{mod.description}</p>
+                </div>
+
+                {/* Date Filters */}
                 {mod.hasDateFilter && (
-                  <div style={{ marginBottom: 16 }}>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.6, display: 'block', marginBottom: 8 }}>
-                      Rango de Fechas (opcional)
-                    </label>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div className="mb-6 bg-slate-50/50 border border-slate-100 p-4 rounded-xl relative z-10">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
+                      Filtrar por Rango (Opcional)
+                    </span>
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label style={{ fontSize: 10, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>Desde</label>
+                        <label className="text-[10px] text-slate-500 font-medium block mb-1">Desde</label>
                         <input
-                          id={`desde-${mod.key}`}
                           type="date"
                           value={df.desde}
                           onChange={e => setDateFilters(prev => ({
                             ...prev,
                             [mod.endpoint]: { ...prev[mod.endpoint], desde: e.target.value }
                           }))}
-                          style={{
-                            width: '100%', padding: '7px 10px', borderRadius: 8,
-                            border: '1px solid var(--shell-border-strong)',
-                            background: 'var(--shell-bg)', color: 'var(--text-h)',
-                            fontSize: 12, boxSizing: 'border-box',
-                          }}
+                          className="w-full px-3 py-1.5 rounded-lg border border-slate-200 bg-white/90 text-slate-800 text-xs outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/10 transition-all font-sans"
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize: 10, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>Hasta</label>
+                        <label className="text-[10px] text-slate-500 font-medium block mb-1">Hasta</label>
                         <input
-                          id={`hasta-${mod.key}`}
                           type="date"
                           value={df.hasta}
                           onChange={e => setDateFilters(prev => ({
                             ...prev,
                             [mod.endpoint]: { ...prev[mod.endpoint], hasta: e.target.value }
                           }))}
-                          style={{
-                            width: '100%', padding: '7px 10px', borderRadius: 8,
-                            border: '1px solid var(--shell-border-strong)',
-                            background: 'var(--shell-bg)', color: 'var(--text-h)',
-                            fontSize: 12, boxSizing: 'border-box',
-                          }}
+                          className="w-full px-3 py-1.5 rounded-lg border border-slate-200 bg-white/90 text-slate-800 text-xs outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/10 transition-all font-sans"
                         />
                       </div>
                     </div>
-                    {(!df.desde && !df.hasta) && (
-                      <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>
-                        Sin filtro: se exportarán todos los registros
-                      </p>
-                    )}
                   </div>
                 )}
+              </div>
 
-                {/* Download buttons */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  {/* CSV */}
-                  <button
-                    id={`btn-csv-${mod.key}`}
-                    onClick={() => handleDownload(mod, 'csv')}
-                    disabled={!!downloading}
-                    style={{
-                      padding: '10px 0',
-                      borderRadius: 10,
-                      border: `1.5px solid ${mod.color}40`,
-                      background: isDownloadingCSV ? mod.gradient : `${mod.color}14`,
-                      color: isDownloadingCSV ? '#fff' : mod.color,
-                      fontSize: 13,
-                      fontWeight: 700,
-                      cursor: downloading ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.2s',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      opacity: (downloading && !isDownloadingCSV) ? 0.5 : 1,
-                    }}
-                  >
-                    {isDownloadingCSV ? (
-                      <>
-                        <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
-                        Descargando…
-                      </>
-                    ) : (
-                      <>📄 CSV</>
-                    )}
-                  </button>
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-3 mt-4 relative z-10">
+                {/* CSV Button */}
+                <button
+                  onClick={() => handleDownload(mod, 'csv')}
+                  disabled={!!downloading}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-2 ${
+                    isDownloadingCSV
+                      ? 'bg-indigo-600 text-white border-transparent'
+                      : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-350 active:scale-95 shadow-sm'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {isDownloadingCSV ? (
+                    <>
+                      <RefreshCw size={13} className="animate-spin" />
+                      Procesando
+                    </>
+                  ) : (
+                    <>
+                      <FileText size={13} className="text-slate-400" />
+                      CSV (Excel)
+                    </>
+                  )}
+                </button>
 
-                  {/* JSON */}
-                  <button
-                    id={`btn-json-${mod.key}`}
-                    onClick={() => handleDownload(mod, 'json')}
-                    disabled={!!downloading}
-                    style={{
-                      padding: '10px 0',
-                      borderRadius: 10,
-                      border: '1.5px solid var(--shell-border-strong)',
-                      background: isDownloadingJSON ? 'var(--shell-panel)' : 'transparent',
-                      color: isDownloadingJSON ? 'var(--text-h)' : 'var(--muted)',
-                      fontSize: 13,
-                      fontWeight: 700,
-                      cursor: downloading ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.2s',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      opacity: (downloading && !isDownloadingJSON) ? 0.5 : 1,
-                    }}
-                  >
-                    {isDownloadingJSON ? (
-                      <>
-                        <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
-                        Descargando…
-                      </>
-                    ) : (
-                      <>{ '{}'} JSON</>
-                    )}
-                  </button>
-                </div>
+                {/* JSON Button */}
+                <button
+                  onClick={() => handleDownload(mod, 'json')}
+                  disabled={!!downloading}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-2 ${
+                    isDownloadingJSON
+                      ? 'bg-indigo-600 text-white border-transparent'
+                      : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-350 active:scale-95 shadow-sm'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {isDownloadingJSON ? (
+                    <>
+                      <RefreshCw size={13} className="animate-spin" />
+                      Procesando
+                    </>
+                  ) : (
+                    <>
+                      <Download size={13} className="text-slate-400" />
+                      JSON Raw
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* ── Tip footer ── */}
-      <div style={{
-        marginTop: 32, padding: '16px 22px',
-        background: 'linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(139,92,246,0.06) 100%)',
-        border: '1px solid rgba(99,102,241,0.15)',
-        borderRadius: 14,
-        display: 'flex', gap: 12, alignItems: 'flex-start',
-      }}>
-        <span style={{ fontSize: 22 }}>💡</span>
+      {/* Info/Warning block */}
+      <div className="mt-8 p-5 bg-white/75 backdrop-blur-md rounded-2xl border border-slate-200/60 flex items-start gap-4 relative z-10 shadow-sm max-w-4xl">
+        <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shadow-sm flex-shrink-0">
+          <Info size={18} />
+        </div>
         <div>
-          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--text-h)' }}>Tip de Importación</p>
-          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Los archivos <strong>CSV</strong> se pueden abrir directamente en Excel. Los archivos <strong>JSON</strong> son ideales
-            para importar a otras bases de datos o sistemas. Para restaurar datos, contacta al administrador del sistema.
+          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">Directiva de Respaldos de Solaris</h4>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Las exportaciones en formato <strong>CSV</strong> son ideales para análisis directo en herramientas como Excel o Google Sheets. Los archivos en formato <strong>JSON</strong> conservan las estructuras anidadas relacionales, perfectas para integraciones API o migraciones de base de datos. Recuerda proteger estas copias de seguridad de acuerdo a la Ley de Protección de Datos.
           </p>
         </div>
       </div>
-
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   );
 };

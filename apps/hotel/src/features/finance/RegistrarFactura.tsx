@@ -360,9 +360,20 @@ export const RegistrarFactura: React.FC<Props> = ({
         
       const method = facturaAEditar ? 'PUT' : 'POST';
 
+      // Adjuntar JWT y hotel ID para que el backend resuelva el contexto
+      const token = (await import('../../api/supabase'))
+        .supabase.auth.getSession()
+        .then(r => r.data.session?.access_token || '')
+        .catch(() => '');
+      const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+
       const resp = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Hotel-ID': activeHotelId,
+          'Authorization': `Bearer ${await token}`,
+        },
         body: JSON.stringify(payload),
       });
 

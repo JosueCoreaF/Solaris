@@ -94,36 +94,41 @@ interface SaldoEntry {
   monto: number;
   descripcion: string;
   tipo: string;
-  fecha_creacion: string;
+  created_at: string;
   aplicado: boolean;
 }
 
 const API_BASE = 'http://localhost:4000/api';
 
+async function getAuthHeaders(contentType = false): Promise<Record<string, string>> {
+  const hotelId = localStorage.getItem('active_hotel_id') || '';
+  const hdrs: Record<string, string> = { 'X-Hotel-ID': hotelId };
+  if (contentType) hdrs['Content-Type'] = 'application/json';
+  try {
+    const { supabase } = await import('../../api/supabase');
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.access_token) hdrs['Authorization'] = `Bearer ${data.session.access_token}`;
+  } catch (_) {}
+  return hdrs;
+}
+
 async function fetchSaldosHuesped(id_huesped: string): Promise<SaldoEntry[]> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || 'all';
-  const headers: Record<string, string> = {};
-  if (activeHotelId && activeHotelId !== 'all') {
-    headers['X-Hotel-ID'] = activeHotelId;
-  }
-  const r = await fetch(`${API_BASE}/bookings/saldos`, { headers });
+  const r = await fetch(`${API_BASE}/bookings/saldos`, { headers: await getAuthHeaders() });
   if (!r.ok) return [];
   const all: SaldoEntry[] = await r.json();
   return all.filter(s => s.id_huesped === id_huesped && !s.aplicado && s.tipo === 'credito');
 }
 
 async function aplicarSaldoAReserva(id_saldo: string, id_reserva_hotel: string): Promise<{ monto_aplicado: number; diferencia: number }> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || 'all';
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (activeHotelId && activeHotelId !== 'all') {
-    headers['X-Hotel-ID'] = activeHotelId;
-  }
   const r = await fetch(`${API_BASE}/bookings/saldos/${id_saldo}/aplicar`, {
     method: 'POST',
-    headers,
+    headers: await getAuthHeaders(true),
     body: JSON.stringify({ id_reserva_hotel }),
   });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) {
+    const b = await r.json().catch(() => ({}));
+    throw new Error(b.error ?? await r.text());
+  }
   return r.json();
 }
 
@@ -1223,7 +1228,7 @@ export const Pagos: React.FC = () => {
                               <div key={s.id_saldo} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderBottom: i < saldosCliente.length - 1 ? '1px solid #f0fdf4' : 'none' }}>
                                 <div style={{ minWidth: 0 }}>
                                   <div style={{ fontSize: 11, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.descripcion}</div>
-                                  <div style={{ fontSize: 10, color: '#94a3b8' }}>{new Date(s.fecha_creacion).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                                  <div style={{ fontSize: 10, color: '#94a3b8' }}>{new Date(s.created_at).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
                                 </div>
                                 <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a', flexShrink: 0, marginLeft: 8 }}>HNL {s.monto.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</span>
                               </div>

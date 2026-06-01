@@ -10,64 +10,64 @@ export async function getAuthUser(req: express.Request) {
   return data.user;
 }
 
+/**
+ * Resuelve owner_id y hotel_ids para un usuario autenticado.
+ *
+ * Diseño del schema:
+ * - El PROPIETARIO se identifica por: owners.id_owner = auth.uid()
+ *   (no tiene fila en usuarios_roles)
+ * - El staff (ADMIN, RECEPCIONISTA, etc.) tiene fila en usuarios_roles
+ *   con user_id = auth.uid() y owner_id = su propietario
+ */
 export async function getOwnerHotelIdsForUser(user: any) {
+  // 1. ¿Es propietario? (su auth.uid = owners.id_owner)
+  const { data: ownerRow } = await supabaseAdmin!
+    .from('owners')
+    .select('id_owner')
+    .eq('id_owner', user.id)
+    .maybeSingle();
+
+  if (ownerRow?.id_owner) {
+    // Es propietario — obtener todos sus hoteles via business_modules
+    const { data: hoteles } = await supabaseAdmin!
+      .from('hoteles')
+      .select('id_hotel, business_modules!inner(owner_id)')
+      .eq('business_modules.owner_id', ownerRow.id_owner);
+
+    const hotelIds = (hoteles || []).map((h: any) => h.id_hotel).filter(Boolean);
+    return { ownerIds: [ownerRow.id_owner], hotelIds, error: null };
+  }
+
+  // 2. ¿Es staff? (tiene fila en usuarios_roles con user_id)
   const { data: roles, error } = await supabaseAdmin!
     .from('usuarios_roles')
     .select('owner_id, id_hotel')
-    .eq('usuario_id', user.id)
+    .eq('user_id', user.id)   // columna correcta: user_id
     .eq('estado', 'activo');
 
   if (error) return { ownerIds: [] as string[], hotelIds: [] as string[], error };
 
-  const ownerIds = Array.from(
-    new Set(
-      (roles || [])
-        .map((item: any) => item.owner_id)
-        .filter((id: any) => !!id)
-    )
-  );
-
-  const hotelIds = Array.from(
-    new Set(
-      (roles || [])
-        .map((item: any) => item.id_hotel)
-        .filter((id: any) => !!id)
-    )
-  );
-
-  if (ownerIds.length > 0) {
-    return { ownerIds, hotelIds, error: null };
-  }
-
-  const email = user.email?.toLowerCase() ?? '';
-  if (!email) {
-    return { ownerIds, hotelIds, error: null };
-  }
-
-  const { data: ownerRow, error: ownerError } = await supabaseAdmin!
-    .from('owners')
-    .select('id_owner')
-    .eq('email_contacto', email)
-    .maybeSingle();
-
-  if (ownerError) return { ownerIds: [], hotelIds: [], error: ownerError };
-  if (ownerRow?.id_owner) {
-    ownerIds.push(ownerRow.id_owner);
-  }
+  const ownerIds = Array.from(new Set(
+    (roles || []).map((r: any) => r.owner_id).filter(Boolean)
+  ));
+  const hotelIds = Array.from(new Set(
+    (roles || []).map((r: any) => r.id_hotel).filter(Boolean)
+  ));
 
   return { ownerIds, hotelIds, error: null };
 }
 
+/**
+ * Obtiene el owner_id de un hotel via business_modules.
+ */
 export async function getOwnerIdsFromHotelId(hotelId: string) {
   const { data, error } = await supabaseAdmin!
     .from('hoteles')
-    .select('owner_id')
+    .select('business_modules!inner(owner_id)')
     .eq('id_hotel', hotelId)
     .maybeSingle();
 
-  if (error) {
-    throw error;
-  }
-  if (!data?.owner_id) return [];
-  return [data.owner_id];
+  if (error) throw error;
+  const ownerId = (data as any)?.business_modules?.owner_id;
+  return ownerId ? [ownerId] : [];
 }

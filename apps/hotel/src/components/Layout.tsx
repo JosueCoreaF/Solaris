@@ -146,15 +146,15 @@ export const Layout: React.FC = () => {
       let extMsg = '';
       if (data.reserva) {
         const opts = [];
-        if (data.reserva.cama_extra) opts.push('🛏️ Cama extra');
-        if (data.reserva.limpieza_diaria) opts.push('🧹 Limpieza');
-        if (data.reserva.neverita) opts.push('🧊 Neverita');
-        if (data.reserva.plancha) opts.push('💨 Plancha');
+        if (data.reserva.cama_extra) opts.push('Cama extra');
+        if (data.reserva.limpieza_diaria) opts.push('Limpieza');
+        if (data.reserva.neverita) opts.push('Neverita');
+        if (data.reserva.plancha) opts.push('Plancha');
         if (opts.length > 0) {
           extMsg = ` (Solicita: ${opts.join(', ')})`;
         }
       }
-      addToast((data.mensaje || 'Nueva solicitud de reserva web recibida 📝') + extMsg, 'success', 10000);
+      addToast((data.mensaje || 'Nueva solicitud de reserva web recibida') + extMsg, 'success', 10000);
       playReservationArpeggio();
     };
 

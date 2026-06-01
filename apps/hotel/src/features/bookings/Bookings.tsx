@@ -34,6 +34,7 @@ import {
   type BloqueHabitacion,
 } from '../../api/bookingsService';
 import { obtenerConfigHotelera } from '../../api/configService';
+import { obtenerTarifasVigentes, type Tarifa } from '../../api/tarifasService';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -128,6 +129,7 @@ export const Bookings: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hotelConfig, setHotelConfig] = useState<any>(null);
+  const [tarifas, setTarifas] = useState<Tarifa[]>([]);
 
   // ── Filters ──
   const [hotelFiltro, setHotelFiltro] = useState<string>(() => {
@@ -168,6 +170,8 @@ export const Bookings: React.FC = () => {
   const [importadorOpen, setImportadorOpen] = useState(false);
   // ── Nueva empresa inline ──
   const [showNuevaEmpresa, setShowNuevaEmpresa] = useState(false);
+  const [guestQuery, setGuestQuery] = useState('');  // búsqueda live de huéspedes
+
   const [nuevaEmpresaNombre, setNuevaEmpresaNombre] = useState('');
   const [nuevaEmpresaRtn, setNuevaEmpresaRtn] = useState('');
   const [savingEmpresa, setSavingEmpresa] = useState(false);
@@ -211,8 +215,8 @@ export const Bookings: React.FC = () => {
     try {
       const rangeStart = toDateKey(addDays(viewMonth, -45));
       const rangeEnd = toDateKey(addDays(viewMonth, 45));
-      const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
-      const [h, hab, hues, res, emps, bloq, configData] = await Promise.all([
+      const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+      const [h, hab, hues, res, emps, bloq, configData, activeTarifas] = await Promise.all([
         fetchHoteles(),
         fetchHabitaciones(),
         fetchHuespedes(),
@@ -220,6 +224,7 @@ export const Bookings: React.FC = () => {
         fetchEmpresas(),
         fetchBloques(rangeStart, rangeEnd),
         obtenerConfigHotelera(activeHotelId).catch(() => null),
+        obtenerTarifasVigentes().catch(() => []),
       ]);
       setHoteles(h);
       setHabitaciones(hab);
@@ -227,6 +232,7 @@ export const Bookings: React.FC = () => {
       setReservas(res);
       setEmpresas(emps);
       setBloqueos(bloq || []);
+      setTarifas(activeTarifas || []);
 
       let singleConfig = null;
       if (configData) {
@@ -378,62 +384,64 @@ export const Bookings: React.FC = () => {
 
   const precioBase = selectedHabitacion?.tarifa_noche ?? 0;
 
+
+  // ── Tarifas del sistema filtradas por habitación y modalidad ──
+  const tarifasFiltradas = useMemo(() => {
+    return tarifas
+      .filter(t => t.tipo_habitacion === selectedHabitacion?.tipo)
+      .map(t => ({
+        ...t,
+        valorActivo:
+          form.tipoReserva === 'hora'
+            ? t.tarifa_hora
+            : form.tipoReserva === 'pasadia'
+            ? t.tarifa_pasadia
+            : t.tarifa_noche,
+      }))
+      .filter(t => t.valorActivo > 0);
+  }, [tarifas, selectedHabitacion, form.tipoReserva]);
+
   const rates = useMemo(() => {
     const isvRate = hotelConfig?.tasa_isv !== undefined ? hotelConfig.tasa_isv : 0.15;
     const turisticaRate = hotelConfig?.tasa_turistica !== undefined ? hotelConfig.tasa_turistica : 0.04;
     const taxFactor = 1 + isvRate + turisticaRate;
 
     if (form.esCortesia) {
-      return {
-        subtotalBruto: 0,
-        discount: 0,
-        subtotal: 0,
-        isv: 0,
-        tasaTuristica: 0,
-        total: 0,
-        isvRate,
-        turisticaRate,
-      };
+      return { subtotalBruto: 0, discount: 0, subtotal: 0, isv: 0, tasaTuristica: 0, total: 0, isvRate, turisticaRate };
     }
 
+    // Por hora: cobro fijo total
     if (form.tipoReserva === 'hora') {
       const total = form.tarifaManual;
       const subtotal = +(total / taxFactor).toFixed(2);
       const isv = +(subtotal * isvRate).toFixed(2);
       const tasaTuristica = +(total - subtotal - isv).toFixed(2);
-      return {
-        subtotalBruto: subtotal,
-        discount: 0,
-        subtotal,
-        isv,
-        tasaTuristica,
-        total,
-        isvRate,
-        turisticaRate,
-      };
+      return { subtotalBruto: subtotal, discount: 0, subtotal, isv, tasaTuristica, total, isvRate, turisticaRate };
     }
 
+    // Pasadía: cobro fijo único (no multiplica por noches)
+    if (form.tipoReserva === 'pasadia') {
+      const total = form.tarifaManual > 0 ? form.tarifaManual : 0;
+      const subtotal = +(total / taxFactor).toFixed(2);
+      const isv = +(subtotal * isvRate).toFixed(2);
+      const tasaTuristica = +(total - subtotal - isv).toFixed(2);
+      return { subtotalBruto: subtotal, discount: 0, subtotal, isv, tasaTuristica, total, isvRate, turisticaRate };
+    }
+
+    // Por noche
+    const discountRate = hotelConfig?.descuento_tercera_edad !== undefined
+      ? hotelConfig.descuento_tercera_edad / 100
+      : 0.25; // Fallback: 25% (default del sistema)
     const pricePerNoche = form.tarifaManual > 0 ? form.tarifaManual : precioBase;
     const totalBruto = pricePerNoche * form.noches;
-    const discountBruto = form.aplicarDescuento ? totalBruto * 0.15 : 0;
+    const discountBruto = form.aplicarDescuento ? totalBruto * discountRate : 0;
     const total = +(totalBruto - discountBruto).toFixed(2);
-
     const subtotalBruto = +(totalBruto / taxFactor).toFixed(2);
     const discount = +(discountBruto / taxFactor).toFixed(2);
     const subtotal = +(total / taxFactor).toFixed(2);
     const isv = +(subtotal * isvRate).toFixed(2);
     const tasaTuristica = +(total - subtotal - isv).toFixed(2);
-
-    return {
-      subtotalBruto,
-      discount,
-      subtotal,
-      isv,
-      tasaTuristica,
-      total,
-      isvRate,
-      turisticaRate,
-    };
+    return { subtotalBruto, discount, subtotal, isv, tasaTuristica, total, isvRate, turisticaRate, discountRate };
   }, [form.tarifaManual, form.aplicarDescuento, form.noches, form.esCortesia, form.tipoReserva, precioBase, hotelConfig]);
 
   const totalEstimado = useMemo(() => {
@@ -770,6 +778,7 @@ export const Bookings: React.FC = () => {
     }
 
     setWizardStep('datos');
+    setGuestQuery('');
     setEditorOpen(true);
   }
 
@@ -812,6 +821,7 @@ export const Bookings: React.FC = () => {
       registrarNuevo: false,
     });
     setWizardStep('datos');
+    setGuestQuery('');
     setEditorOpen(true);
   }
 
@@ -1754,7 +1764,7 @@ export const Bookings: React.FC = () => {
                 { icon: '🔍', label: 'Ver detalles', action: () => { closeCtxMenu(); setDetailReserva(ctxMenu!.reserva); } },
                 null,
                 !isPast && { icon: '❌', label: 'Cancelar reserva', danger: true, action: () => { closeCtxMenu(); handleCancelClick(ctxMenu!.reserva.id_reserva_hotel); } },
-              ].filter((item): item is { icon: string; label: string; danger?: boolean; action: () => void } | null => item !== false).map((item, i) =>
+              ].filter((item: any) => item !== false).map((item: any, i: number) =>
                 item === null ? (
                   <div key={i} style={{ height: 1, background: '#f1f5f9', margin: '4px 0' }} />
                 ) : (
@@ -2644,20 +2654,104 @@ export const Bookings: React.FC = () => {
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    {/* Huésped */}
-                    {!form.registrarNuevo && (
-                      <label style={{ gridColumn: '1 / -1' }}>
-                        <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Huésped</div>
-                        <select
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                          value={form.huespedId}
-                          onChange={e => setForm(f => ({ ...f, huespedId: e.target.value }))}
-                        >
-                          <option value="">Selecciona huésped</option>
-                          {huespedes.map(h => <option key={h.id_huesped} value={h.id_huesped}>{h.nombre_completo}</option>)}
-                        </select>
-                      </label>
-                    )}
+                    {/* Huésped — búsqueda live */}
+                    {!form.registrarNuevo && (() => {
+                      const filtered = guestQuery.trim().length > 0
+                        ? huespedes.filter(h => {
+                            const q = guestQuery.toLowerCase();
+                            return (
+                              h.nombre_completo.toLowerCase().includes(q) ||
+                              (h.correo ?? '').toLowerCase().includes(q) ||
+                              (h.telefono ?? '').includes(q)
+                            );
+                          })
+                        : [];
+                      const selectedGuest2 = huespedes.find(h => h.id_huesped === form.huespedId);
+                      return (
+                        <div style={{ gridColumn: '1 / -1', position: 'relative' }}>
+                          <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Huésped *</div>
+
+                          {/* Input de búsqueda */}
+                          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                            <span style={{ position: 'absolute', left: 10, fontSize: 14, color: '#94a3b8', pointerEvents: 'none' }}>🔍</span>
+                            <input
+                              type="text"
+                              placeholder={selectedGuest2 ? selectedGuest2.nombre_completo : 'Buscar por nombre, correo o teléfono…'}
+                              value={selectedGuest2 ? '' : guestQuery}
+                              onFocus={() => { if (selectedGuest2) setGuestQuery(''); }}
+                              onChange={e => {
+                                setGuestQuery(e.target.value);
+                                if (form.huespedId) setForm(f => ({ ...f, huespedId: '' }));
+                              }}
+                              style={{
+                                width: '100%', padding: '9px 36px 9px 34px',
+                                border: selectedGuest2 ? '2px solid #4f46e5' : '1.5px solid #e2e8f0',
+                                borderRadius: 10, fontSize: 13,
+                                background: selectedGuest2 ? 'linear-gradient(135deg,#eef2ff,#f5f3ff)' : '#fff',
+                                color: selectedGuest2 ? '#4f46e5' : '#1e293b',
+                                outline: 'none', boxSizing: 'border-box',
+                              }}
+                            />
+                            {/* Ícono huésped seleccionado / limpiar */}
+                            {selectedGuest2 ? (
+                              <button
+                                type="button"
+                                onClick={() => { setForm(f => ({ ...f, huespedId: '' })); setGuestQuery(''); }}
+                                style={{ position: 'absolute', right: 10, background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#94a3b8', lineHeight: 1 }}
+                                title="Limpiar selección"
+                              >✕</button>
+                            ) : guestQuery.length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => setGuestQuery('')}
+                                style={{ position: 'absolute', right: 10, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#94a3b8', lineHeight: 1 }}
+                              >✕</button>
+                            ) : null}
+                          </div>
+
+                          {/* Info del huésped seleccionado */}
+                          {selectedGuest2 && (
+                            <div style={{ marginTop: 6, padding: '8px 12px', background: '#eef2ff', borderRadius: 8, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: '#4f46e5' }}>✓ {selectedGuest2.nombre_completo}</span>
+                              {selectedGuest2.correo && <span style={{ fontSize: 11, color: '#6366f1' }}>✉ {selectedGuest2.correo}</span>}
+                              {selectedGuest2.telefono && <span style={{ fontSize: 11, color: '#6366f1' }}>📞 {selectedGuest2.telefono}</span>}
+                            </div>
+                          )}
+
+                          {/* Dropdown de resultados */}
+                          {!selectedGuest2 && guestQuery.trim().length > 0 && (
+                            <div style={{
+                              position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                              background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10,
+                              boxShadow: '0 8px 24px rgba(0,0,0,0.10)', maxHeight: 220, overflowY: 'auto', marginTop: 4,
+                            }}>
+                              {filtered.length === 0 ? (
+                                <div style={{ padding: '12px 14px', fontSize: 13, color: '#94a3b8', textAlign: 'center' }}>Sin coincidencias</div>
+                              ) : filtered.map(h => (
+                                <button
+                                  key={h.id_huesped}
+                                  type="button"
+                                  onClick={() => { setForm(f => ({ ...f, huespedId: h.id_huesped })); setGuestQuery(''); }}
+                                  style={{
+                                    display: 'block', width: '100%', textAlign: 'left',
+                                    padding: '10px 14px', border: 'none', background: 'none',
+                                    cursor: 'pointer', borderBottom: '1px solid #f1f5f9',
+                                    transition: 'background 0.12s',
+                                  }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                                >
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{h.nombre_completo}</div>
+                                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                                    {[h.correo, h.telefono, h.ciudad].filter(Boolean).join(' · ')}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Nuevo huésped toggle */}
                     <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
@@ -3036,41 +3130,33 @@ export const Bookings: React.FC = () => {
                       </label>
                     )}
 
-                    <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 4 }}>
-                      <input
-                        type="checkbox"
-                        checked={form.camaExtra}
-                        onChange={e => setForm(f => ({ ...f, camaExtra: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: 12, color: '#64748b' }}>🛏️ Solicitar cama extra unipersonal</span>
-                    </label>
-
-                    <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 4 }}>
-                      <input
-                        type="checkbox"
-                        checked={form.limpiezaDiaria}
-                        onChange={e => setForm(f => ({ ...f, limpiezaDiaria: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: 12, color: '#64748b' }}>🧹 Servicio de limpieza diaria</span>
-                    </label>
-
-                    <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 4 }}>
-                      <input
-                        type="checkbox"
-                        checked={form.neverita}
-                        onChange={e => setForm(f => ({ ...f, neverita: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: 12, color: '#64748b' }}>🧊 Neverita / Minibar</span>
-                    </label>
-
-                    <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 4 }}>
-                      <input
-                        type="checkbox"
-                        checked={form.plancha}
-                        onChange={e => setForm(f => ({ ...f, plancha: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: 12, color: '#64748b' }}>💨 Plancha de ropa</span>
-                    </label>
+                    {/* Comodidades de la habitación */}
+                    <div style={{ gridColumn: '1 / -1', marginTop: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 8 }}>Comodidades de la habitación</div>
+                      {(() => {
+                        const comodidades: string[] = (selectedHabitacion as any)?.comodidades ?? [];
+                        if (!selectedHabitacion) {
+                          return <div style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>Selecciona una habitación para ver sus comodidades.</div>;
+                        }
+                        if (comodidades.length === 0) {
+                          return <div style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>No hay comodidades registradas para esta habitación.</div>;
+                        }
+                        return (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {comodidades.map((c, i) => (
+                              <span key={i} style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 4,
+                                padding: '4px 10px', borderRadius: 20,
+                                background: '#f0f9ff', border: '1px solid #bae6fd',
+                                fontSize: 11, fontWeight: 600, color: '#0369a1',
+                              }}>
+                                ✦ {c}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
               )}
@@ -3080,116 +3166,175 @@ export const Bookings: React.FC = () => {
                 <div>
                   <div style={{ marginBottom: 6 }}>
                     <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, color: '#94a3b8', fontWeight: 600 }}>Paso 2</span>
-                    <h4 style={{ fontSize: 15, fontWeight: 600, margin: '2px 0 12px' }}>Tarifa y cobro</h4>
+                    <h4 style={{ fontSize: 15, fontWeight: 600, margin: '2px 0 4px' }}>Tarifa y cobro</h4>
+                    <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>
+                      {form.tipoReserva === 'hora' ? 'Define el cobro total para la estadía por horas.' :
+                       form.tipoReserva === 'pasadia' ? 'Define el cobro para el pasadía.' :
+                       `Selecciona la tarifa para ${form.noches} noche${form.noches !== 1 ? 's' : ''}.`}
+                    </p>
                   </div>
 
                   {form.esCortesia ? (
-                    <div style={{ background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 10, padding: '16px 20px', textAlign: 'center', color: '#0d9488' }}>
-                      <strong>Cortesía</strong> — Esta reserva no genera cobro.
+                    <div style={{ background: 'linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%)', border: '1px solid #99f6e4', borderRadius: 12, padding: '20px 24px', textAlign: 'center', color: '#0d9488' }}>
+                      <div style={{ fontSize: 28, marginBottom: 8 }}>🎁</div>
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>Cortesía</div>
+                      <div style={{ fontSize: 12, marginTop: 4, color: '#14b8a6' }}>Esta reserva no genera cobro al huésped.</div>
                     </div>
-                  ) : form.tipoReserva === 'hora' ? (
-                    <>
-                      {/* Tarifa por horas */}
-                      <label style={{ display: 'block', marginBottom: 16 }}>
-                        <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Precio total por horas (HNL) *</div>
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                          placeholder="Ingrese precio total"
-                          value={form.tarifaManual || ''}
-                          onChange={e => setForm(f => ({ ...f, tarifaManual: Math.max(0, Number(e.target.value) || 0) }))}
-                        />
-                      </label>
+                  ) : (() => {
+                    const esPersonalizada = form.tarifaManual > 0 && !tarifasFiltradas.some(t => t.valorActivo === form.tarifaManual);
+                    const esSistema = tarifasFiltradas.some(t => t.valorActivo === form.tarifaManual);
+                    const esBase = !esPersonalizada && !esSistema && form.tipoReserva === 'noche';
+                    const cardSt = (active: boolean): React.CSSProperties => ({
+                      padding: '14px 16px', borderRadius: 12,
+                      border: active ? '2px solid #4f46e5' : '1.5px solid #e2e8f0',
+                      background: active ? 'linear-gradient(135deg,#eef2ff 0%,#f5f3ff 100%)' : '#ffffff',
+                      cursor: 'pointer', transition: 'all 0.2s ease',
+                      boxShadow: active ? '0 4px 12px rgba(79,70,229,.12)' : '0 1px 3px rgba(0,0,0,.04)',
+                      textAlign: 'left' as const, display: 'block', width: '100%',
+                    });
+                    return (<>
+                      {/* ── Sección: Modos de tarifa ── */}
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>Esquema de cobro</div>
+                        <div style={{ display: 'grid', gap: 8 }}>
 
-                      {/* Breakdown */}
-                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
-                        {[
-                          { label: 'Subtotal por horas', value: `L ${rates.subtotalBruto.toFixed(2)}` },
-                          { label: `ISV (${(rates.isvRate * 100).toFixed(0)}%)`, value: `L ${rates.isv.toFixed(2)}` },
-                          { label: `Tasa Turística (${(rates.turisticaRate * 100).toFixed(0)}%)`, value: `L ${rates.tasaTuristica.toFixed(2)}` },
-                        ].map((row, i) => (
-                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', fontSize: 13, color: '#64748b' }}>
-                            <span>{row.label}</span>
-                            <span style={{ fontWeight: 500 }}>{row.value}</span>
-                          </div>
-                        ))}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', fontSize: 15, fontWeight: 700, color: '#1e293b', background: '#f8fafc' }}>
-                          <span>Total (HNL)</span>
-                          <span>L {rates.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</span>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      {/* Base price from room */}
-                      <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Precio base de habitación</div>
-                        <div style={{ fontSize: 20, fontWeight: 700, color: '#1e293b' }}>
-                          L {precioBase.toLocaleString('es-HN', { minimumFractionDigits: 2 })} <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8' }}>/noche</span>
-                        </div>
-                      </div>
-
-                      {/* Tarifa manual */}
-                      <label style={{ display: 'block', marginBottom: 16 }}>
-                        <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Tarifa personalizada (HNL / noche)</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.01}
-                            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                            style={{ width: 160 }}
-                            placeholder={`${precioBase}`}
-                            value={form.tarifaManual || ''}
-                            onChange={e => setForm(f => ({ ...f, tarifaManual: Math.max(0, Number(e.target.value) || 0) }))}
-                          />
-                          {form.tarifaManual > 0 && (
-                            <button
-                              type="button"
-                              style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}
-                              onClick={() => setForm(f => ({ ...f, tarifaManual: 0 }))}
-                            >
-                              Usar base
+                          {/* Tarifa Base */}
+                          {form.tipoReserva === 'noche' && precioBase > 0 && (
+                            <button type="button" onClick={() => setForm(f => ({ ...f, tarifaManual: 0 }))} style={cardSt(esBase)}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                    <span style={{ fontSize: 14 }}>🏷️</span>
+                                    <span style={{ fontSize: 12, fontWeight: 700, color: esBase ? '#4f46e5' : '#374151' }}>Tarifa Base</span>
+                                    {esBase && <span style={{ fontSize: 9, background: '#4f46e5', color: '#fff', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>ACTIVA</span>}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#94a3b8' }}>Precio estándar de la habitación</div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 16, fontWeight: 800, color: esBase ? '#4f46e5' : '#1e293b' }}>L {precioBase.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</div>
+                                  <div style={{ fontSize: 10, color: '#94a3b8' }}>/ noche</div>
+                                </div>
+                              </div>
                             </button>
                           )}
-                        </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
-                          Deja en 0 para usar el precio base de la habitación.
-                        </div>
-                      </label>
 
-                      {/* Descuento */}
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 20 }}>
-                        <input
-                          type="checkbox"
-                          checked={form.aplicarDescuento}
-                          onChange={e => setForm(f => ({ ...f, aplicarDescuento: e.target.checked }))}
-                        />
-                        <span style={{ fontSize: 12, color: '#64748b' }}>Aplicar descuento tercera edad (15%)</span>
-                      </label>
+                          {/* Tarifas del Sistema */}
+                          {tarifasFiltradas.length > 0 && (
+                            <div style={{ border: esSistema ? '2px solid #4f46e5' : '1.5px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', boxShadow: esSistema ? '0 4px 12px rgba(79,70,229,.12)' : '0 1px 3px rgba(0,0,0,.04)', transition: 'all 0.2s ease' }}>
+                              <div style={{ padding: '12px 16px', background: esSistema ? 'linear-gradient(135deg,#eef2ff 0%,#f5f3ff 100%)' : '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 14 }}>⚡</span>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: esSistema ? '#4f46e5' : '#374151' }}>Tarifas del Sistema</span>
+                                {esSistema && <span style={{ fontSize: 9, background: '#4f46e5', color: '#fff', borderRadius: 4, padding: '1px 5px', fontWeight: 700, marginLeft: 2 }}>ACTIVA</span>}
+                                <span style={{ marginLeft: 'auto', fontSize: 10, color: '#94a3b8' }}>{selectedHabitacion?.tipo ?? ''} · {form.tipoReserva === 'hora' ? 'Por horas' : form.tipoReserva === 'pasadia' ? 'Pasadía' : 'Por noche'}</span>
+                              </div>
+                              <div style={{ background: '#fff' }}>
+                                {tarifasFiltradas.map((t, idx) => {
+                                  const isSel = form.tarifaManual === t.valorActivo;
+                                  return (
+                                    <button key={t.id_tarifa} type="button" onClick={() => setForm(f => ({ ...f, tarifaManual: t.valorActivo }))} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 16px', background: isSel ? '#f0f0ff' : '#fff', border: 'none', borderBottom: idx < tarifasFiltradas.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer', transition: 'background .15s', textAlign: 'left' }}>
+                                      <div>
+                                        <div style={{ fontSize: 12, fontWeight: 600, color: isSel ? '#4f46e5' : '#374151' }}>{t.categoria}</div>
+                                        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>{t.vigente_hasta ? `Hasta ${new Date(t.vigente_hasta + 'T00:00:00').toLocaleDateString('es-HN')}` : 'Tarifa vigente'}</div>
+                                      </div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <div style={{ fontSize: 15, fontWeight: 800, color: isSel ? '#4f46e5' : '#1e293b' }}>L {t.valorActivo.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</div>
+                                        <div style={{ width: 18, height: 18, borderRadius: '50%', border: isSel ? '5px solid #4f46e5' : '2px solid #cbd5e1', background: '#fff', flexShrink: 0, transition: 'all .15s' }} />
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
 
-                      {/* Breakdown */}
-                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                          {/* Sin tarifas del sistema */}
+                          {tarifasFiltradas.length === 0 && (
+                            <div style={{ padding: '12px 16px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 12, color: '#92400e', display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <span>⚠️</span>
+                              <span>Sin tarifas del sistema para este tipo de habitación y modalidad.</span>
+                            </div>
+                          )}
+
+                          {/* Personalizada */}
+                          <button type="button" onClick={() => { if (!esPersonalizada) { const seed = form.tipoReserva === 'noche' ? (precioBase || 500) : form.tipoReserva === 'pasadia' ? 300 : 150; setForm(f => ({ ...f, tarifaManual: seed })); } }} style={cardSt(esPersonalizada)}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                  <span style={{ fontSize: 14 }}>✏️</span>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: esPersonalizada ? '#4f46e5' : '#374151' }}>Valor Personalizado</span>
+                                  {esPersonalizada && <span style={{ fontSize: 9, background: '#4f46e5', color: '#fff', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>ACTIVA</span>}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#94a3b8' }}>Ingresa un monto manual</div>
+                              </div>
+                              {esPersonalizada ? (
+                                <div style={{ fontSize: 16, fontWeight: 800, color: '#4f46e5' }}>L {form.tarifaManual.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</div>
+                              ) : (
+                                <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Clic para activar</div>
+                              )}
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Input personalizado (solo cuando está activo) */}
+                      {esPersonalizada && (
+                        <div style={{ marginBottom: 16, padding: '14px 16px', background: 'linear-gradient(135deg,#eef2ff 0%,#f5f3ff 100%)', borderRadius: 12, border: '1.5px solid #c7d2fe' }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Monto personalizado</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', background: '#fff', border: '1.5px solid #a5b4fc', borderRadius: 8, overflow: 'hidden', flex: 1, maxWidth: 220 }}>
+                              <span style={{ padding: '8px 12px', fontSize: 13, fontWeight: 700, color: '#6366f1', borderRight: '1px solid #e0e7ff', background: '#f5f3ff', flexShrink: 0 }}>L</span>
+                              <input
+                                type="number" min={0} step={0.01}
+                                style={{ border: 'none', outline: 'none', padding: '8px 12px', fontSize: 15, fontWeight: 700, color: '#1e293b', width: '100%', background: 'transparent' }}
+                                value={form.tarifaManual || ''}
+                                onChange={e => setForm(f => ({ ...f, tarifaManual: Math.max(0, Number(e.target.value) || 0) }))}
+                                autoFocus
+                              />
+                            </div>
+                            <span style={{ fontSize: 11, color: '#6366f1' }}>{form.tipoReserva === 'hora' ? '/ estancia' : form.tipoReserva === 'pasadia' ? '/ pasadía' : '/ noche'}</span>
+                            <button type="button" onClick={() => setForm(f => ({ ...f, tarifaManual: 0 }))} style={{ fontSize: 11, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0 }}>Cancelar</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Descuento Tercera Edad */}
+                      {form.tipoReserva === 'noche' && (() => {
+                        const pctDisplay = Math.round((hotelConfig?.descuento_tercera_edad ?? 25));
+                        return (
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 16, padding: '10px 14px', background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                            <input type="checkbox" checked={form.aplicarDescuento} onChange={e => setForm(f => ({ ...f, aplicarDescuento: e.target.checked }))} style={{ width: 16, height: 16, accentColor: '#4f46e5' }} />
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Descuento tercera edad</div>
+                              <div style={{ fontSize: 10, color: '#94a3b8' }}>Aplica {pctDisplay}% de descuento (configurado en ajustes del hotel)</div>
+                            </div>
+                            {form.aplicarDescuento && <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: '#16a34a' }}>−{pctDisplay}%</span>}
+                          </label>
+                        );
+                      })()}
+
+                      {/* Desglose */}
+                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
+                        <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6 }}>Desglose de cobro</span>
+                        </div>
                         {[
-                          { label: 'Subtotal estadía', value: `L ${rates.subtotalBruto.toFixed(2)}` },
-                          form.aplicarDescuento ? { label: 'Descuento (15%)', value: `− L ${rates.discount.toFixed(2)}` } : null,
+                          { label: form.tipoReserva === 'hora' ? 'Subtotal por horas' : form.tipoReserva === 'pasadia' ? 'Subtotal pasadía' : `Subtotal (${form.noches} noche${form.noches !== 1 ? 's' : ''})`, value: `L ${rates.subtotalBruto.toFixed(2)}` },
+                          form.aplicarDescuento && form.tipoReserva === 'noche' ? { label: `Descuento tercera edad (${Math.round((hotelConfig?.descuento_tercera_edad ?? 25))}%)`, value: `− L ${rates.discount.toFixed(2)}`, color: '#16a34a' } : null,
                           { label: `ISV (${(rates.isvRate * 100).toFixed(0)}%)`, value: `L ${rates.isv.toFixed(2)}` },
                           { label: `Tasa Turística (${(rates.turisticaRate * 100).toFixed(0)}%)`, value: `L ${rates.tasaTuristica.toFixed(2)}` },
                         ].filter(Boolean).map((row, i) => (
-                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', fontSize: 13, color: '#64748b' }}>
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', fontSize: 13, color: (row as any).color ?? '#64748b' }}>
                             <span>{row!.label}</span>
                             <span style={{ fontWeight: 500 }}>{row!.value}</span>
                           </div>
                         ))}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', fontSize: 15, fontWeight: 700, color: '#1e293b', background: '#f8fafc' }}>
-                          <span>Total (HNL)</span>
-                          <span>L {rates.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 16px', fontSize: 16, fontWeight: 800, color: '#1e293b', background: 'linear-gradient(135deg,#f8fafc 0%,#f1f5f9 100%)' }}>
+                          <span>Total a cobrar (HNL)</span>
+                          <span style={{ color: rates.total > 0 ? '#1e293b' : '#94a3b8' }}>{rates.total > 0 ? `L ${rates.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}` : '—'}</span>
                         </div>
                       </div>
-                    </>
-                  )}
+                    </>);
+                  })()}
                 </div>
               )}
 

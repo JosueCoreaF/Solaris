@@ -4,7 +4,7 @@ import { supabase } from './supabase';
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   const token = (await supabase.auth.getSession()).data.session?.access_token || '';
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -231,7 +231,7 @@ export async function fetchHoteles(): Promise<Hotel[]> {
 }
 
 export async function fetchHabitaciones(): Promise<Habitacion[]> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   return withCache(`habitaciones:${activeHotelId}`, TTL_LARGA, () => apiFetch<Habitacion[]>('/bookings/habitaciones'));
 }
 
@@ -261,7 +261,7 @@ export async function createEmpresa(params: {
 }
 
 export async function fetchReservas(desde: string, hasta: string): Promise<Reserva[]> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   const key = `reservas:${activeHotelId}:${desde}:${hasta}`;
   return withCache(key, TTL_CORTA, () =>
     apiFetch<Reserva[]>(`/bookings/reservas?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`),
@@ -411,7 +411,7 @@ export async function simulateImportReservas(file: File): Promise<any[]> {
   const formData = new FormData();
   formData.append('file', file);
   
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   const token = (await supabase.auth.getSession()).data.session?.access_token || '';
   const headers: Record<string, string> = {
     'X-Hotel-ID': activeHotelId,

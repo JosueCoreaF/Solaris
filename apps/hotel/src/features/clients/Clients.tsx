@@ -15,13 +15,24 @@ interface Huesped {
 /* ─── API ─────────────────────────────────────────────────── */
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
+async function getHeaders(contentType = false): Promise<Record<string, string>> {
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+  const headers: Record<string, string> = { 'X-Hotel-ID': activeHotelId };
+  if (contentType) headers['Content-Type'] = 'application/json';
+  try {
+    const { createClient } = await import('@supabase/supabase-js');
+    const sb = createClient(
+      import.meta.env.VITE_SUPABASE_URL,
+      import.meta.env.VITE_SUPABASE_ANON_KEY
+    );
+    const { data } = await sb.auth.getSession();
+    if (data.session?.access_token) headers['Authorization'] = `Bearer ${data.session.access_token}`;
+  } catch (_) {}
+  return headers;
+}
+
 async function fetchHuespedes(): Promise<Huesped[]> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || 'all';
-  const r = await fetch(`${API}/bookings/huespedes`, {
-    headers: {
-      'X-Hotel-ID': activeHotelId
-    }
-  });
+  const r = await fetch(`${API}/bookings/huespedes`, { headers: await getHeaders() });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
@@ -35,7 +46,7 @@ async function createHuesped(data: {
 }): Promise<Huesped> {
   const r = await fetch(`${API}/bookings/huespedes`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await getHeaders(true),
     body: JSON.stringify(data),
   });
   if (!r.ok) {

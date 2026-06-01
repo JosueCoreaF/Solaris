@@ -27,7 +27,7 @@ interface SaldoEntry {
   monto: number;
   descripcion: string;
   tipo: string;
-  fecha_creacion: string;
+  created_at: string;
   aplicado: boolean;
 }
 
@@ -63,13 +63,20 @@ interface ClientePerfil {
 /* ─── API ─────────────────────────────────────────────────── */
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
+async function getAuthHeaders(contentType = false): Promise<Record<string, string>> {
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+  const headers: Record<string, string> = { 'X-Hotel-ID': activeHotelId };
+  if (contentType) headers['Content-Type'] = 'application/json';
+  try {
+    const { supabase } = await import('../../api/supabase');
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.access_token) headers['Authorization'] = `Bearer ${data.session.access_token}`;
+  } catch (_) {}
+  return headers;
+}
+
 async function fetchCliente(id: string): Promise<ClientePerfil> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || 'all';
-  const r = await fetch(`${API}/bookings/huespedes/${id}`, {
-    headers: {
-      'X-Hotel-ID': activeHotelId
-    }
-  });
+  const r = await fetch(`${API}/bookings/huespedes/${id}`, { headers: await getAuthHeaders() });
   if (!r.ok) {
     const b = await r.json().catch(() => ({}));
     throw new Error(b.error ?? `Error ${r.status}`);
@@ -80,7 +87,7 @@ async function fetchCliente(id: string): Promise<ClientePerfil> {
 async function patchCliente(id: string, updates: { nombre_completo?: string; telefono?: string; ciudad?: string; direccion?: string }): Promise<void> {
   const r = await fetch(`${API}/bookings/huespedes/${id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await getAuthHeaders(true),
     body: JSON.stringify(updates),
   });
   if (!r.ok) {
@@ -428,7 +435,7 @@ export const ClienteDetalle: React.FC = () => {
               <div key={s.id_saldo} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', borderRadius: 8, padding: '8px 14px', border: '1px solid #fde68a' }}>
                 <div>
                   <div style={{ fontSize: 12, color: '#64748b' }}>{s.descripcion}</div>
-                  <div style={{ fontSize: 10, color: '#94a3b8' }}>{fmtDate(s.fecha_creacion)}</div>
+                  <div style={{ fontSize: 10, color: '#94a3b8' }}>{fmtDate(s.created_at)}</div>
                 </div>
                 <span style={{ fontSize: 13, fontWeight: 800, color: '#d97706' }}>HNL {s.monto.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</span>
               </div>

@@ -89,11 +89,11 @@ export const Room360Viewer: React.FC<Room360ViewerProps> = ({ imageUrl, roomName
         {/* Encabezado */}
         <div className="tour-360-header">
           <div>
-            <h3>🔮 Recorrido Virtual 360°</h3>
+            <h3>Recorrido Virtual 360°</h3>
             <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>{roomName}</p>
           </div>
           <button className="tour-360-close-btn" onClick={onClose} aria-label="Cerrar recorrido">
-            ✕
+            ×
           </button>
         </div>
 
@@ -108,7 +108,7 @@ export const Room360Viewer: React.FC<Room360ViewerProps> = ({ imageUrl, roomName
 
           {error && (
             <div className="tour-360-error">
-              ⚠️ No pudimos cargar la imagen panorámica. Verifica que el enlace sea correcto y sea de tipo equirectangular.
+              No pudimos cargar la imagen panorámica. Verifica que el enlace sea correcto y sea de tipo equirectangular.
             </div>
           )}
 
@@ -120,7 +120,7 @@ export const Room360Viewer: React.FC<Room360ViewerProps> = ({ imageUrl, roomName
 
         {/* Instrucciones de uso */}
         <div className="tour-360-footer">
-          💡 <strong>Tip de uso:</strong> Mantén presionado tu dedo o mouse y arrastra para mirar en cualquier dirección. Usa la rueda del mouse o los botones +/- para hacer zoom.
+          <strong>Tip de uso:</strong> Mantén presionado tu dedo o mouse y arrastra para mirar en cualquier dirección. Usa la rueda del mouse o los botones +/- para hacer zoom.
         </div>
       </div>
     </div>

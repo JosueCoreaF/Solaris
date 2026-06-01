@@ -7,7 +7,7 @@ interface SaldoEntry {
   monto: number;
   descripcion: string;
   tipo: 'credito' | 'debito' | 'devolucion' | 'ajuste';
-  fecha_creacion: string;
+  created_at: string;
   fecha_aplicacion: string | null;
   aplicado: boolean;
   huesped?: { nombre_completo: string };
@@ -52,16 +52,24 @@ interface ClienteGrupo {
 const API = 'http://localhost:4000/api';
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || 'all';
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (activeHotelId && activeHotelId !== 'all') {
-    headers['X-Hotel-ID'] = activeHotelId;
-  }
-  const r = await fetch(`${API}${path}`, { 
-    ...opts, 
-    headers: { ...headers, ...opts?.headers } 
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Hotel-ID': activeHotelId,
+  };
+  try {
+    const { supabase } = await import('../../api/supabase');
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.access_token) headers['Authorization'] = `Bearer ${data.session.access_token}`;
+  } catch (_) {}
+  const r = await fetch(`${API}${path}`, {
+    ...opts,
+    headers: { ...headers, ...opts?.headers }
   });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) {
+    const b = await r.json().catch(() => ({}));
+    throw new Error(b.error ?? `Error ${r.status}`);
+  }
   return r.json() as Promise<T>;
 }
 

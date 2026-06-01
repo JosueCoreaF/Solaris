@@ -5,263 +5,252 @@ import { config } from 'dotenv';
 config();
 
 const router = express.Router();
-const supabaseAdmin = createClient(
+const db = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Helper: extraer user desde Bearer token
+// ─── Auth helper ─────────────────────────────────────────────────────────────
+
 async function getUserFromToken(authHeader: string | undefined) {
-  if (!authHeader) return null;
-  const token = authHeader.replace('Bearer ', '');
-  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  const { data: { user }, error } = await db.auth.getUser(authHeader.slice(7));
   if (error || !user) return null;
   return user;
 }
 
-async function getOwnerIdsFromRoles(user: any) {
-  const { data: roles, error } = await supabaseAdmin
-    .from('usuarios_roles')
-    .select('owner_id')
-    .eq('usuario_id', user.id)
-    .eq('rol', 'PROPIETARIO')
-    .eq('estado', 'activo')
-    .not('owner_id', 'is', null);
-
-  if (error) return { ownerIds: [], error };
-
-  const ownerIds = Array.from(new Set((roles || []).map((item: any) => item.owner_id).filter(Boolean)));
-  return { ownerIds, error: null };
-}
-
-async function findOwnerForUser(user: any) {
-  const email = user.email?.toLowerCase() ?? '';
-  const { ownerIds, error: rolesError } = await getOwnerIdsFromRoles(user);
-  if (rolesError) return { ownerRow: null, ownerIds: [], error: rolesError };
-
-  if (ownerIds.length > 0) {
-    const { data: ownerRow, error } = await supabaseAdmin
-      .from('owners')
-      .select('id_owner, nombre_empresa, email_contacto')
-      .in('id_owner', ownerIds)
-      .limit(1)
-      .maybeSingle();
-
-    return { ownerRow, ownerIds, error };
-  }
-
-  const { data: ownerRow, error } = await supabaseAdmin
+/**
+ * Resuelve el owner_id del usuario según el nuevo schema:
+ *  - PROPIETARIO: owners.id_owner = auth.uid()
+ *  - Staff: usuarios_roles.user_id = auth.uid()
+ */
+async function resolveOwner(user: any): Promise<{
+  ownerRow: any | null;
+  ownerIds: string[];
+  hotelIds: string[];
+  error: any;
+}> {
+  // 1. ¿Es propietario directo?
+  const { data: ownerRow, error: ownerErr } = await db
     .from('owners')
     .select('id_owner, nombre_empresa, email_contacto')
-    .eq('email_contacto', email)
+    .eq('id_owner', user.id)
     .maybeSingle();
 
-  return { ownerRow, ownerIds: ownerRow ? [ownerRow.id_owner] : [], error };
+  if (ownerErr) return { ownerRow: null, ownerIds: [], hotelIds: [], error: ownerErr };
+
+  if (ownerRow) {
+    // Obtener sus hoteles via business_modules
+    const { data: mods } = await db
+      .from('business_modules')
+      .select('id_module')
+      .eq('owner_id', ownerRow.id_owner);
+
+    const moduleIds = (mods || []).map((m: any) => m.id_module);
+    let hotelIds: string[] = [];
+
+    if (moduleIds.length > 0) {
+      const { data: hoteles } = await db
+        .from('hoteles')
+        .select('id_hotel')
+        .in('id_module', moduleIds);
+      hotelIds = (hoteles || []).map((h: any) => h.id_hotel);
+    }
+
+    return { ownerRow, ownerIds: [ownerRow.id_owner], hotelIds, error: null };
+  }
+
+  // 2. ¿Es staff?
+  const { data: roles, error: rolesErr } = await db
+    .from('usuarios_roles')
+    .select('owner_id, id_hotel')
+    .eq('user_id', user.id)
+    .eq('estado', 'activo');
+
+  if (rolesErr) return { ownerRow: null, ownerIds: [], hotelIds: [], error: rolesErr };
+
+  const ownerIds = [...new Set((roles || []).map((r: any) => r.owner_id).filter(Boolean))];
+  const hotelIds = [...new Set((roles || []).map((r: any) => r.id_hotel).filter(Boolean))];
+
+  if (ownerIds.length === 0) return { ownerRow: null, ownerIds: [], hotelIds: [], error: null };
+
+  const { data: staffOwner } = await db
+    .from('owners')
+    .select('id_owner, nombre_empresa, email_contacto')
+    .eq('id_owner', ownerIds[0])
+    .maybeSingle();
+
+  return { ownerRow: staffOwner ?? null, ownerIds, hotelIds, error: null };
 }
 
-// POST - Crear perfil de propietario (primera vez / onboarding)
+// ─── POST /hub/owner — Onboarding de propietario ─────────────────────────────
+
 router.post('/owner', async (req, res) => {
   try {
     const user = await getUserFromToken(req.headers.authorization);
     if (!user) return res.status(401).json({ error: 'No autorizado' });
 
     const { nombre_empresa, email_contacto, telefono_contacto } = req.body;
-    if (!nombre_empresa?.trim() || !email_contacto?.trim()) {
-      return res.status(400).json({ error: 'nombre_empresa y email_contacto son requeridos.' });
+    if (!nombre_empresa?.trim()) {
+      return res.status(400).json({ error: 'nombre_empresa es requerido.' });
     }
 
-    // Verificar si ya existe un owner para este user o el mismo correo
-    const normalizedEmail = email_contacto.trim().toLowerCase();
-    const { data: existingOwner, error: existingError } = await supabaseAdmin
+    // Verificar si ya existe
+    const { data: existing } = await db
       .from('owners')
-      .select('id_owner, email_contacto')
-      .eq('email_contacto', normalizedEmail)
+      .select('id_owner')
+      .eq('id_owner', user.id)
       .maybeSingle();
 
-    if (existingError) {
-      return res.status(400).json({ error: existingError.message });
+    if (existing) {
+      return res.status(400).json({ error: 'Ya tienes un perfil de propietario.' });
     }
 
-    let finalOwnerId = existingOwner?.id_owner;
-
-    if (existingOwner) {
-      // El owner ya existe. Verificamos si este usuario YA está enlazado a él.
-      const { data: checkRole } = await supabaseAdmin
-        .from('usuarios_roles')
-        .select('id')
-        .eq('usuario_id', user.id)
-        .eq('owner_id', finalOwnerId)
-        .maybeSingle();
-
-      if (checkRole) {
-        return res.status(400).json({ error: 'Ya tienes un perfil de propietario con este correo.' });
-      }
-      return res.status(400).json({ error: 'Esta empresa ya está registrada por otro usuario. Si eres el dueño, inicia sesión con la cuenta original.' });
-    } else {
-      // Crear el nuevo owner
-      const { data: owner, error: ownerErr } = await supabaseAdmin
-        .from('owners')
-        .insert({
-          nombre_empresa: nombre_empresa.trim(),
-          email_contacto: normalizedEmail,
-          telefono_contacto: telefono_contacto?.trim() || null,
-          estado: 'activo',
-        })
-        .select('id_owner')
-        .single();
-
-      if (ownerErr || !owner) return res.status(400).json({ error: ownerErr?.message || 'Error al crear el perfil de propietario.' });
-      finalOwnerId = owner.id_owner;
-
-      // Iniciar 14 días de Trial solo si es un owner nuevo
-      const trialEndDate = new Date();
-      trialEndDate.setDate(trialEndDate.getDate() + 14);
-
-      await supabaseAdmin
-        .from('suscripciones_owner')
-        .insert({
-          owner_id: finalOwnerId,
-          id_plan: 'estandar', // Asignamos Estándar para el trial
-          estado: 'trial',
-          trial_end: trialEndDate.toISOString(),
-        });
-    }
-
-    // Insertar el rol para enlazarlos
-    const { error: roleErr } = await supabaseAdmin
-      .from('usuarios_roles')
+    // Crear owner — id_owner = auth.uid() (diseño del schema)
+    const { data: owner, error: ownerErr } = await db
+      .from('owners')
       .insert({
-        usuario_id: user.id,
-        owner_id: finalOwnerId,
-        id_hotel: null,
-        rol: 'PROPIETARIO',
-        estado: 'activo',
-        creado_en: new Date().toISOString(),
-        actualizado_en: new Date().toISOString(),
-      });
+        id_owner:          user.id,
+        nombre_empresa:    nombre_empresa.trim(),
+        email_contacto:    (email_contacto || user.email || '').trim().toLowerCase(),
+        telefono_contacto: telefono_contacto?.trim() || null,
+        estado:            'activo',
+      })
+      .select('id_owner')
+      .single();
 
-    if (roleErr) {
-      return res.status(500).json({ error: 'Perfil creado, pero no se pudo registrar el rol de propietario.' });
-    }
+    if (ownerErr) return res.status(400).json({ error: ownerErr.message });
 
-    return res.status(201).json({ success: true, ownerId: finalOwnerId });
+    // Trial de 14 días
+    const trialEnd = new Date();
+    trialEnd.setDate(trialEnd.getDate() + 14);
+    await db.from('suscripciones_owner').insert({
+      owner_id:  owner.id_owner,
+      id_plan:   'hotel_starter',
+      tipo_modulo: 'hotel',
+      estado:    'trial',
+      trial_end: trialEnd.toISOString(),
+    });
+
+    return res.status(201).json({ success: true, ownerId: owner.id_owner });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-// GET - Listar módulos del usuario autenticado
+// ─── GET /hub/businesses — Módulos activos del owner ─────────────────────────
+
 router.get(['/business', '/businesses'], async (req, res) => {
   try {
     const user = await getUserFromToken(req.headers.authorization);
     if (!user) return res.status(401).json({ error: 'No autorizado' });
 
-    const { ownerRow, ownerIds, error: ownerError } = await findOwnerForUser(user);
-    if (ownerError) return res.status(400).json({ error: ownerError.message });
-    if (ownerIds.length === 0) {
-      return res.status(200).json({ needsOwnerSetup: true });
-    }
+    const { ownerIds, error } = await resolveOwner(user);
+    if (error) return res.status(400).json({ error: error.message });
+    if (ownerIds.length === 0) return res.json({ needsOwnerSetup: true });
 
-    const { data, error } = await supabaseAdmin
+    const { data, error: modErr } = await db
       .from('business_modules')
       .select('*')
       .in('owner_id', ownerIds)
       .eq('estado', 'activo');
 
-    if (error) return res.status(400).json({ error: error.message });
-    res.json(data ?? []);
+    if (modErr) return res.status(400).json({ error: modErr.message });
+    return res.json(data ?? []);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
+// ─── POST /hub/businesses — Crear nuevo negocio ──────────────────────────────
+
 import { checkPlanLimits } from '../middlewares/checkPlanLimits.js';
 
-// POST - Crear nuevo negocio genérico
 router.post(['/business', '/businesses'], checkPlanLimits, async (req, res) => {
   try {
-    const {
-      tipo_modulo = 'hotel',
-      nombre_modulo,
-      ciudad,
-      direccion,
-      telefono,
-      correo_contacto,
-    } = req.body;
-
-    const normalizedType = (tipo_modulo || 'hotel').toLowerCase();
     const user = await getUserFromToken(req.headers.authorization);
     if (!user) return res.status(401).json({ error: 'No autorizado' });
 
-    const { ownerRow, ownerIds, error: ownerError } = await findOwnerForUser(user);
+    const { ownerIds, error: ownerError } = await resolveOwner(user);
     if (ownerError) return res.status(400).json({ error: ownerError.message });
-    if (ownerIds.length === 0) {
-      return res.status(400).json({
-        error: 'Perfil de propietario no encontrado. Completa el setup primero.',
-        needsOwnerSetup: true,
-      });
-    }
+    if (ownerIds.length === 0) return res.status(400).json({ error: 'Perfil de propietario no encontrado.', needsOwnerSetup: true });
 
+    const { tipo_modulo = 'hotel', nombre_modulo, ciudad, direccion, telefono, correo_contacto } = req.body;
     const owner_id = ownerIds[0];
 
-    const { data: mod, error: modErr } = await supabaseAdmin
+    const { data: mod, error: modErr } = await db
       .from('business_modules')
-      .insert({ owner_id, tipo_modulo: normalizedType, nombre_modulo, estado: 'activo' })
+      .insert({ owner_id, tipo_modulo: tipo_modulo.toLowerCase(), nombre_modulo, estado: 'activo' })
       .select('id_module')
       .single();
 
     if (modErr) return res.status(400).json({ error: modErr.message });
 
     let businessId = mod.id_module;
+    let hotelSlug: string | null = null;
 
-    if (normalizedType === 'hotel') {
-      const { data: hotel, error: hotelErr } = await supabaseAdmin
+    if (tipo_modulo.toLowerCase() === 'hotel') {
+      // Generar slug único a partir del nombre
+      const baseSlug = nombre_modulo
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-z0-9\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-');
+
+      hotelSlug = baseSlug;
+      let attempt = 1;
+      while (true) {
+        const { data: existing } = await db.from('hoteles').select('id_hotel').eq('slug', hotelSlug).maybeSingle();
+        if (!existing) break;
+        attempt++;
+        hotelSlug = `${baseSlug}-${attempt}`;
+      }
+
+      const { data: hotel, error: hotelErr } = await db
         .from('hoteles')
         .insert({
-          nombre_hotel: nombre_modulo,
-          ciudad: ciudad ?? null,
-          owner_id,
-          id_module: mod.id_module,
-          estado: 'activo',
-          direccion: direccion ?? null,
-          telefono: telefono ?? null,
+          id_module:       mod.id_module,
+          nombre_hotel:    nombre_modulo,
+          ciudad:          ciudad    ?? 'Sin definir',
+          direccion:       direccion ?? 'Sin definir',
+          telefono:        telefono  ?? null,
           correo_contacto: correo_contacto ?? null,
+          estado:          'activo',
+          slug:            hotelSlug,
         })
         .select()
         .single();
 
       if (hotelErr) {
-        await supabaseAdmin.from('business_modules').delete().eq('id_module', mod.id_module);
+        await db.from('business_modules').delete().eq('id_module', mod.id_module);
         return res.status(400).json({ error: hotelErr.message });
       }
-
       businessId = hotel.id_hotel;
     }
 
-    res.status(201).json({ success: true, businessId, moduleId: mod.id_module, type: normalizedType, name: nombre_modulo });
+    return res.status(201).json({ success: true, businessId, moduleId: mod.id_module, type: tipo_modulo, name: nombre_modulo, slug: hotelSlug });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
-// GET - Resumen del dashboard (KPIs + hoteles del owner)
+// ─── GET /hub/dashboard-summary ──────────────────────────────────────────────
+
 router.get('/dashboard-summary', async (req, res) => {
   try {
     const user = await getUserFromToken(req.headers.authorization);
     if (!user) return res.status(401).json({ error: 'No autorizado' });
 
-    // Verificar si tiene perfil owner usando roles y/o contacto de owner
-    const { ownerRow, ownerIds, error: ownerError } = await findOwnerForUser(user);
+    const { ownerRow, ownerIds, hotelIds, error: ownerError } = await resolveOwner(user);
     if (ownerError) return res.status(400).json({ error: ownerError.message });
-    if (ownerIds.length === 0) {
-      // Primera vez — sin perfil owner, el frontend redirige a /setup-owner
-      return res.json({ needsOwnerSetup: true });
-    }
+    if (ownerIds.length === 0) return res.json({ needsOwnerSetup: true });
 
     const owner_id = ownerIds[0];
 
-    // Obtener módulos activos del owner
-    const { data: modules, error: modulesErr } = await supabaseAdmin
+    // Módulos activos
+    const { data: modules, error: modulesErr } = await db
       .from('business_modules')
       .select('id_module, tipo_modulo, nombre_modulo, estado')
       .in('owner_id', ownerIds)
@@ -269,165 +258,152 @@ router.get('/dashboard-summary', async (req, res) => {
 
     if (modulesErr) return res.status(400).json({ error: modulesErr.message });
 
-    const { data: hoteles, error: hotelesErr } = await supabaseAdmin
-      .from('hoteles')
-      .select('id_hotel, nombre_hotel, estado, id_module')
-      .in('owner_id', ownerIds)
-      .eq('estado', 'activo');
-
-    if (hotelesErr) {
-      return res.status(400).json({ error: hotelesErr.message });
+    // Hoteles activos via business_modules (sin owner_id directo en hoteles)
+    const moduleIds = (modules || []).map((m: any) => m.id_module);
+    let hoteles: any[] = [];
+    if (moduleIds.length > 0) {
+      const { data: h } = await db
+        .from('hoteles')
+        .select('id_hotel, nombre_hotel, estado, id_module, slug')
+        .in('id_module', moduleIds)
+        .eq('estado', 'activo');
+      hoteles = h || [];
     }
 
-    const moduleIds = new Set((modules || []).map((m: any) => m.id_module));
-    const hotelFallbacks = (hoteles || [])
-      .filter((hotel: any) => !hotel.id_module || !moduleIds.has(hotel.id_module))
-      .map((hotel: any) => ({
-        id: hotel.id_hotel,
-        type: 'hotel',
-        reference_id: hotel.id_module || hotel.id_hotel,
-        is_active: hotel.estado === 'activo',
-        name: hotel.nombre_hotel,
-      }));
+    // Mapa de slug por id_module para enriquecer los módulos
+    const slugByModule: Record<string, string> = {};
+    hoteles.forEach((h: any) => { if (h.id_module && h.slug) slugByModule[h.id_module] = h.slug; });
 
-    let combinedModules = [
+    const moduleSet = new Set((modules || []).map((m: any) => m.id_module));
+    const combinedModules = [
       ...(modules || []).map((m: any) => ({
         id: m.id_module,
         type: m.tipo_modulo?.toLowerCase() ?? 'hotel',
         reference_id: m.id_module,
         is_active: m.estado === 'activo',
         name: m.nombre_modulo,
+        slug: slugByModule[m.id_module] ?? null,
       })),
-      ...hotelFallbacks,
+      ...hoteles
+        .filter((h: any) => !moduleSet.has(h.id_module))
+        .map((h: any) => ({
+          id: h.id_hotel,
+          type: 'hotel',
+          reference_id: h.id_module || h.id_hotel,
+          is_active: h.estado === 'activo',
+          name: h.nombre_hotel,
+          slug: h.slug ?? null,
+        })),
     ];
 
-    // Fetch metricas reales de hoteles (reservas de este mes)
+    // Reservas del mes — filtrar por hotel IDs (sin owner_id en reservas_hotel)
     const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
+    startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
 
-    const { data: reservas } = await supabaseAdmin
-      .from('reservas_hotel')
-      .select('id_hotel, total_reserva, estado, check_in')
-      .in('owner_id', ownerIds)
-      .gte('created_at', startOfMonth.toISOString());
+    let reservas: any[] = [];
+    const allHotelIds = [...new Set([...hotelIds, ...hoteles.map((h: any) => h.id_hotel)])];
+    if (allHotelIds.length > 0) {
+      const { data: r } = await db
+        .from('reservas_hotel')
+        .select('id_hotel, total_reserva, estado')
+        .in('id_hotel', allHotelIds)
+        .gte('created_at', startOfMonth.toISOString());
+      reservas = r || [];
+    }
 
-    // Agrupar por id_hotel (o reference_id)
-    const hotelStats = (reservas || []).reduce((acc: any, res: any) => {
-      const hid = res.id_hotel;
+    const hotelStats = reservas.reduce((acc: any, r: any) => {
+      const hid = r.id_hotel;
       if (!acc[hid]) acc[hid] = { ingresos: 0, ocupacion: 0, total_reservas: 0 };
       acc[hid].total_reservas += 1;
-      if (res.estado === 'confirmada' || res.estado === 'check_in' || res.estado === 'check_out') {
-        acc[hid].ingresos += Number(res.total_reserva || 0);
-        acc[hid].ocupacion += 1; // Simplificación por ahora
+      if (['confirmada', 'check_in', 'check_out'].includes(r.estado)) {
+        acc[hid].ingresos  += Number(r.total_reserva || 0);
+        acc[hid].ocupacion += 1;
       }
       return acc;
     }, {});
 
-    let globalIngresos = 0;
-    let globalOcupacion = 0;
-    let globalTareas = 0;
+    let globalIngresos = 0, globalOcupacion = 0;
 
-    combinedModules = combinedModules.map((mod: any) => {
+    const modulesWithKpis = combinedModules.map((mod: any) => {
       const stats = hotelStats[mod.reference_id] || { ingresos: 0, ocupacion: 0, total_reservas: 0 };
-      
-      // Simulación de ocupación porcentual basada en cantidad de reservas si no hay dato real de capacidad
       const ocPercent = stats.ocupacion > 0 ? Math.min(100, Math.round((stats.ocupacion / 30) * 100)) : 0;
-      
-      globalIngresos += stats.ingresos;
+      globalIngresos  += stats.ingresos;
       globalOcupacion += ocPercent;
-      
-      return {
-        ...mod,
-        kpis: {
-          ingresos: stats.ingresos,
-          ocupacion: ocPercent,
-          tareas: 0 // TODO: Conectar a sistema de tareas cuando exista
-        }
-      };
+      return { ...mod, kpis: { ingresos: stats.ingresos, ocupacion: ocPercent, tareas: 0 } };
     });
 
-    const avgOcupacion = combinedModules.length > 0 ? Math.round(globalOcupacion / combinedModules.length) : 0;
-
-    let aiRecommendation = '';
-    if (combinedModules.length === 0) {
-      aiRecommendation = 'Aún no tienes negocios registrados. Te sugerimos añadir tu primer módulo (Hotel, Gym o Restaurante) para comenzar a operar y ver métricas reales.';
-    } else if (avgOcupacion < 30) {
-      aiRecommendation = `Hemos detectado una ocupación promedio baja del ${avgOcupacion}%. Te sugerimos crear tarifas promocionales o descuentos especiales para atraer más clientes este fin de semana.`;
-    } else if (avgOcupacion > 80) {
-      aiRecommendation = `¡Excelente! Tienes una alta ocupación promedio del ${avgOcupacion}%. Sugerimos habilitar la estrategia de sobreventa dinámica o revisar si puedes incrementar tus tarifas temporalmente.`;
-    } else {
-      aiRecommendation = `Tu ocupación actual es estable (${avgOcupacion}%). Mantén el monitoreo de tus operaciones diarias y asegúrate de ofrecer un buen servicio a tus clientes actuales.`;
-    }
+    const avgOcupacion = modulesWithKpis.length > 0 ? Math.round(globalOcupacion / modulesWithKpis.length) : 0;
+    const aiRecommendation = modulesWithKpis.length === 0
+      ? 'Aún no tienes negocios registrados. Añade tu primer módulo para comenzar a operar.'
+      : avgOcupacion < 30
+        ? `Ocupación promedio baja (${avgOcupacion}%). Considera tarifas promocionales para atraer más clientes.`
+        : avgOcupacion > 80
+          ? `¡Excelente ocupación del ${avgOcupacion}%! Considera incrementar tarifas temporalmente.`
+          : `Ocupación estable (${avgOcupacion}%). Mantén el monitoreo diario de operaciones.`;
 
     return res.json({
       owner: {
-        nombre: ownerRow.nombre_empresa || user.email?.split('@')[0] || 'Usuario',
-        plan: 'Profesional',
+        nombre: ownerRow?.nombre_empresa || user.email?.split('@')[0] || 'Usuario',
+        plan:   'Profesional',
       },
-      modules: combinedModules,
+      modules:          modulesWithKpis,
       kpis: {
-        ingresos: globalIngresos,
-        negocios_activos: combinedModules.filter(m => m.is_active).length,
-        ocupacion: avgOcupacion,
-        tareas: globalTareas,
+        ingresos:         globalIngresos,
+        negocios_activos: modulesWithKpis.filter((m: any) => m.is_active).length,
+        ocupacion:        avgOcupacion,
+        tareas:           0,
       },
       ai_recommendation: aiRecommendation,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
-// GET - Centro de Notificaciones: check-ins hoy/mañana, pagos en deuda
+// ─── GET /hub/notifications ───────────────────────────────────────────────────
+
 router.get('/notifications', async (req, res) => {
   try {
     const user = await getUserFromToken(req.headers.authorization);
     if (!user) return res.status(401).json({ error: 'No autorizado' });
 
-    const { ownerIds, error: ownerError } = await findOwnerForUser(user);
+    const { hotelIds, error: ownerError } = await resolveOwner(user);
     if (ownerError) return res.status(400).json({ error: ownerError.message });
-    if (ownerIds.length === 0) return res.json([]);
+    if (hotelIds.length === 0) return res.json([]);
 
-    const now = new Date();
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-    const tomorrowEnd = new Date(now);
-    tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
-    tomorrowEnd.setHours(23, 59, 59, 999);
+    const now       = new Date();
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const tomorrowEnd = new Date(now); tomorrowEnd.setDate(tomorrowEnd.getDate() + 1); tomorrowEnd.setHours(23, 59, 59, 999);
 
-    // Check-ins de hoy y mañana
-    const { data: checkins } = await supabaseAdmin
-      .from('reservas_hotel')
-      .select('id_reserva_hotel, check_in, estado, id_hotel, huespedes(nombre_completo)')
-      .in('owner_id', ownerIds)
-      .gte('check_in', todayStart.toISOString())
-      .lte('check_in', tomorrowEnd.toISOString())
-      .in('estado', ['confirmada', 'pendiente'])
-      .limit(20);
-
-    // Reservas con deuda (estado_pago = deuda)
-    const { data: pagosDeuda } = await supabaseAdmin
-      .from('reservas_hotel')
-      .select('id_reserva_hotel, total_reserva, estado_pago, id_hotel, huespedes(nombre_completo)')
-      .in('owner_id', ownerIds)
-      .eq('estado_pago', 'deuda')
-      .in('estado', ['check_in', 'check_out', 'confirmada'])
-      .limit(10);
+    const [{ data: checkins }, { data: pagosDeuda }] = await Promise.all([
+      db.from('reservas_hotel')
+        .select('id_reserva_hotel, check_in, estado, id_hotel, huespedes(nombre_completo)')
+        .in('id_hotel', hotelIds)
+        .gte('check_in', todayStart.toISOString())
+        .lte('check_in', tomorrowEnd.toISOString())
+        .in('estado', ['confirmada', 'pendiente'])
+        .limit(20),
+      db.from('reservas_hotel')
+        .select('id_reserva_hotel, total_reserva, estado_pago, id_hotel, huespedes(nombre_completo)')
+        .in('id_hotel', hotelIds)
+        .eq('estado_pago', 'deuda')
+        .in('estado', ['check_in', 'check_out', 'confirmada'])
+        .limit(10),
+    ]);
 
     const notifications: any[] = [];
 
     (checkins || []).forEach((r: any) => {
-      const huesped = Array.isArray(r.huespedes) ? r.huespedes[0] : r.huespedes;
+      const huesped    = Array.isArray(r.huespedes) ? r.huespedes[0] : r.huespedes;
       const checkInDate = new Date(r.check_in);
-      const isToday = checkInDate >= todayStart && checkInDate <= new Date(todayStart.getTime() + 86400000 - 1);
+      const isToday    = checkInDate >= todayStart && checkInDate < new Date(todayStart.getTime() + 86400000);
       notifications.push({
-        id: `checkin-${r.id_reserva_hotel}`,
-        type: 'checkin',
-        title: isToday ? 'Check-in Hoy' : 'Check-in Mañana',
+        id:          `checkin-${r.id_reserva_hotel}`,
+        type:        'checkin',
+        title:       isToday ? 'Check-in Hoy' : 'Check-in Mañana',
         description: `${huesped?.nombre_completo || 'Huésped'} — ${checkInDate.toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' })}`,
-        severity: isToday ? 'high' : 'medium',
-        created_at: r.check_in,
+        severity:    isToday ? 'high' : 'medium',
+        created_at:  r.check_in,
         reference_id: r.id_hotel,
       });
     });
@@ -435,50 +411,46 @@ router.get('/notifications', async (req, res) => {
     (pagosDeuda || []).forEach((r: any) => {
       const huesped = Array.isArray(r.huespedes) ? r.huespedes[0] : r.huespedes;
       notifications.push({
-        id: `deuda-${r.id_reserva_hotel}`,
-        type: 'payment',
-        title: 'Pago Pendiente',
+        id:          `deuda-${r.id_reserva_hotel}`,
+        type:        'payment',
+        title:       'Pago Pendiente',
         description: `${huesped?.nombre_completo || 'Huésped'} — $${Number(r.total_reserva).toLocaleString()}`,
-        severity: 'high',
-        created_at: new Date().toISOString(),
+        severity:    'high',
+        created_at:  new Date().toISOString(),
         reference_id: r.id_hotel,
       });
     });
 
-    // Ordenar por severidad y fecha
-    notifications.sort((a, b) => {
-      const sevOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
-      return (sevOrder[a.severity] ?? 2) - (sevOrder[b.severity] ?? 2);
-    });
+    notifications.sort((a, b) => ({ high: 0, medium: 1, low: 2 }[a.severity as string] ?? 2) - ({ high: 0, medium: 1, low: 2 }[b.severity as string] ?? 2));
 
-    res.json(notifications);
+    return res.json(notifications);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
-// GET - Chat del Hub: últimos mensajes de cada canal del owner
+// ─── GET /hub/chat/channels ───────────────────────────────────────────────────
+
 router.get('/chat/channels', async (req, res) => {
   try {
     const user = await getUserFromToken(req.headers.authorization);
     if (!user) return res.status(401).json({ error: 'No autorizado' });
 
-    const { ownerIds, error: ownerError } = await findOwnerForUser(user);
+    const { hotelIds, error: ownerError } = await resolveOwner(user);
     if (ownerError) return res.status(400).json({ error: ownerError.message });
-    if (ownerIds.length === 0) return res.json([]);
+    if (hotelIds.length === 0) return res.json([]);
 
-    const { data: channels, error: chErr } = await supabaseAdmin
+    const { data: channels, error: chErr } = await db
       .from('chat_channels')
       .select('id, name, channel_type, created_at, metadata')
-      .in('owner_id', ownerIds)
+      .in('id_hotel', hotelIds)
       .order('created_at', { ascending: false })
       .limit(20);
 
     if (chErr) return res.status(400).json({ error: chErr.message });
 
-    // Para cada canal, traer el último mensaje
     const channelsWithLastMsg = await Promise.all((channels || []).map(async (ch: any) => {
-      const { data: lastMsg } = await supabaseAdmin
+      const { data: lastMsg } = await db
         .from('chat_messages')
         .select('content, sender_name, created_at')
         .eq('channel_id', ch.id)
@@ -486,13 +458,12 @@ router.get('/chat/channels', async (req, res) => {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-
       return { ...ch, last_message: lastMsg || null };
     }));
 
-    res.json(channelsWithLastMsg);
+    return res.json(channelsWithLastMsg);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 

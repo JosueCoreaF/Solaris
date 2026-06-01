@@ -24,12 +24,21 @@ import { getAuthUser, getOwnerHotelIdsForUser } from '../../utils/tenantHelper.j
 const router = express.Router();
 const db = () => supabaseAdmin ?? supabase;
 
-// ─── Helper: obtener owner_ids del usuario autenticado ─────────────────────────
-async function resolveOwnerIds(req: express.Request): Promise<string[]> {
+// ─── Helper: obtener hotel_ids permitidos para el usuario y filtro activo ─────
+async function resolveAllowedHotelIds(req: express.Request): Promise<string[]> {
   const user = await getAuthUser(req);
   if (!user) return [];
-  const { ownerIds } = await getOwnerHotelIdsForUser(user);
-  return ownerIds;
+  const { hotelIds } = await getOwnerHotelIdsForUser(user);
+  
+  const activeHotelId = req.headers['x-hotel-id'] as string;
+  if (activeHotelId && activeHotelId !== 'all') {
+    // Si especificó un hotel activo, verificar que tenga acceso a él
+    if (hotelIds.includes(activeHotelId)) {
+      return [activeHotelId];
+    }
+    return []; // No tiene acceso al hotel especificado
+  }
+  return hotelIds || []; // De lo contrario, retornar todos sus hoteles accesibles
 }
 
 // ─── Helper: convertir JSON a CSV ──────────────────────────────────────────────
@@ -75,29 +84,31 @@ function sendDownload(
 router.get('/counts', async (req, res) => {
   console.log('[Exports] /counts endpoint called.');
   try {
-    const user = await getAuthUser(req);
-    console.log('[Exports] Authenticated user:', user?.id, user?.email);
-    const ownerIds = await resolveOwnerIds(req);
-    console.log('[Exports] Resolved ownerIds:', ownerIds);
-    if (ownerIds.length === 0) {
-      console.warn('[Exports] No owner_id resolved for user, returning 401');
-      return res.status(401).json({ error: 'No autorizado' });
+    const allowedHotelIds = await resolveAllowedHotelIds(req);
+    console.log('[Exports] Resolved allowed hotel IDs:', allowedHotelIds);
+    if (allowedHotelIds.length === 0) {
+      return res.json({
+        clientes: 0,
+        reservas: 0,
+        empresas: 0,
+        saldos: 0,
+        pagos: 0,
+        chats: 0,
+        tarifas: 0
+      });
     }
 
-    const ownerId = ownerIds[0];
-    const hotelId = req.headers['x-hotel-id'] as string;
-    console.log('[Exports] Filtering counts with ownerId:', ownerId, 'hotelId:', hotelId);
-
-    // Contar registros en cada tabla
-    const counts: Record<string, number> = {};
-
-    const countTable = async (table: string, extraFilter?: (q: any) => any) => {
-      let q = db().from(table).select('*', { count: 'exact', head: true }).eq('owner_id', ownerId);
-      if (extraFilter) q = extraFilter(q);
-      if (hotelId && hotelId !== 'all' && ['reservas_hotel', 'pagos_hotel'].includes(table)) {
-        q = q.eq('id_hotel', hotelId);
+    // Helper relacional para contar registros
+    const countTable = async (table: string, filterField: string = 'id_hotel') => {
+      let q: any;
+      if (filterField.includes('.')) {
+        const relation = filterField.split('.')[0];
+        q = db().from(table).select(`*, ${relation}!inner(id_hotel)`, { count: 'exact', head: true });
+      } else {
+        q = db().from(table).select('*', { count: 'exact', head: true });
       }
-      const { count, error } = await q;
+      
+      const { count, error } = await q.in(filterField, allowedHotelIds);
       if (error) {
         console.error(`[Exports] Error counting ${table}:`, error);
         return 0;
@@ -105,32 +116,25 @@ router.get('/counts', async (req, res) => {
       return count ?? 0;
     };
 
-    const [clientes, reservas, empresas, saldos, pagos, tarifas] = await Promise.all([
+    const [clientes, reservas, empresas, saldos, pagos, tarifas, chats] = await Promise.all([
       countTable('huespedes'),
       countTable('reservas_hotel'),
       countTable('empresas'),
-      countTable('saldos_clientes'),
-      countTable('pagos_hotel'),
-      countTable('tarifas'),
+      countTable('saldos_clientes', 'huespedes.id_hotel'),
+      countTable('pagos_hotel', 'reservas_hotel.id_hotel'),
+      countTable('tarifas', 'tipos_habitacion.id_hotel'),
+      countTable('chat_messages', 'chat_channels.id_hotel'),
     ]);
 
-    // Chats no tienen owner_id directo, usamos canal
-    const { count: chats, error: chatsError } = await db()
-      .from('chat_messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('owner_id', ownerId);
-
-    if (chatsError) {
-      console.error('[Exports] Error counting chats:', chatsError);
-    }
-
-    counts.clientes = clientes;
-    counts.reservas = reservas;
-    counts.empresas = empresas;
-    counts.saldos = saldos;
-    counts.pagos = pagos;
-    counts.tarifas = tarifas;
-    counts.chats = chats ?? 0;
+    const counts = {
+      clientes,
+      reservas,
+      empresas,
+      saldos,
+      pagos,
+      tarifas,
+      chats
+    };
 
     console.log('[Exports] Counts calculated successfully:', counts);
     return res.json(counts);
@@ -143,14 +147,14 @@ router.get('/counts', async (req, res) => {
 // ─── GET /api/exports/huespedes ────────────────────────────────────────────────
 router.get('/huespedes', async (req, res) => {
   try {
-    const ownerIds = await resolveOwnerIds(req);
-    if (ownerIds.length === 0) return res.status(401).json({ error: 'No autorizado' });
+    const allowedHotelIds = await resolveAllowedHotelIds(req);
+    if (allowedHotelIds.length === 0) return res.status(401).json({ error: 'No autorizado o sin propiedades asignadas' });
     const format = (req.query.format as string) || 'csv';
 
     const { data, error } = await db()
       .from('huespedes')
       .select('nombre_completo, correo, telefono, ciudad, direccion, documento_identidad, rtn, fecha_registro, created_at')
-      .eq('owner_id', ownerIds[0])
+      .in('id_hotel', allowedHotelIds)
       .order('nombre_completo');
 
     if (error) throw error;
@@ -175,12 +179,11 @@ router.get('/huespedes', async (req, res) => {
 // ─── GET /api/exports/reservas ─────────────────────────────────────────────────
 router.get('/reservas', async (req, res) => {
   try {
-    const ownerIds = await resolveOwnerIds(req);
-    if (ownerIds.length === 0) return res.status(401).json({ error: 'No autorizado' });
+    const allowedHotelIds = await resolveAllowedHotelIds(req);
+    if (allowedHotelIds.length === 0) return res.status(401).json({ error: 'No autorizado o sin propiedades asignadas' });
     const format = (req.query.format as string) || 'csv';
     const desde = req.query.desde as string;
     const hasta = req.query.hasta as string;
-    const hotelId = (req.headers['x-hotel-id'] as string) || (req.query.hotel_id as string);
 
     let q = db()
       .from('reservas_hotel')
@@ -196,12 +199,11 @@ router.get('/reservas', async (req, res) => {
         hoteles!inner(nombre_hotel),
         empresas(nombre)
       `)
-      .eq('owner_id', ownerIds[0])
+      .in('id_hotel', allowedHotelIds)
       .order('check_in', { ascending: false });
 
     if (desde) q = q.gte('check_in', desde);
     if (hasta) q = q.lte('check_in', hasta + 'T23:59:59');
-    if (hotelId && hotelId !== 'all') q = q.eq('id_hotel', hotelId);
 
     const { data, error } = await q;
     if (error) throw error;
@@ -237,14 +239,14 @@ router.get('/reservas', async (req, res) => {
 // ─── GET /api/exports/empresas ─────────────────────────────────────────────────
 router.get('/empresas', async (req, res) => {
   try {
-    const ownerIds = await resolveOwnerIds(req);
-    if (ownerIds.length === 0) return res.status(401).json({ error: 'No autorizado' });
+    const allowedHotelIds = await resolveAllowedHotelIds(req);
+    if (allowedHotelIds.length === 0) return res.status(401).json({ error: 'No autorizado o sin propiedades asignadas' });
     const format = (req.query.format as string) || 'csv';
 
     const { data, error } = await db()
       .from('empresas')
       .select('nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, limite_credito, dias_credito, estado, direccion, notas, created_at')
-      .eq('owner_id', ownerIds[0])
+      .in('id_hotel', allowedHotelIds)
       .order('nombre');
 
     if (error) throw error;
@@ -272,20 +274,20 @@ router.get('/empresas', async (req, res) => {
 // ─── GET /api/exports/saldos ───────────────────────────────────────────────────
 router.get('/saldos', async (req, res) => {
   try {
-    const ownerIds = await resolveOwnerIds(req);
-    if (ownerIds.length === 0) return res.status(401).json({ error: 'No autorizado' });
+    const allowedHotelIds = await resolveAllowedHotelIds(req);
+    if (allowedHotelIds.length === 0) return res.status(401).json({ error: 'No autorizado o sin propiedades asignadas' });
     const format = (req.query.format as string) || 'csv';
     const desde = req.query.desde as string;
     const hasta = req.query.hasta as string;
 
     let q = db()
       .from('saldos_clientes')
-      .select('monto, tipo, descripcion, aplicado, fecha_creacion, fecha_aplicacion, huespedes!inner(nombre_completo, correo)')
-      .eq('owner_id', ownerIds[0])
-      .order('fecha_creacion', { ascending: false });
+      .select('monto, tipo, descripcion, aplicado, created_at, fecha_aplicacion, huespedes!inner(nombre_completo, correo, id_hotel)')
+      .in('huespedes.id_hotel', allowedHotelIds)
+      .order('created_at', { ascending: false });
 
-    if (desde) q = q.gte('fecha_creacion', desde);
-    if (hasta) q = q.lte('fecha_creacion', hasta + 'T23:59:59');
+    if (desde) q = q.gte('created_at', desde);
+    if (hasta) q = q.lte('created_at', hasta + 'T23:59:59');
 
     const { data, error } = await q;
     if (error) throw error;
@@ -297,7 +299,7 @@ router.get('/saldos', async (req, res) => {
       'Monto': s.monto,
       'Descripción': s.descripcion || '',
       'Aplicado': s.aplicado ? 'Sí' : 'No',
-      'Fecha Creación': s.fecha_creacion ? new Date(s.fecha_creacion).toLocaleDateString('es-HN') : '',
+      'Fecha Creación': s.created_at ? new Date(s.created_at).toLocaleDateString('es-HN') : '',
       'Fecha Aplicación': s.fecha_aplicacion ? new Date(s.fecha_aplicacion).toLocaleDateString('es-HN') : '',
     }));
 
@@ -310,25 +312,24 @@ router.get('/saldos', async (req, res) => {
 // ─── GET /api/exports/pagos ────────────────────────────────────────────────────
 router.get('/pagos', async (req, res) => {
   try {
-    const ownerIds = await resolveOwnerIds(req);
-    if (ownerIds.length === 0) return res.status(401).json({ error: 'No autorizado' });
+    const allowedHotelIds = await resolveAllowedHotelIds(req);
+    if (allowedHotelIds.length === 0) return res.status(401).json({ error: 'No autorizado o sin propiedades asignadas' });
     const format = (req.query.format as string) || 'csv';
     const desde = req.query.desde as string;
     const hasta = req.query.hasta as string;
-    const hotelId = (req.headers['x-hotel-id'] as string) || (req.query.hotel_id as string);
 
     let q = db()
       .from('pagos_hotel')
       .select(`
         monto, metodo_pago, referencia, fecha_pago, estado, moneda, notas,
         reservas_hotel!inner(
-          check_in, check_out, total_reserva,
+          check_in, check_out, total_reserva, id_hotel,
           huespedes!inner(nombre_completo),
           habitaciones!inner(nombre_habitacion),
           hoteles!inner(nombre_hotel)
         )
       `)
-      .eq('owner_id', ownerIds[0])
+      .in('reservas_hotel.id_hotel', allowedHotelIds)
       .order('fecha_pago', { ascending: false });
 
     if (desde) q = q.gte('fecha_pago', desde);
@@ -365,16 +366,16 @@ router.get('/pagos', async (req, res) => {
 // ─── GET /api/exports/chats ────────────────────────────────────────────────────
 router.get('/chats', async (req, res) => {
   try {
-    const ownerIds = await resolveOwnerIds(req);
-    if (ownerIds.length === 0) return res.status(401).json({ error: 'No autorizado' });
+    const allowedHotelIds = await resolveAllowedHotelIds(req);
+    if (allowedHotelIds.length === 0) return res.status(401).json({ error: 'No autorizado o sin propiedades asignadas' });
     const format = (req.query.format as string) || 'csv';
     const desde = req.query.desde as string;
     const hasta = req.query.hasta as string;
 
     let q = db()
       .from('chat_messages')
-      .select('sender_name, content, message_type, created_at, chat_channels!inner(name, channel_type)')
-      .eq('owner_id', ownerIds[0])
+      .select('sender_name, content, message_type, created_at, chat_channels!inner(name, channel_type, id_hotel)')
+      .in('chat_channels.id_hotel', allowedHotelIds)
       .eq('is_deleted', false)
       .order('created_at', { ascending: false });
 
@@ -402,14 +403,14 @@ router.get('/chats', async (req, res) => {
 // ─── GET /api/exports/tarifas ──────────────────────────────────────────────────
 router.get('/tarifas', async (req, res) => {
   try {
-    const ownerIds = await resolveOwnerIds(req);
-    if (ownerIds.length === 0) return res.status(401).json({ error: 'No autorizado' });
+    const allowedHotelIds = await resolveAllowedHotelIds(req);
+    if (allowedHotelIds.length === 0) return res.status(401).json({ error: 'No autorizado o sin propiedades asignadas' });
     const format = (req.query.format as string) || 'csv';
 
     const { data, error } = await db()
       .from('tarifas')
-      .select('tarifa_noche, tarifa_hora, tarifa_pasadia, vigente_desde, vigente_hasta, activa, tipos_habitacion!inner(nombre_tipo), categorias_tarifa!inner(nombre)')
-      .eq('owner_id', ownerIds[0])
+      .select('tarifa_noche, tarifa_hora, tarifa_pasadia, vigente_desde, vigente_hasta, activa, tipos_habitacion!inner(nombre_tipo, id_hotel), categorias_tarifa!inner(nombre)')
+      .in('tipos_habitacion.id_hotel', allowedHotelIds)
       .order('vigente_desde', { ascending: false });
 
     if (error) throw error;

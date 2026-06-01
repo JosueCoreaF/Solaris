@@ -139,10 +139,20 @@ export const eliminarHabitacion = async (req: Request, res: Response) => {
 // ──── GET /api/hotel/habitaciones/tipos ──────────────────────────────────────
 export const listarTiposHabitacion = async (req: Request, res: Response) => {
   try {
-    const { data, error } = await db()
+    const businessId = req.headers['x-business-id'] as string;
+    const hotelId    = req.headers['x-hotel-id']    as string;
+    const filterHotelId = businessId || hotelId;
+
+    let query = db()
       .from('tipos_habitacion')
       .select('id_tipo_habitacion, nombre_tipo, descripcion')
       .order('nombre_tipo');
+
+    if (filterHotelId && filterHotelId !== 'all') {
+      query = query.eq('id_hotel', filterHotelId);
+    }
+
+    const { data, error } = await query;
     if (error) return res.status(400).json({ error: error.message });
     res.json({ data: data || [] });
   } catch (err: any) {

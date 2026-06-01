@@ -1,22 +1,29 @@
 import { supabase } from './supabase';
 
+const API = 'http://localhost:4000/api';
+
+async function authHeaders() {
+  const token = (await supabase.auth.getSession()).data.session?.access_token || '';
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+}
+
 export interface UsuarioRol {
   id: string;
-  usuario_id: string;
-  id_hotel: string;
+  user_id: string;
+  id_hotel: string | null;
+  owner_id: string;
   email: string;
   rol: 'PROPIETARIO' | 'ADMIN' | 'RECEPCIONISTA' | 'MANTENIMIENTO' | 'CONTADOR';
-  estado: 'activo' | 'inactivo' | 'suspendido' | 'pendiente_aprobacion' | 'bloqueado';
+  estado: 'activo' | 'inactivo' | 'suspendido' | 'pendiente' | 'pendiente_aprobacion';
   creado_en: string;
   actualizado_en: string;
 }
 
 export interface AsignarRolParams {
-  usuario_id: string;
-  id_hotel: string;
+  user_id: string;
+  id_hotel?: string | null;
   rol: string;
   estado: string;
-  email?: string;
 }
 
 /**
@@ -46,7 +53,7 @@ export const obtenerUsuarioRol = async (usuario_id: string): Promise<UsuarioRol 
     const { data, error } = await supabase
       .from('usuarios_roles_con_email')
       .select('*')
-      .eq('usuario_id', usuario_id)
+      .eq('user_id', usuario_id)
       .single();
 
     if (error) throw error;
@@ -60,57 +67,40 @@ export const obtenerUsuarioRol = async (usuario_id: string): Promise<UsuarioRol 
 /**
  * Asigna o actualiza un rol de usuario
  */
-export const asignarRol = async (params: AsignarRolParams): Promise<boolean> => {
+export const asignarRol = async (params: AsignarRolParams): Promise<{ ok: boolean; error?: string }> => {
   try {
-    // Use backend endpoint to bypass Supabase RLS
-    const response = await fetch('http://localhost:4000/api/roles/crear', {
+    const res = await fetch(`${API}/roles/crear`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        usuario_id: params.usuario_id,
-        id_hotel: params.id_hotel || '00000000-0000-0000-0000-000000000000',
-        rol: params.rol,
-        estado: params.estado,
-        email: params.email || '',
-      }),
+      headers: await authHeaders(),
+      body: JSON.stringify({ user_id: params.user_id, id_hotel: params.id_hotel || null, rol: params.rol, estado: params.estado }),
     });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Error creating role entry:', errorData);
-      return false;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { ok: false, error: err.error || res.statusText };
     }
-
-    console.log('✅ Role entry created via backend');
-    return true;
-  } catch (err) {
-    console.error('Error assigning role:', err);
-    return false;
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
   }
 };
 
 /**
  * Cambia el estado de un usuario (activo/inactivo/suspendido)
  */
-export const cambiarEstadoUsuario = async (
-  usuario_id: string,
-  id_hotel: string,
-  estado: string
-): Promise<boolean> => {
+export const cambiarEstadoUsuario = async (user_id: string, _id_hotel: string | null, estado: string): Promise<{ ok: boolean; error?: string }> => {
   try {
-    const { error } = await supabase
-      .from('usuarios_roles')
-      .update({ estado, actualizado_en: new Date().toISOString() })
-      .eq('usuario_id', usuario_id)
-      .eq('id_hotel', id_hotel);
-
-    if (error) throw error;
-    return true;
-  } catch (err) {
-    console.error('Error changing user status:', err);
-    return false;
+    const res = await fetch(`${API}/roles/estado`, {
+      method: 'PUT',
+      headers: await authHeaders(),
+      body: JSON.stringify({ user_id, estado }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { ok: false, error: err.error || res.statusText };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
   }
 };
 
@@ -124,11 +114,10 @@ export const solicitarRegistro = async (
 ): Promise<boolean> => {
   try {
     const { error } = await supabase.from('usuarios_roles').insert({
-      usuario_id,
+      user_id: usuario_id,
       id_hotel,
       rol: 'RECEPCIONISTA',
-      estado: 'pendiente_aprobacion',
-      creado_en: new Date().toISOString(),
+      estado: 'pendiente',
     });
 
     if (error) throw error;
@@ -140,19 +129,15 @@ export const solicitarRegistro = async (
 };
 
 /**
- * Obtiene TODOS los usuarios registrados (sin filtro de hotel)
+ * Obtiene todos los usuarios del owner autenticado (via backend para evitar RLS)
  */
 export const obtenerTodosLosUsuarios = async (): Promise<UsuarioRol[]> => {
   try {
-    const { data, error } = await supabase
-      .from('usuarios_roles_con_email')
-      .select('*')
-      .order('creado_en', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    const res = await fetch(`${API}/roles/usuarios`, { headers: await authHeaders() });
+    if (!res.ok) return [];
+    return await res.json();
   } catch (err) {
-    console.error('Error fetching all usuarios:', err);
+    console.error('Error fetching usuarios:', err);
     return [];
   }
 };

@@ -108,8 +108,8 @@ export const Register: React.FC = () => {
 
       // Crear entrada en usuarios_roles con rol activo (automático via invitación)
       const roleSuccess = await asignarRol({
-        usuario_id: user_id,
-        id_hotel: idHotel || '00000000-0000-0000-0000-000000000000',
+        user_id: user_id,
+        id_hotel: idHotel || null,
         rol: rolSugerido || 'RECEPCIONISTA',
         estado: 'activo', // Automáticamente activo (invitación verificada)
         email: email, // Guardar el email en la tabla

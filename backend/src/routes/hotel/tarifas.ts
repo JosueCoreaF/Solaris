@@ -7,15 +7,90 @@ const router = Router();
 // ─── CATEGORÍAS DE TARIFA ───────────────────────────────────────────────────────
 
 // GET /api/tarifas/categorias
-router.get('/categorias', async (_req, res) => {
+router.get('/categorias', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
-      .from('categorias_tarifa')
-      .select('*')
-      .eq('activa', true)
-      .order('nombre');
+    const hotelId = req.headers['x-hotel-id'] || 'all';
+    let query = supabaseAdmin.from('categorias_tarifa').select('*').order('nombre');
+    
+    if (hotelId && hotelId !== 'all') {
+      query = query.eq('id_hotel', hotelId);
+    }
+    
+    const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
     return res.json(data ?? []);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/tarifas/categorias
+router.post('/categorias', async (req, res) => {
+  try {
+    const hotelId = req.headers['x-hotel-id'] as string;
+    if (!hotelId || hotelId === 'all') {
+      return res.status(400).json({ error: 'x-hotel-id es requerido y no puede ser "all"' });
+    }
+
+    const { nombre, descripcion, activa } = req.body;
+    if (!nombre) {
+      return res.status(400).json({ error: 'El nombre es obligatorio' });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('categorias_tarifa')
+      .insert({
+        id_hotel: hotelId,
+        nombre,
+        descripcion: descripcion || null,
+        activa: activa !== undefined ? !!activa : true
+      })
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(201).json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/tarifas/categorias/:id
+router.put('/categorias/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, activa } = req.body;
+
+    const updates: any = {};
+    if (nombre !== undefined) updates.nombre = nombre;
+    if (descripcion !== undefined) updates.descripcion = descripcion;
+    if (activa !== undefined) updates.activa = !!activa;
+
+    const { data, error } = await supabaseAdmin
+      .from('categorias_tarifa')
+      .update(updates)
+      .eq('id_categoria', id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/tarifas/categorias/:id
+router.delete('/categorias/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error } = await supabaseAdmin
+      .from('categorias_tarifa')
+      .delete()
+      .eq('id_categoria', id);
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true, message: 'Categoría eliminada exitosamente' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -56,15 +131,15 @@ router.get('/', async (req, res) => {
     }
 
     if (hotelId && hotelId !== 'all') {
-      // Obtener los ids de tipos de habitación presentes en las habitaciones de este hotel
-      const { data: habs, error: hErr } = await supabaseAdmin
-        .from('habitaciones')
+      // Obtener los ids de tipos de habitación configurados en este hotel
+      const { data: tiposHab, error: tErr } = await supabaseAdmin
+        .from('tipos_habitacion')
         .select('id_tipo_habitacion')
         .eq('id_hotel', hotelId);
 
-      if (hErr) return res.status(400).json({ error: hErr.message });
+      if (tErr) return res.status(400).json({ error: tErr.message });
 
-      const idsTipos = [...new Set((habs ?? []).map(h => h.id_tipo_habitacion).filter(Boolean))];
+      const idsTipos = (tiposHab ?? []).map(t => t.id_tipo_habitacion).filter(Boolean);
 
       if (idsTipos.length === 0) {
         return res.json([]);
@@ -113,15 +188,15 @@ router.get('/vigentes', async (req, res) => {
       .eq('activa', true);
 
     if (hotelId && hotelId !== 'all') {
-      // Obtener los ids de tipos de habitación presentes en las habitaciones de este hotel
-      const { data: habs, error: hErr } = await supabaseAdmin
-        .from('habitaciones')
+      // Obtener los ids de tipos de habitación configurados en este hotel
+      const { data: tiposHab, error: tErr } = await supabaseAdmin
+        .from('tipos_habitacion')
         .select('id_tipo_habitacion')
         .eq('id_hotel', hotelId);
 
-      if (hErr) return res.status(400).json({ error: hErr.message });
+      if (tErr) return res.status(400).json({ error: tErr.message });
 
-      const idsTipos = [...new Set((habs ?? []).map(h => h.id_tipo_habitacion).filter(Boolean))];
+      const idsTipos = (tiposHab ?? []).map(t => t.id_tipo_habitacion).filter(Boolean);
 
       if (idsTipos.length === 0) {
         return res.json([]);
@@ -168,7 +243,6 @@ router.post('/', async (req: Request, res: Response) => {
     const { data, error } = await supabaseAdmin
       .from('tarifas')
       .insert({
-        owner_id,
         id_tipo_habitacion,
         id_categoria,
         tarifa_noche: parseFloat(tarifa_noche),

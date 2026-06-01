@@ -31,7 +31,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // Guardar token en local storage si viene en la URL
         if (accessToken && refreshToken) {
-          localStorage.setItem('sb-yefaoqzyjfqpwrnzgofb-auth-token', JSON.stringify({
+          localStorage.setItem('sb-rmdflsphuxjdcxqpfwvv-auth-token', JSON.stringify({
             access_token: accessToken,
             refresh_token: refreshToken,
           }));

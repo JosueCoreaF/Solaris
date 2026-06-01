@@ -3,6 +3,25 @@ dist/
 .env
 .env.*
 !.env.example
-b a c k e n d - e r r o r . l o g  
+backend-error.log
 _temp_migration/
 logs/
+
+# ── Archivos temporales de prueba y búsqueda ──
+scratch/
+test-db.js
+test-endpoints.js
+test.xlsx
+*.py
+patch*.py
+delete_imports.*
+fix_db.*
+apply_db.js
+search_bookings_*.py
+search_bookings_*.txt
+check_bookings_*.py
+find_*.py
+print_lines.py
+replace_splits_*.py
+search_*.py
+search_interactions.py

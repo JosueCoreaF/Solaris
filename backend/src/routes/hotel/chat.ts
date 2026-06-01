@@ -1,77 +1,49 @@
 import { Router, Request, Response } from 'express';
 import { Server as SocketIOServer } from 'socket.io';
-import { supabaseAdmin } from '../../config/supabase';
-import { extractToken, getInfoFromToken } from '../../utils/auditHelper.js';
+import { supabaseAdmin } from '../../config/supabase.js';
+import { extractToken } from '../../utils/auditHelper.js';
 
 const router = Router();
 let io: SocketIOServer;
 
-const isMultiTenant = process.env.SUPABASE_URL?.includes('yefaoqzyjfqpwrnzgofb') || false;
+export function setIO(socketServer: SocketIOServer) { io = socketServer; }
+export function getIO() { return io; }
 
-export function setIO(socketServer: SocketIOServer) {
-  io = socketServer;
+// Obtiene el UUID del usuario autenticado desde el JWT
+async function getUserId(req: Request): Promise<string | null> {
+  const token = extractToken(req);
+  if (!token) return null;
+  const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+  return user?.id ?? null;
 }
 
-export function getIO() {
-  return io;
-}
-
-async function getOwnerId(hotelId?: any): Promise<string> {
-  if (!isMultiTenant) return '';
-  let ownerId: string | null = null;
-  if (hotelId && hotelId !== 'all') {
-    const { data } = await supabaseAdmin
-      .from('hoteles')
-      .select('owner_id')
-      .eq('id_hotel', hotelId)
-      .maybeSingle();
-    if (data?.owner_id) {
-      ownerId = data.owner_id;
-    }
-  }
-  
-  if (!ownerId) {
-    const { data } = await supabaseAdmin
-      .from('owners')
-      .select('id_owner')
-      .limit(1)
-      .maybeSingle();
-    ownerId = data?.id_owner || '';
-  }
-  return ownerId;
-}
+// Tipos de canal y entidad válidos según el schema
+const VALID_CHANNEL_TYPES = ['general', 'operativo', 'cliente', 'privado'] as const;
+const VALID_ENTITY_TYPES  = ['reserva', 'pago', 'huesped', 'habitacion', 'factura'] as const;
 
 // ════ REST ENDPOINTS ════════════════════════════════════════════
 
-// GET /api/chat/channels - Listar canales del usuario
+// GET /api/chat/channels
 router.get('/channels', async (req: Request, res: Response) => {
   try {
-    const token = extractToken(req);
-    if (!token) return res.status(401).json({ error: 'No autenticado' });
-    const { email } = getInfoFromToken(token);
-    const userId = email ?? 'anon';
+    const userId = await getUserId(req);
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
-    const hotelId = req.headers['x-hotel-id'];
+    const hotelId = req.headers['x-hotel-id'] as string;
 
-    // Canales operativos + privados donde participa el usuario
     let query = supabaseAdmin
       .from('chat_channels')
-      .select('id, name, channel_type, created_by, metadata, id_huesped')
-      .in('channel_type', ['general', 'hotel', 'operativo', 'cierre', 'cliente']);
+      .select('id, name, channel_type, created_by, metadata, id_huesped, created_at')
+      .in('channel_type', VALID_CHANNEL_TYPES);
 
     if (hotelId && hotelId !== 'all') {
-      if (isMultiTenant) {
-        query = query.or(`metadata->>hotel_id.eq.${hotelId},metadata->>hotel_id.is.null`);
-      } else {
-        query = query.or(`id_hotel.eq.${hotelId},id_hotel.is.null`);
-      }
+      query = query.eq('id_hotel', hotelId);
     }
 
     const { data, error } = await query.order('created_at', { ascending: true });
-
     if (error) throw error;
 
-    // Agregar conteo de sin leer para cada canal
+    // Agregar conteo de no leídos
     const channelsWithUnread = await Promise.all(
       (data || []).map(async (channel: any) => {
         const { data: unreadData } = await supabaseAdmin
@@ -83,22 +55,22 @@ router.get('/channels', async (req: Request, res: Response) => {
 
         return {
           ...channel,
-          guest_id: channel.id_huesped ?? null, // alias for frontend compatibility
-          guest_email: channel.metadata?.email ?? null,
-          guest_name: channel.metadata?.guest_name ?? null,
-          unread_count: unreadData?.unread_count || 0,
+          guest_id:      channel.id_huesped ?? null,
+          guest_email:   channel.metadata?.email ?? null,
+          guest_name:    channel.metadata?.guest_name ?? null,
+          unread_count:  unreadData?.unread_count || 0,
         };
       })
     );
 
     return res.json(channelsWithUnread);
-  } catch (error: any) {
-    console.error('Error en chat/channels:', error);
-    return res.status(500).json({ error: error?.message || 'Error interno' });
+  } catch (err: any) {
+    console.error('Error en chat/channels:', err);
+    return res.status(500).json({ error: err?.message || 'Error interno' });
   }
 });
 
-// GET /api/chat/channels/:id/messages - Obtener mensajes
+// GET /api/chat/channels/:id/messages
 router.get('/channels/:channelId/messages', async (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
@@ -107,23 +79,10 @@ router.get('/channels/:channelId/messages', async (req: Request, res: Response) 
     const { data, error } = await supabaseAdmin
       .from('chat_messages')
       .select(`
-        id,
-        channel_id,
-        sender_id,
-        sender_name,
-        sender_avatar,
-        content,
-        message_type,
-        file_url,
-        file_name,
-        created_at,
-        edited_at,
-        chat_references (
-          id,
-          entity_type,
-          entity_id,
-          entity_data
-        )
+        id, channel_id, sender_id, sender_name, sender_avatar,
+        content, message_type, file_url, file_name,
+        created_at, edited_at,
+        chat_references ( id, entity_type, entity_id, entity_data )
       `)
       .eq('channel_id', channelId)
       .eq('is_deleted', false)
@@ -131,74 +90,50 @@ router.get('/channels/:channelId/messages', async (req: Request, res: Response) 
       .range(Number(offset), Number(offset) + Number(limit) - 1);
 
     if (error) throw error;
-
-    return res.json((data || []).reverse()); // Orden cronológico ascendente
-  } catch (error: any) {
-    console.error('Error en chat/messages:', error);
-    return res.status(500).json({ error: error?.message || 'Error interno' });
+    return res.json((data || []).reverse());
+  } catch (err: any) {
+    console.error('Error en chat/messages:', err);
+    return res.status(500).json({ error: err?.message || 'Error interno' });
   }
 });
 
-// POST /api/chat/channels/:id/messages - Enviar mensaje
+// POST /api/chat/channels/:id/messages
 router.post('/channels/:channelId/messages', async (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
-    const token = extractToken(req);
-    const { email } = token ? getInfoFromToken(token) : { email: null };
-    const userId = email ?? 'anon';
-    
-    let rawSenderName = req.body.sender_name || userId.split('@')[0] || 'Usuario';
-    // Capitalizar la primera letra
-    if (rawSenderName) {
-      rawSenderName = rawSenderName.charAt(0).toUpperCase() + rawSenderName.slice(1);
-    }
+    const userId = await getUserId(req);
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
-    let senderName = rawSenderName;
+    const { content, message_type = 'text', metadata = {}, sender_name } = req.body;
+    if (!content) return res.status(400).json({ error: 'Contenido requerido' });
 
-    // Obtener información del canal para verificar el tipo e incluir el nombre
+    // Obtener canal para determinar tipo y ajustar nombre del remitente
     const { data: channel } = await supabaseAdmin
       .from('chat_channels')
-      .select('name, channel_type, metadata, owner_id')
+      .select('name, channel_type, metadata')
       .eq('id', channelId)
       .maybeSingle();
 
-    if (channel?.channel_type === 'cliente') {
-      // Si es un canal de tipo cliente y el remitente es personal (no empieza con guest:)
-      if (!userId.startsWith('guest:')) {
-        if (!senderName.includes('(Recepción)')) {
-          senderName = `${senderName} (Recepción)`;
-        }
-        // Desactivar el bot automáticamente al intervenir personal humano
-        const currentMetadata = channel.metadata || {};
-        if (!currentMetadata.bot_disabled) {
-          await supabaseAdmin
-            .from('chat_channels')
-            .update({
-              metadata: {
-                ...currentMetadata,
-                bot_disabled: true
-              }
-            })
-            .eq('id', channelId);
-        }
+    let senderName = sender_name || 'Usuario';
+    if (channel?.channel_type === 'cliente' && !senderName.includes('(Recepción)')) {
+      senderName = `${senderName} (Recepción)`;
+      // Desactivar bot al intervenir personal
+      if (!channel.metadata?.bot_disabled) {
+        await supabaseAdmin.from('chat_channels').update({
+          metadata: { ...(channel.metadata || {}), bot_disabled: true }
+        }).eq('id', channelId);
       }
     }
 
-    const { content, message_type = 'text', metadata = {} } = req.body;
-    if (!content) return res.status(400).json({ error: 'Contenido requerido' });
-
-    const owner_id = channel?.owner_id || await getOwnerId(channel?.metadata?.hotel_id);
-
-    // Insertar mensaje
+    // Insertar mensaje (sin owner_id — no existe en esta tabla)
     const { data: messageData, error: msgError } = await supabaseAdmin
       .from('chat_messages')
       .insert({
-        ...(isMultiTenant ? { owner_id } : {}),
-        channel_id: channelId,
-        sender_id: userId,
-        sender_name: senderName,
+        channel_id:   channelId,
+        sender_id:    userId,
+        sender_name:  senderName,
         content,
-        message_type,
+        message_type: VALID_CHANNEL_TYPES.includes(message_type as any) ? message_type : 'text',
         metadata,
       })
       .select()
@@ -206,97 +141,90 @@ router.post('/channels/:channelId/messages', async (req: Request, res: Response)
 
     if (msgError) throw msgError;
 
-    // Extraer menciones (@entity:id) y crear referencias
-    const mentionRegex = /@(reserva|pago|huesped|habitacion|factura|cierre|personal):([0-9a-f-]{36})/gi;
+    // Extraer menciones válidas y crear referencias
+    const mentionRegex = new RegExp(
+      `@(${VALID_ENTITY_TYPES.join('|')}):([0-9a-f-]{36})`,
+      'gi'
+    );
     const mentions = [...content.matchAll(mentionRegex)];
 
     if (mentions.length > 0) {
-      const references = mentions.map(([, entityType, entityId]) => ({
-        ...(isMultiTenant ? { owner_id } : {}),
-        message_id: messageData.id,
-        entity_type: entityType,
-        entity_id: entityId,
-      }));
-
-      await supabaseAdmin.from('chat_references').insert(references);
+      await supabaseAdmin.from('chat_references').insert(
+        mentions.map(([, entityType, entityId]) => ({
+          message_id:  messageData.id,
+          entity_type: entityType.toLowerCase(),
+          entity_id:   entityId,
+        }))
+      );
     }
 
-    // Emitir por WebSocket
     if (io) {
       io.to(`channel:${channelId}`).emit('new_message', {
         ...messageData,
         channel_name: channel?.name || 'General',
-        chat_references: mentions.map(([, type, id]) => ({
-          entity_type: type,
-          entity_id: id,
-        })),
+        chat_references: mentions.map(([, type, id]) => ({ entity_type: type, entity_id: id })),
       });
-
-      // Notificar conteo sin leer
       io.emit('unread_update', { channelId });
     }
 
     return res.status(201).json(messageData);
-  } catch (error: any) {
-    console.error('Error enviando mensaje:', error);
-    return res.status(500).json({ error: error?.message || 'Error interno' });
+  } catch (err: any) {
+    console.error('Error enviando mensaje:', err);
+    return res.status(500).json({ error: err?.message || 'Error interno' });
   }
 });
 
-// POST /api/chat/channels - Crear canal
+// POST /api/chat/channels — Crear canal
 router.post('/channels', async (req: Request, res: Response) => {
   try {
-    const { name, channel_type = 'operativo', description } = req.body;
-    const userId = (req as any).user?.id;
-    const email = (req as any).user?.email;
+    const userId = await getUserId(req);
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
+    const { name, channel_type = 'operativo', description } = req.body;
     if (!name) return res.status(400).json({ error: 'Nombre requerido' });
 
-    const hotelId = req.headers['x-hotel-id'];
-    const finalMetadata: any = {};
-    if (hotelId && hotelId !== 'all') {
-      finalMetadata.hotel_id = hotelId;
+    const hotelId = req.headers['x-hotel-id'] as string;
+    if (!hotelId || hotelId === 'all') {
+      return res.status(400).json({ error: 'x-hotel-id requerido para crear canal' });
     }
 
-    const owner_id = await getOwnerId(hotelId);
+    const finalType = VALID_CHANNEL_TYPES.includes(channel_type as any) ? channel_type : 'operativo';
 
     const { data, error } = await supabaseAdmin
       .from('chat_channels')
       .insert({
-        ...(isMultiTenant ? { owner_id } : { id_hotel: hotelId && hotelId !== 'all' ? hotelId : null }),
+        id_hotel:     hotelId,
         name,
-        channel_type,
-        created_by: email || 'system',
-        metadata: finalMetadata,
+        channel_type: finalType,
+        description:  description || null,
+        created_by:   userId,
       })
       .select()
       .single();
 
     if (error) throw error;
     return res.status(201).json(data);
-  } catch (error: any) {
-    console.error('Error creando canal:', error);
-    return res.status(500).json({ error: error?.message || 'Error interno' });
+  } catch (err: any) {
+    console.error('Error creando canal:', err);
+    return res.status(500).json({ error: err?.message || 'Error interno' });
   }
 });
 
-// DELETE /api/chat/channels/:id - Eliminar canal (solo propietario/admin)
+// DELETE /api/chat/channels/:id
 router.delete('/channels/:channelId', async (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
-    const token = extractToken(req);
-    if (!token) return res.status(401).json({ error: 'No autenticado' });
+    const userId = await getUserId(req);
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
-    // Verificar que el canal existe
     const { data: channel, error: fetchErr } = await supabaseAdmin
       .from('chat_channels')
-      .select('id, name, created_by')
+      .select('id, name')
       .eq('id', channelId)
       .single();
 
     if (fetchErr || !channel) return res.status(404).json({ error: 'Canal no encontrado' });
 
-    // Eliminar — los mensajes se borran en CASCADE desde la BD
     const { error } = await supabaseAdmin
       .from('chat_channels')
       .delete()
@@ -304,337 +232,76 @@ router.delete('/channels/:channelId', async (req: Request, res: Response) => {
 
     if (error) throw error;
     return res.json({ success: true, deleted: channel.name });
-  } catch (error: any) {
-    console.error('Error eliminando canal:', error);
-    return res.status(500).json({ error: error?.message || 'Error interno' });
+  } catch (err: any) {
+    console.error('Error eliminando canal:', err);
+    return res.status(500).json({ error: err?.message || 'Error interno' });
   }
 });
 
-// PUT /api/chat/channels/:id/read - Marcar como leído
+// PUT /api/chat/channels/:id/read — Marcar como leído
 router.put('/channels/:channelId/read', async (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
-    const token = extractToken(req);
-    if (!token) return res.status(401).json({ error: 'No autenticado' });
-    const { email: userId } = getInfoFromToken(token);
+    const userId = await getUserId(req);
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
-    // Intentar marcar como leído — no fatal si falla (e.g. user_id es email, no UUID)
-    try {
-      await supabaseAdmin
-        .from('chat_read_status')
-        .upsert(
-          { user_id: userId, channel_id: channelId, last_read_at: new Date().toISOString(), unread_count: 0 },
-          { onConflict: 'user_id,channel_id' }
-        );
-    } catch (upsertErr: any) {
-      console.warn('[chat/read] upsert silenced:', upsertErr?.message);
-    }
+    // user_id en chat_read_status es UUID que referencia auth.users(id)
+    await supabaseAdmin
+      .from('chat_read_status')
+      .upsert(
+        { user_id: userId, channel_id: channelId, last_read_at: new Date().toISOString(), unread_count: 0 },
+        { onConflict: 'user_id,channel_id' }
+      );
 
-    // Emitir unread_update para alertar a otros clientes/pestañas
-    if (io) {
-      io.emit('unread_update', { channelId });
-    }
-
+    if (io) io.emit('unread_update', { channelId });
     return res.json({ ok: true });
-  } catch (error: any) {
-    console.error('Error marcando como leído:', error);
-    return res.status(500).json({ error: error?.message || 'Error interno' });
+  } catch (err: any) {
+    console.error('Error marcando como leído:', err);
+    return res.status(500).json({ error: err?.message || 'Error interno' });
   }
 });
 
-// GET /api/chat/entity/:type/:id - Resolver entidad
+// GET /api/chat/entity/:type/:id — Resolver entidad mencionada
 router.get('/entity/:type/:id', async (req: Request, res: Response) => {
   try {
     const { type, id } = req.params;
+    let data: any = null;
 
-    let data;
     switch (type) {
       case 'reserva':
-        const { data: res1 } = await supabaseAdmin
-          .from('reservas_hotel')
-          .select('*, huespedes(*), habitaciones(*)')
-          .eq('id_reserva_hotel', id)
-          .single();
-        data = res1;
+        ({ data } = await supabaseAdmin.from('reservas_hotel')
+          .select('*, huespedes(*), habitaciones(*)').eq('id_reserva_hotel', id).single());
         break;
-
       case 'pago':
-        const { data: res2 } = await supabaseAdmin
-          .from('pagos_hotel')
-          .select('*, reservas_hotel(*, huespedes(*))')
-          .eq('id_pago_hotel', id)
-          .single();
-        data = res2;
+        ({ data } = await supabaseAdmin.from('pagos_hotel')
+          .select('*, reservas_hotel(*, huespedes(*))').eq('id_pago_hotel', id).single());
         break;
-
       case 'huesped':
-        const { data: res3 } = await supabaseAdmin
-          .from('huespedes')
-          .select('*')
-          .eq('id_huesped', id)
-          .single();
-        data = res3;
+        ({ data } = await supabaseAdmin.from('huespedes')
+          .select('*').eq('id_huesped', id).single());
         break;
-
       case 'factura':
-        const { data: res4 } = await supabaseAdmin
-          .from('facturas')
-          .select('*')
-          .eq('id_factura', id)
-          .single();
-        data = res4;
+        ({ data } = await supabaseAdmin.from('facturas')
+          .select('*').eq('id_factura', id).single());
         break;
-
+      case 'habitacion':
+        ({ data } = await supabaseAdmin.from('habitaciones')
+          .select('*').eq('id_habitacion', id).single());
+        break;
       default:
-        return res.status(400).json({ error: 'Tipo de entidad no válido' });
+        return res.status(400).json({ error: `Tipo de entidad no válido: ${type}` });
     }
 
-    return res.json(data || {});
-  } catch (error: any) {
-    console.error('Error resolviendo entidad:', error);
-    return res.status(500).json({ error: error?.message || 'Error interno' });
+    if (!data) return res.status(404).json({ error: 'Entidad no encontrada' });
+    return res.json(data);
+  } catch (err: any) {
+    console.error('Error resolviendo entidad:', err);
+    return res.status(500).json({ error: err?.message || 'Error interno' });
   }
 });
 
-// ════ CANAL PÚBLICO (Clientes) ════════════════════════════════
-
-// POST /api/chat/public/init - Crear canal para cliente
-router.post('/public/init', async (req: Request, res: Response) => {
-  try {
-    const { guest_email, guest_name, guest_phone } = req.body;
-
-    if (!guest_email || !guest_name) {
-      return res.status(400).json({ error: 'Email y nombre requeridos' });
-    }
-
-    let finalHotelId = req.body.hotelId || req.headers['x-hotel-id'];
-
-    // Resolve owner_id early
-    const owner_id = await getOwnerId(finalHotelId);
-
-    // Buscar o registrar al huésped para asignarlo al canal
-    let huespedId: string | null = null;
-    if (guest_email?.trim()) {
-      const { data: existingHuesped } = await supabaseAdmin
-        .from('huespedes')
-        .select('id_huesped')
-        .eq('correo', guest_email.trim().toLowerCase())
-        .maybeSingle();
-      if (existingHuesped) {
-        huespedId = existingHuesped.id_huesped;
-      }
-    }
-
-    if (!huespedId) {
-      const { data: nuevoHuesped } = await supabaseAdmin
-        .from('huespedes')
-        .insert({
-          ...(isMultiTenant ? { owner_id } : {}),
-          nombre_completo: guest_name.trim().toUpperCase(),
-          correo: guest_email.trim().toLowerCase(),
-          telefono: guest_phone?.trim() || null
-        })
-        .select('id_huesped')
-        .single();
-      if (nuevoHuesped) {
-        huespedId = nuevoHuesped.id_huesped;
-      }
-    }
-
-    // Buscar si ya existe un canal para este huésped
-    const { data: existingChannel } = await supabaseAdmin
-      .from('chat_channels')
-      .select('id')
-      .eq('channel_type', 'cliente')
-      .eq('id_huesped', huespedId)
-      .maybeSingle();
-
-    if ((!finalHotelId || finalHotelId === 'all') && huespedId) {
-      const { data: latestRes } = await supabaseAdmin
-        .from('reservas_hotel')
-        .select('id_hotel')
-        .eq('id_huesped', huespedId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (latestRes) {
-        finalHotelId = latestRes.id_hotel;
-      }
-    }
-
-    let channelId = existingChannel?.id;
-
-    if (!channelId) {
-      // Crear canal
-      const { data: newChannel, error: insertErr } = await supabaseAdmin
-        .from('chat_channels')
-        .insert({
-          ...(isMultiTenant ? { owner_id } : { id_hotel: finalHotelId && finalHotelId !== 'all' ? finalHotelId : null }),
-          name: `🟢 ${guest_name}`,
-          channel_type: 'cliente',
-          created_by: 'system',
-          id_huesped: huespedId,
-          metadata: finalHotelId && finalHotelId !== 'all' ? { hotel_id: finalHotelId } : {}
-        })
-        .select('id')
-        .single();
-
-      if (insertErr) throw insertErr;
-      channelId = newChannel.id;
-    }
-
-    return res.json({ channelId, guestId: `guest:${guest_email}` });
-  } catch (error: any) {
-    console.error('Error en chat/public/init:', error);
-    return res.status(500).json({ error: error?.message || 'Error interno' });
-  }
-});
-
-// POST /api/chat/public/send - Cliente envía mensaje
-router.post('/public/send', async (req: Request, res: Response) => {
-  try {
-    const { channel_id, guest_email, guest_name, content } = req.body;
-
-    if (!channel_id || !content) {
-      return res.status(400).json({ error: 'Datos incompletos' });
-    }
-
-    const { data: chanInfo } = await supabaseAdmin
-      .from('chat_channels')
-      .select('name, owner_id, metadata')
-      .eq('id', channel_id)
-      .maybeSingle();
-
-    const owner_id = chanInfo?.owner_id || await getOwnerId(chanInfo?.metadata?.hotel_id);
-
-    const { data, error } = await supabaseAdmin
-      .from('chat_messages')
-      .insert({
-        ...(isMultiTenant ? { owner_id } : {}),
-        channel_id,
-        sender_id: `guest:${guest_email}`,
-        sender_name: guest_name,
-        content,
-        message_type: 'text',
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Emitir por WebSocket
-    if (io) {
-      io.to(`channel:${channel_id}`).emit('new_message', {
-        ...data,
-        channel_name: chanInfo?.name || 'General',
-      });
-      io.emit('unread_update', { channelId: channel_id });
-    }
-
-    return res.status(201).json(data);
-  } catch (error: any) {
-    console.error('Error enviando mensaje público:', error);
-    return res.status(500).json({ error: error?.message || 'Error interno' });
-  }
-});
-
-// ════ BOT CON CONTEXTO ════════════════════════════════════════════
-
-// POST /api/chat/bot/respond - Bot responde con contexto mejorado
-router.post('/bot/respond', async (req: Request, res: Response) => {
-  try {
-    const { message, userId, channelId, hotelId } = req.body;
-
-    if (!message) {
-      return res.status(400).json({ error: 'Mensaje requerido' });
-    }
-
-    // Obtener contexto del hotel
-    const { data: hotelData } = await supabaseAdmin
-      .from('hoteles')
-      .select('*')
-      .eq('id_hotel', hotelId || '1')
-      .single();
-
-    // Obtener todos los hoteles de la base de datos para contexto de multi-sede / cadena
-    const { data: todosHoteles } = await supabaseAdmin
-      .from('hoteles')
-      .select('id_hotel, nombre_hotel, ciudad');
-
-    // Obtener reservas del usuario si existe
-    let userReservations = null;
-    if (userId) {
-      const { data: reservas } = await supabaseAdmin
-        .from('reservas_hotel')
-        .select('*')
-        .eq('id_huesped', userId)
-        .in('estado', ['confirmada', 'check_in'])
-        .limit(1);
-      userReservations = reservas?.[0] || null;
-    }
-
-    // Construir contexto para mejorar respuesta
-    const hotelContext = hotelData
-      ? {
-          nombre: hotelData.nombre_hotel,
-          ciudad: hotelData.ciudad,
-          telefono: hotelData.telefono,
-          email: hotelData.correo_contacto,
-        }
-      : null;
-
-    // Construir system prompt con contexto y lista de todos los hoteles
-    const systemPrompt = buildBotSystemPrompt(hotelContext, userReservations, todosHoteles || []);
-    let botResponse = await callGeminiChat(message, systemPrompt);
-
-    if (!botResponse) {
-      // Fallback a respuesta automática basada en palabras clave
-      botResponse = getSimpleAutoResponse(message, hotelContext, todosHoteles || []);
-    }
-
-    // Obtener owner_id del canal
-    const { data: channelInfo } = await supabaseAdmin
-      .from('chat_channels')
-      .select('owner_id, metadata')
-      .eq('id', channelId)
-      .maybeSingle();
-
-    const owner_id = channelInfo?.owner_id || await getOwnerId(hotelId || channelInfo?.metadata?.hotel_id);
-
-    // Guardar respuesta del bot en la BD
-    const { data: botMessage, error: botError } = await supabaseAdmin
-      .from('chat_messages')
-      .insert({
-        ...(isMultiTenant ? { owner_id } : {}),
-        channel_id: channelId,
-        sender_id: 'bot:concierge',
-        sender_name: 'Concierge Bot',
-        content: botResponse || 'Por favor, contacta a recepción para más información.',
-        message_type: 'text',
-      })
-      .select()
-      .single();
-
-    if (botError) throw botError;
-
-    // Emitir por WebSocket
-    if (io && channelId) {
-      io.to(`channel:${channelId}`).emit('new_message', {
-        ...botMessage,
-        channel_name: hotelContext?.nombre || 'Chat',
-      });
-    }
-
-    return res.json({ response: botResponse, message: botMessage });
-  } catch (error: any) {
-    console.error('Error en bot/respond:', error);
-    return res.status(500).json({ error: error?.message || 'Error interno' });
-  }
-});
-
-// ════ FUNCIONES AUXILIARES ════════════════════════════════════════════
-
+// isMultiTenant para compatibilidad con funciones del bot heredadas
+const isMultiTenant = false;
 export function buildBotSystemPrompt(
   hotelContext: any,
   userReservations: any,

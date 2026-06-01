@@ -1,10 +1,31 @@
 import { Router, Request, Response } from 'express';
-import { supabaseAdmin } from '../../config/supabase';
+import { supabaseAdmin } from '../../config/supabase.js';
+import { getAuthUser, getOwnerHotelIdsForUser } from '../../utils/tenantHelper.js';
 
 const router = Router();
 const db = () => supabaseAdmin;
 
 const TIPO_CAMBIO_HNL_USD = 24.5;
+
+/**
+ * Resuelve el hotel/owner activo desde el JWT + headers.
+ * Retorna { ownerId, hotelId } donde hotelId puede ser null (significa "todos los hoteles del owner").
+ */
+async function resolveHotelContext(req: Request): Promise<{ ownerId: string | null; hotelId: string | null }> {
+  const headerHotelId = req.headers['x-hotel-id'] as string | undefined;
+  const user = await getAuthUser(req);
+  if (!user) {
+    return {
+      ownerId:  null,
+      hotelId:  (headerHotelId && headerHotelId !== 'all') ? headerHotelId : null,
+    };
+  }
+
+  const { ownerIds } = await getOwnerHotelIdsForUser(user);
+  const ownerId = ownerIds[0] ?? null;
+  const hotelId = (headerHotelId && headerHotelId !== 'all') ? headerHotelId : null;
+  return { ownerId, hotelId };
+}
 
 function rangoPeriodo(periodo: string): { desde: string; hasta: string } {
   const ahora = new Date();
@@ -24,7 +45,8 @@ router.get('/resumen', async (req: Request, res: Response) => {
   try {
     const { periodo = 'mes' } = req.query;
     const { desde, hasta } = rangoPeriodo(periodo as string);
-    const hotelId = req.headers['x-hotel-id'] || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+    const { ownerId, hotelId } = await resolveHotelContext(req);
+    if (!ownerId && !hotelId) return res.status(401).json({ error: 'No autorizado' });
 
     // Ingresos: suma de pagos_hotel activos en el período
     let queryPagos = db()
@@ -34,8 +56,10 @@ router.get('/resumen', async (req: Request, res: Response) => {
       .gte('fecha_pago', desde)
       .lte('fecha_pago', hasta);
 
-    if (hotelId !== 'all') {
+    if (hotelId) {
       queryPagos = queryPagos.eq('reservas_hotel.id_hotel', hotelId);
+    } else if (ownerId) {
+      queryPagos = queryPagos.eq('owner_id', ownerId);
     }
     const { data: pagos, error: pagErr } = await queryPagos;
 
@@ -51,8 +75,10 @@ router.get('/resumen', async (req: Request, res: Response) => {
       .gte('fecha', desde)
       .lte('fecha', hasta);
 
-    if (hotelId !== 'all') {
+    if (hotelId) {
       queryFacturas = queryFacturas.eq('id_hotel', hotelId);
+    } else if (ownerId) {
+      queryFacturas = queryFacturas.eq('owner_id', ownerId);
     }
     const { data: facturas, error: facErr } = await queryFacturas;
 
@@ -84,7 +110,7 @@ router.get('/movimientos', async (req: Request, res: Response) => {
     const { desde, hasta } = startDate
       ? { desde: startDate as string, hasta: (endDate as string) || new Date().toLocaleDateString('en-CA') }
       : rangoPeriodo('mes');
-    const hotelId = req.headers['x-hotel-id'] || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+    const { ownerId, hotelId } = await resolveHotelContext(req);
 
     // Obtener pagos con datos de reserva y huésped
     let query = db()
@@ -110,8 +136,10 @@ router.get('/movimientos', async (req: Request, res: Response) => {
       .order('fecha_pago', { ascending: false })
       .limit(50);
 
-    if (hotelId !== 'all') {
+    if (hotelId) {
       query = query.eq('reservas_hotel.id_hotel', hotelId);
+    } else if (ownerId) {
+      query = query.eq('owner_id', ownerId);
     }
     const { data: pagos, error } = await query;
 
@@ -138,7 +166,7 @@ router.get('/ingresos', async (req: Request, res: Response) => {
   try {
     const { periodo = 'mes' } = req.query;
     const { desde, hasta } = rangoPeriodo(periodo as string);
-    const hotelId = req.headers['x-hotel-id'] || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+    const { ownerId, hotelId } = await resolveHotelContext(req);
 
     let query = db()
       .from('pagos_hotel')
@@ -148,8 +176,10 @@ router.get('/ingresos', async (req: Request, res: Response) => {
       .lte('fecha_pago', hasta)
       .order('fecha_pago');
 
-    if (hotelId !== 'all') {
+    if (hotelId) {
       query = query.eq('reservas_hotel.id_hotel', hotelId);
+    } else if (ownerId) {
+      query = query.eq('owner_id', ownerId);
     }
     const { data: pagos, error } = await query;
 
@@ -195,7 +225,7 @@ router.get('/egresos', async (req: Request, res: Response) => {
     const { desde, hasta } = startDate
       ? { desde: startDate as string, hasta: (endDate as string) || new Date().toLocaleDateString('en-CA') }
       : rangoPeriodo(periodo as string);
-    const hotelId = req.headers['x-hotel-id'] || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+    const { ownerId, hotelId } = await resolveHotelContext(req);
 
     let query = db()
       .from('facturas')
@@ -203,8 +233,10 @@ router.get('/egresos', async (req: Request, res: Response) => {
       .gte('fecha', desde)
       .lte('fecha', hasta);
 
-    if (hotelId !== 'all') {
+    if (hotelId) {
       query = query.eq('id_hotel', hotelId);
+    } else if (ownerId) {
+      query = query.eq('owner_id', ownerId);
     }
     const { data: facturas, error } = await query;
 
@@ -228,7 +260,7 @@ router.get('/tendencias', async (req: Request, res: Response) => {
   try {
     const { dias = 7 } = req.query;
     const numDias = Math.min(30, parseInt(dias as string) || 7);
-    const hotelId = req.headers['x-hotel-id'] || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+    const { ownerId, hotelId } = await resolveHotelContext(req);
 
     let query = db()
       .from('pagos_hotel')
@@ -237,8 +269,10 @@ router.get('/tendencias', async (req: Request, res: Response) => {
       .gte('fecha_pago', new Date(Date.now() - numDias * 86400000).toLocaleDateString('en-CA'))
       .order('fecha_pago');
 
-    if (hotelId !== 'all') {
+    if (hotelId) {
       query = query.eq('reservas_hotel.id_hotel', hotelId);
+    } else if (ownerId) {
+      query = query.eq('owner_id', ownerId);
     }
     const { data: pagos, error } = await query;
 
@@ -498,8 +532,10 @@ router.post('/facturas', async (req: Request, res: Response) => {
       id_hotel
     } = req.body;
 
-    const hotelId = id_hotel || req.headers['x-hotel-id'] || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+    const { hotelId } = await resolveHotelContext(req);
+    const resolvedHotelId = id_hotel || hotelId || null;
 
+    if (!resolvedHotelId) return res.status(400).json({ error: 'id_hotel requerido (header x-hotel-id o campo id_hotel)' });
     if (!proveedor || !monto_total) {
       return res.status(400).json({ error: 'proveedor y monto_total son requeridos' });
     }
@@ -507,21 +543,20 @@ router.post('/facturas', async (req: Request, res: Response) => {
     const { data, error } = await db()
       .from('facturas')
       .insert({
-        fecha: fecha || new Date().toLocaleDateString('en-CA'),
+        id_hotel:             resolvedHotelId,
+        fecha:                fecha || new Date().toLocaleDateString('en-CA'),
         proveedor,
-        no_factura: no_factura || null,
-        rtn_proveedor: rtn_proveedor || null,
-        tipo: tipo || 'general',
+        no_factura:           no_factura || null,
+        rtn_proveedor:        rtn_proveedor || null,
+        tipo:                 tipo || 'general',
         categoria_general_id: categoria_general_id ? Number(categoria_general_id) : null,
-        categoria_chica_id: categoria_chica_id ? Number(categoria_chica_id) : null,
-        descripcion: descripcion || null,
-        subtotal: Number(subtotal) || 0,
-        isv_15: Number(isv_15) || 0,
-        isv_18: Number(isv_18) || 0,
-        monto_total: Number(monto_total),
-        imagen_url: imagen_url || null,
-        desglose: desglose || null,
-        id_hotel: hotelId,
+        categoria_chica_id:   categoria_chica_id ? Number(categoria_chica_id) : null,
+        descripcion:          descripcion || null,
+        subtotal:             Number(subtotal) || 0,
+        isv_15:               Number(isv_15) || 0,
+        isv_18:               Number(isv_18) || 0,
+        monto_total:          Number(monto_total),
+        imagen_url:           imagen_url || null,
       })
       .select()
       .single();
@@ -539,7 +574,8 @@ router.get('/facturas', async (req: Request, res: Response) => {
   try {
     const { periodo = 'mes' } = req.query;
     const { desde, hasta } = rangoPeriodo(periodo as string);
-    const hotelId = req.headers['x-hotel-id'] || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+    const { ownerId, hotelId } = await resolveHotelContext(req);
+    if (!ownerId && !hotelId) return res.status(401).json({ error: 'No autorizado' });
 
     let query = db()
       .from('facturas')
@@ -548,8 +584,10 @@ router.get('/facturas', async (req: Request, res: Response) => {
       .lte('fecha', hasta)
       .order('fecha', { ascending: false });
 
-    if (hotelId !== 'all') {
+    if (hotelId) {
       query = query.eq('id_hotel', hotelId);
+    } else if (ownerId) {
+      query = query.eq('owner_id', ownerId);
     }
     const { data, error } = await query;
 

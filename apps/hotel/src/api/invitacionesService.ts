@@ -7,7 +7,7 @@ export interface Invitacion {
   id_hotel: string;
   rol_sugerido: string;
   usado: boolean;
-  usuario_id: string | null;
+  user_id: string | null;
   creado_en: string;
   actualizado_en: string;
 }
@@ -19,6 +19,13 @@ const generarCodigo = (): string => {
 
 // Crear invitación (id_hotel puede ser opcional inicialmente)
 export const crearInvitacion = async (email: string, id_hotel: string | null, rol_sugerido: string): Promise<Invitacion | null> => {
+  const session = (await supabase.auth.getSession()).data.session;
+  const ownerId = session?.user.id;
+  if (!ownerId) {
+    console.error('No se pudo determinar el propietario activo');
+    return null;
+  }
+
   // Validar que no exista una invitación activa para este email
   const { data: existentes, error: errCheck } = await supabase
     .from('invitaciones')
@@ -40,7 +47,8 @@ export const crearInvitacion = async (email: string, id_hotel: string | null, ro
       codigo_unico: codigo, 
       id_hotel: id_hotel || null, 
       rol_sugerido,
-      usado: false 
+      usado: false,
+      owner_id: ownerId
     }])
     .select()
     .single();
@@ -117,10 +125,10 @@ export const validarInvitacion = async (email: string, codigo: string): Promise<
 };
 
 // Marcar invitación como usada
-export const marcarInvitacionComoUsada = async (codigo: string, usuario_id: string): Promise<boolean> => {
+export const marcarInvitacionComoUsada = async (codigo: string, user_id: string): Promise<boolean> => {
   const { error } = await supabase
     .from('invitaciones')
-    .update({ usado: true, usuario_id })
+    .update({ usado: true, user_id })
     .eq('codigo_unico', codigo);
 
   if (error) {

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { ApiResponse, Reserva, Habitacion } from '../types';
+import { supabase } from '../api/supabase';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
@@ -12,14 +13,18 @@ export const axiosInstance = axios.create({
 });
 
 axiosInstance.interceptors.request.use(
-  (config) => {
-    const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  async (config) => {
+    const activeHotelId = localStorage.getItem('active_hotel_id') || '';
     config.headers['X-Hotel-ID'] = activeHotelId;
+    // Adjuntar JWT para rutas que requieren autenticación
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (token) config.headers['Authorization'] = `Bearer ${token}`;
+    } catch (_) { /* sin sesión activa */ }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 axiosInstance.interceptors.response.use(
