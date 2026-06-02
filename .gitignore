@@ -33,3 +33,5 @@ apps/hotel/update_admin.js
 apps/portal/update_branding.js
 backend/migrate-branding.js
 backend/migrate_billing.js
+apps/admin/
+apps/hub/src/workers/

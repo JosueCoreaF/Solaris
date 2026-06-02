@@ -40,7 +40,7 @@ router.get('/hotel/:slug', async (req: Request, res: Response) => {
     // Query 1: hotel básico (sin nested select para evitar problemas de FK en PostgREST)
     const { data: hotel, error: hotelErr } = await db()
       .from('hoteles')
-      .select('id_hotel, nombre_hotel, slug, ciudad, direccion, telefono, correo_contacto, estrellas, enlace_google_maps, estado')
+      .select('id_hotel, nombre_hotel, slug, ciudad, direccion, telefono, correo_contacto, estrellas, enlace_google_maps, estado, logo_url, color_primario, color_secundario, redes_sociales')
       .ilike('slug', slug)          // ilike para búsqueda case-insensitive
       .eq('estado', 'activo')
       .maybeSingle();
@@ -71,6 +71,10 @@ router.get('/hotel/:slug', async (req: Request, res: Response) => {
       correo:             hotel.correo_contacto,
       estrellas:          hotel.estrellas ?? 3,
       mapsUrl:            hotel.enlace_google_maps,
+      logoUrl:            hotel.logo_url,
+      colorPrimario:      hotel.color_primario,
+      colorSecundario:    hotel.color_secundario,
+      redesSociales:      hotel.redes_sociales,
       moneda:             config?.moneda             ?? 'HNL',
       tipoCambio:         Number(config?.tipo_cambio_base    ?? 26.58),
       tasaIsv:            Number(config?.porcentaje_impuesto ?? 0.15),

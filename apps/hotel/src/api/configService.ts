@@ -268,6 +268,10 @@ export async function actualizarHotel(id: string, hotel: {
   correo_contacto?: string;
   estrellas?: number;
   enlace_google_maps?: string;
+  logo_url?: string;
+  color_primario?: string;
+  color_secundario?: string;
+  redes_sociales?: any;
 }) {
   try {
     const response = await fetchWithHotel(`${API_BASE}/hoteles/${id}`, {

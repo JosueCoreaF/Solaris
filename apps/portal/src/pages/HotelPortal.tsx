@@ -129,12 +129,12 @@ const RoomDetailModal = ({ hab, hotel, onReservar, onClose }: {
   const has360 = !!hab.imagen_360;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-6"
       style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(8px)' }}
       onClick={onClose}>
       <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 32, stiffness: 300 }}
-        className="bg-white w-full sm:max-w-lg sm:rounded-3xl rounded-t-3xl max-h-[92dvh] flex flex-col shadow-2xl"
+        className="bg-white w-full md:max-w-4xl md:rounded-3xl rounded-t-3xl max-h-[92dvh] flex flex-col md:flex-row shadow-2xl overflow-hidden"
         onClick={e => e.stopPropagation()}>
 
         {/* Drag handle */}
@@ -158,7 +158,7 @@ const RoomDetailModal = ({ hab, hotel, onReservar, onClose }: {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-stone-100">
+        <div className="flex border-b border-stone-100 md:hidden">
           {(['fotos', ...(has360 ? ['360'] : []), 'detalles'] as const).map(t => (
             <button key={t} onClick={() => setTab(t as any)}
               className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-wide transition-colors ${tab === t ? 'text-stone-900 border-b-2 border-stone-900' : 'text-stone-400'}`}>
@@ -167,8 +167,29 @@ const RoomDetailModal = ({ hab, hotel, onReservar, onClose }: {
           ))}
         </div>
 
-        {/* Content */}
-        <div className="overflow-y-auto flex-1 p-5">
+        {/* Content Mobile -> tab based, Content Desktop -> split view */}
+        <div className="overflow-y-auto flex-1 flex flex-col md:flex-row w-full">
+          
+          {/* Columna Izquierda (Escritorio: Fotos, Móvil: Tab fotos/360) */}
+          <div className={`w-full md:w-[55%] md:border-r border-stone-100 ${tab === 'detalles' ? 'hidden md:block' : 'block'}`}>
+            <div className="p-0 md:p-6 h-full flex flex-col">
+              {/* En móvil mostramos o fotos o 360. En desktop mostramos un visor principal */}
+              {(tab === 'fotos' || (typeof window !== 'undefined' && window.innerWidth >= 768)) && (
+                <div className="flex-1 min-h-[300px]">
+                  <ImageGallery imagenes={hab.imagenes} nombre={hab.nombreAlias || hab.nombre} height="h-64 md:h-full md:rounded-2xl" />
+                </div>
+              )}
+              {tab === '360' && hab.imagen_360 && (
+                <div className="flex-1 min-h-[300px] md:mt-4">
+                  <Viewer360 url={hab.imagen_360} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Columna Derecha (Detalles) */}
+          <div className={`w-full md:w-[45%] flex flex-col ${tab !== 'detalles' ? 'hidden md:flex' : 'flex'}`}>
+            <div className="flex-1 overflow-y-auto p-5 md:p-6">
           {tab === 'fotos' && (
             <div className="space-y-3">
               <ImageGallery imagenes={hab.imagenes} nombre={hab.nombreAlias || hab.nombre} height="h-64" />
@@ -228,28 +249,29 @@ const RoomDetailModal = ({ hab, hotel, onReservar, onClose }: {
                 </div>
               )}
 
-              {/* Nota impuestos */}
               <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3 text-xs text-emerald-700 flex items-start gap-2">
                 <Info size={13} className="flex-shrink-0 mt-0.5" />
                 Las tarifas incluyen todos los impuestos (ISV + Turismo).
               </div>
             </div>
           )}
-        </div>
+          </div> {/* End Derecha Content */}
 
-        {/* CTA */}
-        <div className="px-5 pb-6 pt-3 border-t border-stone-100">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <span className="text-2xl font-black text-stone-900">{formatMoneda(hab.tarifaNoche, hotel.moneda)}</span>
-              <span className="text-xs text-stone-400 ml-1">/ noche · impuestos incluidos</span>
+          {/* CTA */}
+          <div className="px-5 md:px-6 pb-6 pt-4 border-t border-stone-100 bg-white">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <span className="text-2xl font-black text-stone-900">{formatMoneda(hab.tarifaNoche, hotel.moneda)}</span>
+                <span className="text-xs text-stone-400 ml-1">/ noche · impuestos incluidos</span>
+              </div>
             </div>
+            <button onClick={() => { onClose(); onReservar(); }}
+              className="w-full py-4 bg-[var(--color-brand)] brightness-100 hover:brightness-110 active:brightness-90 text-white font-black rounded-2xl text-base transition-all">
+              Reservar esta habitación
+            </button>
           </div>
-          <button onClick={() => { onClose(); onReservar(); }}
-            className="w-full py-4 bg-stone-900 active:bg-stone-700 text-white font-black rounded-2xl text-base transition-colors">
-            Reservar esta habitación
-          </button>
-        </div>
+          </div> {/* End Derecha */}
+        </div> {/* End Content Flex */}
       </motion.div>
     </div>
   );
@@ -270,7 +292,7 @@ const RoomCard = ({ hab, noches, moneda, hotel, onReservar, onDetalle, index }: 
 
       {/* Imagen */}
       <div className="relative">
-        <ImageGallery imagenes={hab.imagenes} nombre={nombre} height="h-52" />
+        <ImageGallery imagenes={hab.imagenes} nombre={nombre} height="h-52 lg:h-60" />
         <div className="absolute bottom-2 right-2 flex gap-1.5">
           {hab.imagen_360 && (
             <button onClick={onDetalle}
@@ -334,7 +356,7 @@ const RoomCard = ({ hab, noches, moneda, hotel, onReservar, onDetalle, index }: 
             <Info size={14} /> Detalles
           </button>
           <button onClick={onReservar}
-            className="flex-2 flex-grow py-3 bg-stone-900 active:bg-stone-700 text-white font-black rounded-2xl text-sm transition-colors">
+            className="flex-2 flex-grow py-3 bg-[var(--color-brand)] brightness-100 hover:brightness-110 active:brightness-90 text-white font-black rounded-2xl text-sm transition-all">
             Reservar
           </button>
         </div>
@@ -447,7 +469,7 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
           Tu solicitud para <strong className="text-stone-700">{hab.nombreAlias || hab.nombre}</strong> fue recibida.<br />
           El hotel te confirmará a <strong className="text-stone-700">{form.correo || form.telefono}</strong>.
         </p>
-        <button onClick={onClose} className="w-full py-3.5 bg-stone-900 text-white rounded-2xl font-black text-sm">Listo</button>
+        <button onClick={onClose} className="w-full py-3.5 bg-[var(--color-brand)] text-white rounded-2xl font-black text-sm transition-all">Listo</button>
       </motion.div>
     </div>
   );
@@ -458,19 +480,62 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
       onClick={onClose}>
       <motion.div initial={{ y: '100%', opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         exit={{ y: '100%', opacity: 0 }} transition={{ type: 'spring', damping: 32, stiffness: 300 }}
-        className="bg-white w-full sm:max-w-lg sm:rounded-3xl rounded-t-3xl max-h-[92dvh] flex flex-col shadow-2xl"
+        className="bg-white w-full sm:max-w-lg md:max-w-4xl sm:rounded-3xl rounded-t-3xl max-h-[92dvh] flex flex-col md:flex-row shadow-2xl overflow-hidden"
         onClick={e => e.stopPropagation()}>
 
-        <div className="flex justify-center pt-3 pb-1 sm:hidden">
-          <div className="w-10 h-1 rounded-full bg-stone-200" />
+        {/* Columna Izquierda (Resumen de Habitación - Solo Desktop) */}
+        <div className="hidden md:flex w-[45%] bg-stone-50 border-r border-stone-100 flex-col relative overflow-y-auto">
+          {hab.imagenes[0] ? (
+            <img src={hab.imagenes[0]} alt={hab.nombreAlias || hab.nombre} className="h-48 w-full object-cover" />
+          ) : (
+            <div className="h-48 w-full bg-stone-200 flex items-center justify-center"><BedDouble size={32} className="text-stone-400"/></div>
+          )}
+          <div className="p-6 flex-1 flex flex-col">
+            <h3 className="text-2xl font-black text-stone-900 leading-tight mb-1">{hab.nombreAlias || hab.nombre}</h3>
+            <p className="text-sm text-stone-500 mb-6">{hab.tipo} · {hab.numeroCamas} cama{hab.numeroCamas !== 1 ? 's' : ''} · {hab.capacidad} pers.</p>
+            
+            <div className="mt-auto space-y-4">
+              <div className="bg-white rounded-2xl p-4 border border-stone-200 shadow-sm">
+                <p className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-2">Resumen</p>
+                <div className="flex justify-between items-end mb-1">
+                  <span className="text-stone-500 text-sm">Tarifa base</span>
+                  <span className="font-bold text-stone-900">{formatMoneda(hab.tarifaNoche, hotel.moneda)} <span className="text-[10px] text-stone-400 font-normal">/ noche</span></span>
+                </div>
+                {noches > 0 && form.checkIn && form.checkOut && (
+                  <>
+                    <div className="flex justify-between items-end text-sm mb-1 mt-2 pt-2 border-t border-stone-100">
+                      <span className="text-stone-500">{noches} noche{noches !== 1 ? 's' : ''}</span>
+                      <span className="font-bold text-stone-900">{formatMoneda(hab.tarifaNoche * noches, hotel.moneda)}</span>
+                    </div>
+                    {personasExtra > 0 && hotel.cargoPersonaExtra > 0 && (
+                      <div className="flex justify-between items-end text-sm mb-1 text-amber-700">
+                        <span>+{personasExtra} pers. extra</span>
+                        <span className="font-bold">{formatMoneda(hotel.cargoPersonaExtra * personasExtra * noches, hotel.moneda)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-end mt-3 pt-3 border-t border-stone-200">
+                      <span className="text-sm font-bold text-stone-900">Total</span>
+                      <span className="text-2xl font-black text-stone-900 leading-none">{formatMoneda(subtotal, hotel.moneda)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-2 pb-3 border-b border-stone-100">
-          <div className="flex-1 min-w-0">
+        {/* Columna Derecha (Formulario) */}
+        <div className="flex-1 flex flex-col w-full md:w-[55%]">
+          <div className="flex justify-center pt-3 pb-1 md:hidden">
+            <div className="w-10 h-1 rounded-full bg-stone-200" />
+          </div>
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 md:px-8 pt-2 md:pt-6 pb-3 border-b border-stone-100">
+            <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-0.5">
               {[1,2,3].map(n => (
-                <div key={n} className={`h-1 rounded-full transition-all ${n === stepNum ? 'w-5 bg-stone-900' : n < stepNum ? 'w-3 bg-emerald-400' : 'w-3 bg-stone-200'}`} />
+                <div key={n} className={`h-1 rounded-full transition-all ${n === stepNum ? 'w-5 bg-[var(--color-brand)]' : n < stepNum ? 'w-3 bg-emerald-400' : 'w-3 bg-stone-200'}`} />
               ))}
               <span className="text-[10px] text-stone-400 font-medium">{stepNum}/3</span>
             </div>
@@ -483,14 +548,14 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
           </button>
         </div>
 
-        {/* Room chip */}
-        <div className="mx-5 mt-3 bg-stone-50 border border-stone-100 rounded-2xl px-3 py-2 flex items-center gap-2">
+        {/* Room chip (Solo Móvil) */}
+        <div className="mx-5 mt-3 bg-stone-50 border border-stone-100 rounded-2xl px-3 py-2 flex items-center gap-2 md:hidden">
           <BedDouble size={13} className="text-stone-400 flex-shrink-0" />
           <span className="text-xs font-semibold text-stone-600 truncate flex-1">{hab.nombreAlias || hab.nombre}</span>
           <span className="text-xs font-black text-stone-900 flex-shrink-0">{formatMoneda(hab.tarifaNoche, hotel.moneda)}<span className="font-normal text-stone-400">/noche</span></span>
         </div>
 
-        <div className="overflow-y-auto flex-1 px-5 py-4">
+        <div className="overflow-y-auto flex-1 px-5 md:px-8 py-4 md:py-6">
           <AnimatePresence mode="wait">
 
             {/* Paso 1 */}
@@ -676,29 +741,31 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
         </div>
 
         {/* CTA */}
-        <div className="px-5 pb-6 pt-3 border-t border-stone-100">
+        <div className="px-5 md:px-8 pb-6 pt-4 border-t border-stone-100 bg-white">
           {step === 'identificacion' && (
             <button onClick={handleBuscar} disabled={buscando}
-              className="w-full py-4 bg-stone-900 text-white font-black rounded-2xl text-sm flex items-center justify-center gap-2 disabled:opacity-60">
+              className="w-full py-4 bg-[var(--color-brand)] text-white font-black rounded-2xl text-sm flex items-center justify-center gap-2 disabled:opacity-60">
               {buscando ? <><Loader2 size={15} className="animate-spin" /> Verificando...</> : 'Continuar'}
             </button>
           )}
           {step === 'registro' && (
             <button onClick={handleRegistrar} disabled={registrando}
-              className="w-full py-4 bg-stone-900 text-white font-black rounded-2xl text-sm flex items-center justify-center gap-2 disabled:opacity-60">
+              className="w-full py-4 bg-[var(--color-brand)] text-white font-black rounded-2xl text-sm flex items-center justify-center gap-2 disabled:opacity-60">
               {registrando ? <><Loader2 size={15} className="animate-spin" /> Registrando...</> : 'Crear perfil y continuar'}
             </button>
           )}
           {step === 'reserva' && (
             <button onClick={handleEnviar} disabled={sending || checkingDisp || dispOk === false}
-              className="w-full py-4 bg-stone-900 text-white font-black rounded-2xl text-base flex items-center justify-center gap-2 disabled:opacity-60">
+              className="w-full py-4 bg-[var(--color-brand)] text-white font-black rounded-2xl text-base flex items-center justify-center gap-2 disabled:opacity-60">
               {sending ? <><Loader2 size={15} className="animate-spin" /> Enviando...</> :
                checkingDisp ? <><Loader2 size={15} className="animate-spin" /> Verificando...</> :
                'Confirmar solicitud'}
             </button>
           )}
-          <p className="text-[11px] text-stone-400 text-center mt-2">El hotel confirmará tu reserva por correo o teléfono.</p>
+          <p className="text-[11px] text-stone-400 text-center mt-3">El hotel confirmará tu reserva por correo o teléfono.</p>
         </div>
+
+        </div> {/* End Columna Derecha */}
       </motion.div>
     </div>
   );
@@ -738,7 +805,7 @@ const SearchWidget = ({ checkIn, checkOut, personas, onCheckIn, onCheckOut, onPe
           </select>
         </div>
         <button onClick={onBuscar} disabled={loading}
-          className="px-5 bg-stone-900 text-white rounded-2xl font-bold text-sm flex items-center gap-2 active:bg-stone-700 disabled:opacity-60">
+          className="px-5 bg-[var(--color-brand)] brightness-100 hover:brightness-110 active:brightness-90 text-white rounded-2xl font-bold text-sm flex items-center gap-2 disabled:opacity-60 transition-all">
           {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
           Buscar
         </button>
@@ -812,20 +879,28 @@ export default function HotelPortal() {
   if (!hotel) return null;
 
   return (
-    <div className="min-h-screen bg-stone-50 pb-20">
+    <div className="min-h-screen bg-stone-50 pb-20" style={{ '--color-brand': hotel.colorPrimario || '#1c1917' } as any}>
       {/* Nav */}
       <nav className="bg-white/90 backdrop-blur-md border-b border-stone-100 sticky top-0 z-40">
-        <div className="max-w-xl mx-auto px-4 h-12 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-1.5 text-xs text-stone-400 hover:text-stone-600 font-medium">
-            <ArrowLeft size={13} /> solarys.uk
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900 font-bold transition-colors">
+            <ArrowLeft size={16} /> solarys.uk
           </Link>
-          <span className="text-xs font-bold text-stone-600 truncate max-w-[160px]">{hotel.nombre}</span>
-          <div className="w-14" />
+          {hotel.logoUrl ? (
+            <img src={hotel.logoUrl} alt={hotel.nombre} className="h-8 object-contain" />
+          ) : (
+            <span className="text-sm font-black text-stone-900 truncate max-w-[200px]">{hotel.nombre}</span>
+          )}
+          <div className="w-20" />
         </div>
       </nav>
 
-      <div className="max-w-xl mx-auto px-4">
-        {/* Hero */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-10">
+        <div className="lg:flex lg:items-start lg:gap-8 xl:gap-10">
+          
+          {/* Main Content */}
+          <div className="flex-1 min-w-0">
+            {/* Hero */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pt-5 pb-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
@@ -859,12 +934,7 @@ export default function HotelPortal() {
           </div>
         </motion.div>
 
-        {/* Search */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mb-5">
-          <SearchWidget checkIn={checkIn} checkOut={checkOut} personas={personas}
-            onCheckIn={setCheckIn} onCheckOut={setCheckOut} onPersonas={setPersonas}
-            onBuscar={buscarDisponibilidad} loading={loadingRooms} />
-        </motion.div>
+
 
         {/* Rooms header */}
         <div className="flex items-center justify-between mb-4">
@@ -881,15 +951,19 @@ export default function HotelPortal() {
 
         {/* Rooms */}
         {loadingRooms ? (
-          <div className="space-y-4">{[1,2,3].map(i => <Sk key={i} className="h-80 w-full" />)}</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
+            {[1,2,3,4].map(i => <Sk key={i} className="h-80 w-full" />)}
+          </div>
         ) : habitaciones.length === 0 ? (
-          <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-3xl border border-stone-100">
-            <BedDouble size={36} className="text-stone-200" />
-            <p className="font-bold text-stone-600">Sin disponibilidad</p>
-            <p className="text-sm text-stone-400 text-center px-6">Prueba otras fechas o un menor número de personas.</p>
+          <div className="flex flex-col items-center py-20 gap-4 bg-white rounded-3xl border border-stone-100 mt-2">
+            <div className="w-20 h-20 rounded-full bg-stone-50 flex items-center justify-center">
+              <BedDouble size={36} className="text-stone-300" />
+            </div>
+            <p className="font-black text-stone-800 text-lg">Sin disponibilidad</p>
+            <p className="text-sm text-stone-500 text-center px-6 max-w-sm">No encontramos habitaciones para estas fechas o capacidad. Prueba ajustando tu búsqueda.</p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
             {habitaciones.map((hab, i) => (
               <RoomCard key={hab.id} hab={hab} noches={noches} moneda={hotel.moneda} hotel={hotel}
                 index={i}
@@ -898,24 +972,39 @@ export default function HotelPortal() {
             ))}
           </div>
         )}
+          </div> {/* End Main Content */}
 
-        {/* Políticas */}
-        <div className="mt-6 bg-white rounded-3xl border border-stone-100 divide-y divide-stone-50">
-          {[
-            { label: 'Check-in', value: `Desde las ${hotel.horaCheckin}` },
-            { label: 'Check-out', value: `Hasta las ${hotel.horaCheckout}` },
-            { label: 'Impuestos', value: 'Incluidos en todas las tarifas' },
-            ...(hotel.cargoPersonaExtra > 0 ? [{ label: 'Persona extra', value: `${formatMoneda(hotel.cargoPersonaExtra, hotel.moneda)}/noche` }] : []),
-          ].map(p => (
-            <div key={p.label} className="flex items-center justify-between px-4 py-3 text-sm">
-              <span className="text-stone-400 font-medium">{p.label}</span>
-              <span className="font-semibold text-stone-700">{p.value}</span>
-            </div>
-          ))}
-        </div>
+          {/* Sidebar */}
+          <div className="w-full lg:w-80 xl:w-[400px] flex-shrink-0 mt-8 lg:mt-0 lg:sticky lg:top-24 space-y-6">
+            
+            {/* Search Widget in Sidebar */}
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+              <SearchWidget checkIn={checkIn} checkOut={checkOut} personas={personas}
+                onCheckIn={setCheckIn} onCheckOut={setCheckOut} onPersonas={setPersonas}
+                onBuscar={buscarDisponibilidad} loading={loadingRooms} />
+            </motion.div>
+
+            {/* Políticas */}
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+              className="bg-white rounded-3xl border border-stone-100 divide-y divide-stone-50 shadow-sm">
+              {[
+                { label: 'Check-in', value: `Desde las ${hotel.horaCheckin}` },
+                { label: 'Check-out', value: `Hasta las ${hotel.horaCheckout}` },
+                { label: 'Impuestos', value: 'Incluidos en tarifas' },
+                ...(hotel.cargoPersonaExtra > 0 ? [{ label: 'Persona extra', value: `${formatMoneda(hotel.cargoPersonaExtra, hotel.moneda)}/noche` }] : []),
+              ].map(p => (
+                <div key={p.label} className="flex items-center justify-between px-5 py-4 text-sm">
+                  <span className="text-stone-500 font-medium">{p.label}</span>
+                  <span className="font-bold text-stone-900 text-right">{p.value}</span>
+                </div>
+              ))}
+            </motion.div>
+          </div> {/* End Sidebar */}
+
+        </div> {/* End 2-Column Grid */}
       </div>
 
-      <div className="text-center mt-10 pb-4 text-[11px] text-stone-300">
+      <div className="text-center mt-6 pb-10 text-[11px] text-stone-300">
         Reservas gestionadas por <strong>Solarys</strong>
       </div>
 

@@ -16,6 +16,10 @@ CREATE TABLE IF NOT EXISTS public.hoteles (
                        CHECK (estado IN ('activo','inactivo','mantenimiento')),
   enlace_google_maps text,
   slug               varchar     UNIQUE,
+  logo_url           text,
+  color_primario     varchar(7)  DEFAULT '#1c1917',
+  color_secundario   varchar(7),
+  redes_sociales     jsonb       DEFAULT '{}'::jsonb,
   created_at         timestamptz NOT NULL DEFAULT now(),
   updated_at         timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT hoteles_pkey PRIMARY KEY (id_hotel)

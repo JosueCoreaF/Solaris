@@ -55,6 +55,30 @@ CREATE TABLE IF NOT EXISTS public.suscripciones_owner (
   CONSTRAINT suscripciones_owner_pkey PRIMARY KEY (id_suscripcion)
 );
 
+-- ── Métodos de Pago ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.owner_metodos_pago (
+  id_metodo     uuid        NOT NULL DEFAULT gen_random_uuid(),
+  owner_id      uuid        NOT NULL REFERENCES public.owners(id_owner) ON DELETE CASCADE,
+  brand         varchar     NOT NULL,
+  last4         varchar     NOT NULL,
+  is_default    boolean     NOT NULL DEFAULT false,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT owner_metodos_pago_pkey PRIMARY KEY (id_metodo)
+);
+
+-- ── Historial de Pagos ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.historial_pagos (
+  id_pago       uuid        NOT NULL DEFAULT gen_random_uuid(),
+  owner_id      uuid        NOT NULL REFERENCES public.owners(id_owner) ON DELETE CASCADE,
+  id_suscripcion uuid       REFERENCES public.suscripciones_owner(id_suscripcion),
+  concepto      varchar     NOT NULL,
+  metodo_pago   varchar     NOT NULL,
+  monto         numeric     NOT NULL DEFAULT 0.00,
+  estado        varchar     NOT NULL DEFAULT 'completado' CHECK (estado IN ('completado','fallido','pendiente')),
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT historial_pagos_pkey PRIMARY KEY (id_pago)
+);
+
 -- ── Business Modules ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.business_modules (
   id_module     uuid        NOT NULL DEFAULT gen_random_uuid(),

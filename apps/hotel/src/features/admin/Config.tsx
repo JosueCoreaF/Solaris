@@ -100,6 +100,11 @@ export const Config: React.FC = () => {
   const [hotelEstrellas, setHotelEstrellas] = useState(3);
   const [hotelMaps, setHotelMaps] = useState('');
   const [hotelSlug, setHotelSlug] = useState('');
+  const [hotelLogoUrl, setHotelLogoUrl] = useState('');
+  const [hotelColorPrimario, setHotelColorPrimario] = useState('#1c1917');
+  const [hotelColorSecundario, setHotelColorSecundario] = useState('');
+  const [hotelFacebook, setHotelFacebook] = useState('');
+  const [hotelInstagram, setHotelInstagram] = useState('');
 
   // Estados para Parámetros de Configuración
   const [nombreRed, setNombreRed] = useState('');
@@ -770,6 +775,72 @@ export const Config: React.FC = () => {
                         placeholder="hotel-nombre-ciudad"
                       />
                     </div>
+              </div>
+              
+              {/* BRANDING Y DISEÑO */}
+              <div style={{ marginTop: '24px' }}>
+                <h3 style={{ fontSize: 16, fontWeight: 600, color: '#1e293b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Sparkles size={18} style={{ color: '#8b5cf6' }} /> Marca Blanca y Diseño (Portal Web)
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#475569', marginBottom: 6 }}>
+                      Logo URL
+                    </label>
+                    <input
+                      type="url"
+                      value={hotelLogoUrl}
+                      onChange={(e) => setHotelLogoUrl(e.target.value)}
+                      placeholder="https://tuhotel.com/logo.png"
+                      style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: 14 }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#475569', marginBottom: 6 }}>
+                      Color Primario (Botones)
+                    </label>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <input
+                        type="color"
+                        value={hotelColorPrimario}
+                        onChange={(e) => setHotelColorPrimario(e.target.value)}
+                        style={{ height: '42px', width: '50px', padding: '0', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                      />
+                      <input
+                        type="text"
+                        value={hotelColorPrimario}
+                        onChange={(e) => setHotelColorPrimario(e.target.value)}
+                        placeholder="#1c1917"
+                        style={{ flex: 1, padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: 14 }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#475569', marginBottom: 6 }}>
+                      Enlace de Facebook
+                    </label>
+                    <input
+                      type="url"
+                      value={hotelFacebook}
+                      onChange={(e) => setHotelFacebook(e.target.value)}
+                      placeholder="https://facebook.com/..."
+                      style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: 14 }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#475569', marginBottom: 6 }}>
+                      Enlace de Instagram
+                    </label>
+                    <input
+                      type="url"
+                      value={hotelInstagram}
+                      onChange={(e) => setHotelInstagram(e.target.value)}
+                      placeholder="https://instagram.com/..."
+                      style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: 14 }}
+                    />
+                  </div>
+                </div>
+
                     {hotelSlug && (
                       <a href={`https://solarys.uk/${hotelSlug}`} target="_blank" rel="noreferrer"
                         style={{ display: 'inline-block', fontSize: 11, color: '#4f46e5', fontWeight: 600, marginTop: 6, textDecoration: 'none' }}>

@@ -7,6 +7,8 @@ Solaris es una plataforma "Multi-tenant" (múltiples inquilinos) diseñada para 
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, Lucide React (iconos), React Router.
 - **Backend**: Node.js, Express.js, TypeScript.
 - **Base de Datos & Autenticación**: Supabase (PostgreSQL), Row-Level Security (RLS) para el aislamiento de datos (Multi-tenant).
+- **IA**: Google Gemini API (REST) — asistente conversacional con herramientas de acceso a la BD.
+- **Pagos**: Stripe (módulo de billing con métodos de pago y suscripciones por módulo).
 - **Gestión de Paquetes**: npm.
 ## 🏗️ Arquitectura del Proyecto
 
@@ -14,16 +16,23 @@ El proyecto está dividido en un monorepo (o estructura de múltiples carpetas) 
 
 ### Directorios Principales
 - **`apps/hub/`**: La aplicación central (Dashboard/Panel de control). Es el punto de entrada para que los propietarios (owners) se registren, configuren su cuenta (setup) y creen/gestionen sus diferentes modelos de negocio.
+  - **`pages/ChatHub.tsx`**: Asistente IA con 17 herramientas de acceso y escritura a la BD (consultas, reservas, huéspedes, pagos, habitaciones, métricas, etc.). Usa Gemini API vía REST.
+  - **`pages/Billing.tsx`**: Módulo de facturación con suscripciones por módulo, métodos de pago y historial.
 - **`apps/hotel/`**: Frontend específico para la gestión de hoteles.
 - **`apps/gym/`**: Frontend específico para la gestión de gimnasios.
 - **`apps/restaurant/`**: Frontend específico para la gestión de restaurantes.
+- **`apps/admin/`**: Panel de administración interno (superadmin).
+- **`apps/portal/`**: Portal público de landing page y acceso para propietarios.
 - **`backend/`**: Servidor Node.js con Express.
   - **`routes/hub.ts`**: Rutas para autenticación y creación de negocios desde el Hub.
+  - **`routes/ai.ts`**: Endpoint del asistente IA — procesa mensajes, ejecuta herramientas sobre la BD y devuelve respuestas en markdown.
+  - **`routes/billing.ts`**: Gestión de suscripciones, métodos de pago y activación de módulos por plan.
   - **`routes/hotel/`, `routes/gym/`, `routes/restaurant/`**: Rutas específicas para cada módulo.
   - **`utils/tenantHelper.ts`**: Utilidad clave que ayuda a resolver el contexto del negocio actual, asegurando que las operaciones se realicen sobre el negocio (tenant) correcto.
 - **`database/`**: Configuración de Supabase / PostgreSQL.
-  - **`schema.sql`**: **FUENTE ÚNICA DE VERDAD** de la estructura de datos. Aquí se definen todas las tablas y relaciones.
-  - **`rls_*.sql`**: Scripts para aplicar políticas de seguridad Row-Level Security (Ej. `rls_hoteles.sql`).
+  - **`schema_00_base.sql`**: Tablas base (owners, business_modules, planes, billing).
+  - **`schema_01_hotel.sql`**: Tablas del módulo hotel (habitaciones, reservas, huéspedes, pagos, etc.).
+  - **`rls_*.sql`**: Scripts para aplicar políticas de seguridad Row-Level Security.
 
 ### 🔌 Puertos de Desarrollo (Frontend)
 Para ejecutar el ecosistema en un entorno local, cada módulo tiene su propio puerto asignado para evitar colisiones:
@@ -31,6 +40,8 @@ Para ejecutar el ecosistema en un entorno local, cada módulo tiene su propio pu
 - 🏠 **Hub** (`apps/hub`): **Puerto 5174** *(Panel central / Dashboard)*
 - 🏋️‍♂️ **Gimnasio** (`apps/gym`): **Puerto 5175**
 - 🍽️ **Restaurante** (`apps/restaurant`): **Puerto 5176**
+- 🌐 **Portal** (`apps/portal`): **Puerto 5177**
+- ⚙️ **Backend** (`backend`): **Puerto 4000**
 
 ---
 

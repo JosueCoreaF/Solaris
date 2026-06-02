@@ -188,6 +188,59 @@ async function executeTool(name: string, args: any, ownerIds: string[], hotelIds
       return { success: true, habitacion: data };
     }
 
+    case 'get_available_rooms': {
+      const { data: allRooms, error: roomsError } = await db.from('habitaciones_con_detalles')
+        .select('*').eq('id_hotel', args.hotel_id);
+      if (roomsError) throw new Error(roomsError.message);
+      const { data: conflicts } = await db.from('reservas_hotel')
+        .select('id_habitacion').eq('id_hotel', args.hotel_id)
+        .lt('check_in', args.check_out).gt('check_out', args.check_in);
+      const conflictsFiltered = (conflicts || []).filter((r: any) => !['cancelada','no_show','check_out'].includes(r.estado));
+      const occupiedIds = new Set(conflictsFiltered.map((r: any) => r.id_habitacion));
+      const available = (allRooms || []).filter((r: any) =>
+        !occupiedIds.has(r.id_habitacion) && !['mantenimiento','bloqueada'].includes(r.estado)
+      );
+      return { rooms: available, count: available.length, periodo: { check_in: args.check_in, check_out: args.check_out } };
+    }
+
+    case 'create_guest': {
+      const { data: existing } = await db.from('huespedes')
+        .select('*').eq('id_hotel', args.hotel_id).eq('correo', args.correo).maybeSingle();
+      if (existing) return { guest: existing, created: false, message: 'Huésped ya registrado, usando existente.' };
+      const { data, error } = await db.from('huespedes').insert({
+        id_hotel: args.hotel_id,
+        nombre_completo: args.nombre_completo,
+        correo: args.correo,
+        telefono: args.telefono || null,
+        documento_identidad: args.documento_identidad || null,
+      }).select().single();
+      if (error) throw new Error(error.message);
+      return { guest: data, created: true, message: 'Huésped registrado exitosamente.' };
+    }
+
+    case 'create_reservation': {
+      const { data, error } = await db.rpc('fn_crear_reserva_completa', {
+        p_owner_id: ownerIds[0],
+        p_id_huesped: args.id_huesped,
+        p_id_habitacion: args.id_habitacion,
+        p_check_in: args.check_in,
+        p_check_out: args.check_out,
+        p_adultos: args.adultos || 1,
+        p_ninos: args.ninos || 0,
+        p_estado: args.estado || 'confirmada',
+        p_total_reserva: args.total_reserva || 0,
+        p_moneda: args.moneda || 'HNL',
+        p_observaciones: args.observaciones || null,
+        p_estado_pago: args.estado_pago || 'deuda',
+        p_anticipo: args.anticipo || 0,
+        p_es_cortesia: args.es_cortesia || false,
+        p_tipo_reserva: args.tipo_reserva || 'noche',
+        p_servicios: [],
+      });
+      if (error) throw new Error(error.message);
+      return { success: true, reserva: data, message: 'Reserva creada exitosamente.' };
+    }
+
     case 'search_database': {
       const allowed = ['hoteles','habitaciones','huespedes','reservas_hotel','pagos_hotel','empresas','facturas','cierres_diarios','saldos_clientes','tipos_habitacion','comodidades_hotel','servicios_adicionales','habitaciones_con_detalles','business_modules'];
       if (!allowed.includes(args.tabla)) throw new Error(`Tabla no permitida. Disponibles: ${allowed.join(', ')}`);
@@ -219,12 +272,69 @@ const TOOLS = [{
     { name: 'update_reservation', description: 'Modifica campos de una reserva (observaciones, total_reserva, adultos, ninos, etc.).', parameters: { type: 'OBJECT', properties: { id_reserva_hotel: { type: 'STRING' }, campos: { type: 'OBJECT', description: 'Campos a actualizar ej: {"observaciones":"nota"}' } }, required: ['id_reserva_hotel', 'campos'] } },
     { name: 'register_payment', description: 'Registra un pago y recalcula estado_pago.', parameters: { type: 'OBJECT', properties: { id_reserva_hotel: { type: 'STRING' }, monto: { type: 'NUMBER' }, metodo_pago: { type: 'STRING', description: 'efectivo/tarjeta/transferencia/deposito/otro' }, notas: { type: 'STRING' } }, required: ['id_reserva_hotel', 'monto', 'metodo_pago'] } },
     { name: 'update_room', description: 'Modifica una habitación: estado, tarifa_noche, etc.', parameters: { type: 'OBJECT', properties: { id_habitacion: { type: 'STRING' }, campos: { type: 'OBJECT', description: 'Campos a actualizar ej: {"estado":"mantenimiento"}' } }, required: ['id_habitacion', 'campos'] } },
+    { name: 'get_available_rooms', description: 'Lista habitaciones disponibles para un rango de fechas. Úsala antes de crear una reserva.', parameters: { type: 'OBJECT', properties: { hotel_id: { type: 'STRING' }, check_in: { type: 'STRING', description: 'ISO 8601 ej: 2025-06-15T15:00:00' }, check_out: { type: 'STRING', description: 'ISO 8601 ej: 2025-06-18T12:00:00' } }, required: ['hotel_id', 'check_in', 'check_out'] } },
+    { name: 'create_guest', description: 'Registra un nuevo huésped. Si el correo ya existe, retorna el huésped existente sin duplicar.', parameters: { type: 'OBJECT', properties: { hotel_id: { type: 'STRING' }, nombre_completo: { type: 'STRING' }, correo: { type: 'STRING' }, telefono: { type: 'STRING' }, documento_identidad: { type: 'STRING' } }, required: ['hotel_id', 'nombre_completo', 'correo'] } },
+    { name: 'create_reservation', description: 'Crea una reserva nueva. Verifica disponibilidad automáticamente. Requiere id_huesped e id_habitacion.', parameters: { type: 'OBJECT', properties: { id_huesped: { type: 'STRING' }, id_habitacion: { type: 'STRING' }, check_in: { type: 'STRING', description: 'ISO 8601 ej: 2025-06-15T15:00:00' }, check_out: { type: 'STRING', description: 'ISO 8601 ej: 2025-06-18T12:00:00' }, adultos: { type: 'INTEGER' }, ninos: { type: 'INTEGER' }, total_reserva: { type: 'NUMBER' }, moneda: { type: 'STRING', description: 'HNL o USD' }, observaciones: { type: 'STRING' }, estado_pago: { type: 'STRING', description: 'deuda/abonada/pagado/cortesia' }, es_cortesia: { type: 'BOOLEAN' }, tipo_reserva: { type: 'STRING', description: 'noche/hora/pasadia' } }, required: ['id_huesped', 'id_habitacion', 'check_in', 'check_out'] } },
     { name: 'search_database', description: 'Consulta directa (solo lectura) a cualquier tabla de la BD.', parameters: { type: 'OBJECT', properties: { tabla: { type: 'STRING' }, filtros: { type: 'OBJECT' }, columnas: { type: 'STRING' }, limite: { type: 'INTEGER' } }, required: ['tabla'] } },
   ]
 }];
 
+// ─── Transcripción de audio con Gemini ───────────────────────────────────────
+// Patrones que indican que Gemini alucinó en lugar de transcribir voz real
+const HALLUCINATION_PATTERNS = [
+  /^\[.*\]$/,
+  /\[sound/i, /\[ruido/i, /\[silencio/i, /\[música/i, /\[audio/i,
+  /sound of/i, /ruido de/i,
+  /^(no hay|no se|sin|there is no|no speech|no audio|empty|vacío)/i,
+  /^\.+$/,
+  // Gemini repitiendo el prompt
+  /^escucha este audio/i,
+  /^si hay voz/i,
+  /^transcribe/i,
+  /^si no hay/i,
+];
+
+function isHallucination(text: string): boolean {
+  if (!text || text.length < 2) return true;
+  return HALLUCINATION_PATTERNS.some(p => p.test(text.trim()));
+}
+
+async function callGeminiTranscribe(audioBase64: string, mimeType: string): Promise<string> {
+  let lastError: any;
+  for (const key of GEMINI_KEYS) {
+    try {
+      const response = await fetch(`${GEMINI_URL}?key=${key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { inline_data: { mime_type: mimeType, data: audioBase64 } },
+              { text: 'Tarea: transcribir voz humana en español. Regla 1: si hay palabras habladas, escríbelas exactamente. Regla 2: si no hay voz humana clara, responde solo "VACIO". No agregues nada más.' },
+            ],
+          }],
+          generationConfig: { temperature: 0, maxOutputTokens: 512 },
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+        // Si Gemini devuelve "VACIO" o parece una alucinación, retornar vacío
+        if (raw.toUpperCase() === 'VACIO' || isHallucination(raw)) return '';
+        return raw;
+      }
+      lastError = new Error(`Gemini ${response.status}`);
+    } catch (err: any) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error('Transcripción fallida.');
+}
+
 // ─── Llamada a Gemini REST API ────────────────────────────────────────────────
 async function callGemini(contents: any[], systemInstruction: string): Promise<any> {
+  let lastError: any;
   for (const key of GEMINI_KEYS) {
     try {
       const response = await fetch(`${GEMINI_URL}?key=${key}`, {
@@ -237,16 +347,23 @@ async function callGemini(contents: any[], systemInstruction: string): Promise<a
           generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
         }),
       });
-      if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`Gemini ${response.status}: ${err}`);
-      }
-      return await response.json();
+
+      if (response.ok) return await response.json();
+
+      const status = response.status;
+      const errText = await response.text();
+      lastError = new Error(`Gemini ${status}: ${errText}`);
+      console.error(`Key ...${key.slice(-6)} → ${status}`);
+
+      // 403 = suspendida permanentemente, no tiene caso reintentar con esta key
+      // 429 = cuota agotada, pasar a la siguiente
+      // Cualquier otro error → pasar a la siguiente también
     } catch (err: any) {
-      console.error(`Gemini key failed: ${err.message}`);
-      if (GEMINI_KEYS.indexOf(key) === GEMINI_KEYS.length - 1) throw err;
+      lastError = err;
+      console.error(`Gemini key error: ${err.message}`);
     }
   }
+  throw lastError || new Error('Todas las API keys de Gemini fallaron.');
 }
 
 // ─── Endpoint ─────────────────────────────────────────────────────────────────
@@ -268,13 +385,21 @@ Propietario: ${ownerRow?.nombre_empresa || 'Sin nombre'} (${ownerRow?.email_cont
 Hoteles registrados: ${hotelIds.length}
 Fecha y hora: ${now}
 
-INSTRUCCIONES:
+INSTRUCCIONES GENERALES:
 - Usa SIEMPRE las herramientas para obtener datos reales. NUNCA inventes información.
 - Si necesitas el hotel_id, primero llama a get_businesses.
-- Para check-in/check-out usa las herramientas específicas.
 - Al modificar algo, confirma brevemente qué se hizo.
 - Responde en español, claro y directo.
-- Usa markdown para tablas y listas cuando muestres múltiples datos.`;
+- Usa markdown para tablas y listas cuando muestres múltiples datos.
+
+FLUJO PARA CREAR UNA RESERVA:
+1. Llama a get_businesses para obtener el hotel_id si no lo tienes.
+2. Llama a get_available_rooms con hotel_id + check_in + check_out para ver habitaciones libres. Muéstraselas al usuario si necesita elegir.
+3. Si el huésped no tiene id, llama a get_guests para buscarlo. Si no existe, usa create_guest para registrarlo.
+4. Con id_huesped e id_habitacion confirmados, llama a create_reservation.
+5. Confirma al usuario el resultado con los datos de la reserva creada.
+
+Si el usuario no da todos los datos (nombre huésped, fechas, habitación), pídelos antes de ejecutar las herramientas.`;
 
     // Construir historial en formato Gemini
     const contents: any[] = (history as { role: string; content: string }[])
@@ -328,6 +453,24 @@ INSTRUCCIONES:
 
   } catch (err: any) {
     console.error('AI Chat Error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Endpoint transcripción de voz ───────────────────────────────────────────
+router.post('/transcribe', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+    if (!GEMINI_KEYS.length) return res.status(500).json({ error: 'GEMINI_API_KEY no configurada.' });
+
+    const { audio, mimeType = 'audio/webm' } = req.body;
+    if (!audio) return res.status(400).json({ error: 'Audio requerido.' });
+
+    const text = await callGeminiTranscribe(audio, mimeType);
+    return res.json({ text });
+  } catch (err: any) {
+    console.error('Transcribe error:', err.message);
     return res.status(500).json({ error: err.message });
   }
 });

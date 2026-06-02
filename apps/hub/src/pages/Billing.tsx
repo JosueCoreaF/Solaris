@@ -10,6 +10,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000
 
 export default function Billing() {
   const [data, setData] = useState<any>([]);
+  const [paymentMethod, setPaymentMethod] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -24,16 +25,20 @@ export default function Billing() {
   const fetchBillingStatus = async () => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-      const [statusRes, historyRes] = await Promise.all([
+      const [statusRes, historyRes, pmRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/hub/billing/status`, {
           headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
         }),
         axios.get(`${API_BASE_URL}/hub/billing/history`, {
           headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
+        }),
+        axios.get(`${API_BASE_URL}/hub/billing/payment-methods`, {
+          headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
         })
       ]);
       setData(statusRes.data || []);
       setHistory(historyRes.data || []);
+      setPaymentMethod(pmRes.data?.[0] || null);
     } catch (err: any) {
       console.error('Error fetching billing status', err);
       // Si el error es 400, probablemente no tiene perfil de owner
@@ -63,19 +68,26 @@ export default function Billing() {
     if (!selectedMethod) return;
     setSimulatingPayment(true);
     
-    // Simulamos un delay de red y validación
-    setTimeout(() => {
-      setData((prev: any) => ({
-        ...prev,
-        paymentMethod: {
-          brand: selectedMethod,
-          last4: 'SIMU'
-        }
-      }));
-      setSimulatingPayment(false);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const res = await axios.post(`${API_BASE_URL}/hub/billing/payment-methods`, {
+        brand: selectedMethod,
+        last4: Math.floor(1000 + Math.random() * 9000).toString() // generamos un last4 aleatorio
+      }, {
+        headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
+      });
+      
+      setPaymentMethod(res.data.paymentMethod);
       setIsPaymentModalOpen(false);
       setSelectedMethod(null);
-    }, 1500);
+      // Recargar suscripciones para ver si alguna se activó
+      fetchBillingStatus();
+    } catch (err: any) {
+      console.error('Error guardando método de pago', err);
+      alert('Error al vincular el método de pago.');
+    } finally {
+      setSimulatingPayment(false);
+    }
   };
 
   return (
@@ -184,13 +196,13 @@ export default function Billing() {
         <div className="space-y-6">
           <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
             <h3 className="font-bold text-slate-900 mb-4">Método de Pago</h3>
-            {data?.paymentMethod ? (
+            {paymentMethod ? (
               <div className="flex items-center gap-4 mb-4 p-3 bg-slate-50 rounded-xl border border-slate-100">
                 <div className="w-12 h-8 bg-white rounded border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-700 shadow-sm capitalize">
-                  {data.paymentMethod.brand}
+                  {paymentMethod.brand}
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">•••• {data.paymentMethod.last4}</p>
+                  <p className="text-sm font-semibold text-slate-900">•••• {paymentMethod.last4}</p>
                   <p className="text-xs text-emerald-600 font-medium flex items-center gap-1">
                     <CheckCircle className="w-3 h-3" /> Método principal
                   </p>
@@ -212,7 +224,7 @@ export default function Billing() {
               onClick={() => setIsPaymentModalOpen(true)}
               className="w-full text-indigo-600 bg-indigo-50 hover:bg-indigo-100 font-semibold py-2.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2"
             >
-              {data?.paymentMethod ? 'Gestionar Métodos' : 'Agregar Método de Pago'}
+              {paymentMethod ? 'Cambiar Método de Pago' : 'Agregar Método de Pago'}
             </button>
           </motion.div>
 

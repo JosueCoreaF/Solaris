@@ -903,7 +903,7 @@ router.post('/hoteles', async (req: Request, res: Response) => {
 router.put('/hoteles/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { nombre_hotel, ciudad, direccion, telefono, correo_contacto, estrellas, enlace_google_maps } = req.body;
+    const { nombre_hotel, ciudad, direccion, telefono, correo_contacto, estrellas, enlace_google_maps, logo_url, color_primario, color_secundario, redes_sociales } = req.body;
 
     const { data, error } = await supabaseAdmin
       .from('hoteles')
@@ -914,7 +914,11 @@ router.put('/hoteles/:id', async (req: Request, res: Response) => {
         telefono: telefono || null,
         correo_contacto: correo_contacto || null,
         estrellas: estrellas ? Number(estrellas) : 3,
-        enlace_google_maps: enlace_google_maps || null
+        enlace_google_maps: enlace_google_maps || null,
+        logo_url: logo_url || null,
+        color_primario: color_primario || null,
+        color_secundario: color_secundario || null,
+        redes_sociales: redes_sociales || null
       })
       .eq('id_hotel', id)
       .select()
