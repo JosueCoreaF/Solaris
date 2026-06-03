@@ -242,6 +242,19 @@ export const Sidebar: React.FC = () => {
         <div style={{ marginTop: 'auto', paddingBottom: 10 }}>
           <button
             className="sidebar-rail-item"
+            title="Volver al Hub"
+            style={{ border: 'none', background: 'transparent', cursor: 'pointer', marginBottom: '8px' }}
+            onClick={() => {
+              const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
+              window.location.href = hubUrl;
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <button
+            className="sidebar-rail-item"
             title="Cerrar sesión"
             style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}
             onClick={() => signOut()}
@@ -339,28 +352,7 @@ export const Sidebar: React.FC = () => {
           ))}
         </nav>
 
-        {/* Volver al Hub */}
-        <div style={{ padding: '8px 16px 4px' }}>
-          <button
-            onClick={() => {
-              const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
-              window.location.href = hubUrl;
-            }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-              padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)',
-              background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)',
-              fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.12)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; }}
-          >
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-            Volver al Panel
-          </button>
-        </div>
+
 
         <footer className="sidebar-footer">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingBottom: 4 }}>
@@ -368,6 +360,33 @@ export const Sidebar: React.FC = () => {
             <span>{user?.email ?? 'Partner Central'}</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{role}</span>
           </div>
+          <button
+            onClick={() => {
+              const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
+              window.location.href = hubUrl;
+            }}
+            style={{
+              marginTop: 6, width: '100%', padding: 9, borderRadius: 10,
+              border: '1px solid rgba(37, 99, 235, 0.2)',
+              background: 'rgba(37, 99, 235, 0.06)', color: '#2563eb',
+              fontWeight: 600, fontSize: 13, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              transition: 'all .18s ease'
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.12)';
+              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(37, 99, 235, 0.36)';
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.06)';
+              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(37, 99, 235, 0.2)';
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+            Volver al Hub
+          </button>
           <NavLink
             to="/perfil"
             className={({ isActive }) => isActive ? 'logout-button active' : 'logout-button'}

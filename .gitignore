@@ -17,6 +17,7 @@ patch*.py
 delete_imports.*
 fix_db.*
 apply_db.js
+query_hotels.js
 search_bookings_*.py
 search_bookings_*.txt
 check_bookings_*.py
@@ -25,3 +26,12 @@ print_lines.py
 replace_splits_*.py
 search_*.py
 search_interactions.py
+backend/src/test-dashboard.ts
+backend/src/scratch_check_counts.ts
+apps/hotel/fix_sidebar.cjs
+apps/hotel/update_admin.js
+apps/portal/update_branding.js
+backend/migrate-branding.js
+backend/migrate_billing.js
+apps/admin/
+apps/hub/src/workers/

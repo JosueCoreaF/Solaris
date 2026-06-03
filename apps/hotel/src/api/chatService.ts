@@ -54,21 +54,43 @@ export interface TypingUser {
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
-async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  // Obtener token de Supabase — import estático, igual que el resto del proyecto
+async function getToken(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  if (data.session?.access_token) return data.session.access_token;
+  // Retry up to 3 times with increasing delays (150ms, 400ms, 800ms)
+  for (const delay of [150, 400, 800]) {
+    await new Promise(r => setTimeout(r, delay));
+    const { data: retry } = await supabase.auth.getSession();
+    if (retry.session?.access_token) return retry.session.access_token;
+  }
+  return null;
+}
+
+async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  let token = await getToken();
+  if (!token) throw new Error('No autenticado');
   const activeHotelId = localStorage.getItem('active_hotel_id') || '';
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const makeRequest = async (t: string) => fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       'X-Hotel-ID': activeHotelId,
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      Authorization: `Bearer ${t}`,
       ...options.headers,
     },
   });
+
+  let res = await makeRequest(token);
+
+  if (res.status === 401) {
+    // Intento de refresco forzado si el backend rechaza el token
+    const { data: refreshData } = await supabase.auth.refreshSession();
+    if (refreshData?.session?.access_token) {
+      token = refreshData.session.access_token;
+      res = await makeRequest(token);
+    }
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

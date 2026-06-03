@@ -279,7 +279,7 @@ export const Bookings: React.FC = () => {
   useEffect(() => {
     function handleMouseUp() {
       setResizingState(s => {
-        if (!s || s.isPendingConfirm || s.direction === null) return s;
+        if (!s || s.direction === null) return s;
         const ciStr = s.tentativeCi;
         const coStr = s.tentativeCo;
         const hovered = s.hoveredDate;
@@ -298,15 +298,13 @@ export const Bookings: React.FC = () => {
           maxCiDate.setUTCDate(maxCiDate.getUTCDate() - 1);
           const maxCiStr = maxCiDate.toISOString().split('T')[0];
           newCi = hovered < maxCiStr ? hovered : maxCiStr;
+          
+          const origCi = getOnlyDate(s.reserva.check_in);
+          if (newCi < origCi) newCi = origCi;
         }
 
-        return {
-          ...s,
-          tentativeCi: newCi,
-          tentativeCo: newCo,
-          direction: null,
-          isPendingConfirm: true,
-        };
+        // Vuelve a direction:null (sin isPendingConfirm) para que ambos handles sean reutilizables
+        return { ...s, tentativeCi: newCi, tentativeCo: newCo, direction: null };
       });
     }
     window.addEventListener('mouseup', handleMouseUp);
@@ -950,6 +948,23 @@ export const Bookings: React.FC = () => {
     }
   }
 
+  // Activa el modo resize mostrando los handles (sin direcci\u00f3n, no dispara mouseup)
+  function activateResize(reserva: Reserva) {
+    const todayStr = toDateKey(new Date());
+    const isPast = reserva.estado === 'check_in' || reserva.estado === 'check_out' ||
+      reserva.estado === 'cancelada' ||
+      getOnlyDate(reserva.check_in) < todayStr || getOnlyDate(reserva.check_out) < todayStr;
+    if (isPast) { showToast('No se pueden modificar reservas del pasado.', 'err'); return; }
+    setResizingState({
+      reserva,
+      direction: null,
+      tentativeCi: getOnlyDate(reserva.check_in),
+      tentativeCo: getOnlyDate(reserva.check_out),
+      hoveredDate: '',
+      isPendingConfirm: false,
+    });
+  }
+
   // \u2500\u2500 Ampliar/Reducir estilo Excel (drag handles) \u2500\u2500
   function startResize(reserva: Reserva, direction: 'top' | 'bottom') {
     const todayStr = toDateKey(new Date());
@@ -966,7 +981,15 @@ export const Bookings: React.FC = () => {
       const isSame = s?.reserva.id_reserva_hotel === reserva.id_reserva_hotel;
       const tentativeCi = isSame ? s.tentativeCi : getOnlyDate(reserva.check_in);
       const tentativeCo = isSame ? s.tentativeCo : getOnlyDate(reserva.check_out);
-      const date = direction === 'top' ? tentativeCi : tentativeCo;
+      // Para 'bottom', hoveredDate = último día (checkout - 1), no checkout
+      let date: string;
+      if (direction === 'top') {
+        date = tentativeCi;
+      } else {
+        const lastNight = new Date(tentativeCo + 'T12:00:00Z');
+        lastNight.setUTCDate(lastNight.getUTCDate() - 1);
+        date = lastNight.toISOString().split('T')[0];
+      }
       return { reserva, direction, tentativeCi, tentativeCo, hoveredDate: date, isPendingConfirm: false };
     });
   }
@@ -997,7 +1020,10 @@ export const Bookings: React.FC = () => {
       maxCiDate.setUTCDate(maxCiDate.getUTCDate() - 1);
       const maxCiStr = maxCiDate.toISOString().split('T')[0];
 
-      const newCi = hovered < maxCiStr ? hovered : maxCiStr;
+      let newCi = hovered < maxCiStr ? hovered : maxCiStr;
+      const origCi = getOnlyDate(state.reserva.check_in);
+      if (newCi < origCi) newCi = origCi;
+      
       return { newCi, newCo: coStr };
     }
   }
@@ -1413,7 +1439,7 @@ export const Bookings: React.FC = () => {
                   <tr
                     key={dayKey}
                     onMouseEnter={() => {
-                      if (resizingState && !resizingState.isPendingConfirm && resizingState.reserva.id_habitacion) {
+                      if (resizingState && resizingState.direction !== null && resizingState.reserva.id_habitacion) {
                         setResizingState(s => s ? { ...s, hoveredDate: dayKey } : null);
                       }
                     }}
@@ -1424,7 +1450,16 @@ export const Bookings: React.FC = () => {
                     </td>
                     {habitacionesFiltradas.map((hab, habIdx) => {
                       const cell = colGrid[habIdx]?.get(dayKey);
-                      if (!cell || cell.type === 'skip') return null;
+
+                      // Omitir celdas vacías que caen dentro del rowSpan extendido tentativamente
+                      if (!cell || cell.type === 'skip') {
+                        if (resizingState && hab.id_habitacion === resizingState.reserva.id_habitacion) {
+                          const origCo = getOnlyDate(resizingState.reserva.check_out);
+                          if (dayKey >= origCo && dayKey < resizingState.tentativeCo) return null;
+                        }
+                        if (!cell || cell.type === 'skip') return null;
+                      }
+
                       if (cell.type === 'start') {
                         const activeIndex = carouselTick % cell.reservas.length;
                         const r = cell.reservas[activeIndex];
@@ -1459,15 +1494,17 @@ export const Bookings: React.FC = () => {
                           }
                         };
 
+                        const effectiveRowSpan = cell.rowSpan;
+
                         return (
                           <td
                             key={hab.id_habitacion}
-                            rowSpan={cell.rowSpan}
+                            rowSpan={effectiveRowSpan}
                             className={`reserva-cell ${resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel ? 'is-resizing' : ''}`}
                             onContextMenu={e => openCtxMenu(e, r)}
                             onMouseEnter={() => { if (movingReserva && r.tipo_reserva !== 'hora') setMoveTarget({ habId: hab.id_habitacion, dayKey }); }}
                             onMouseMove={e => {
-                              if (resizingState && !resizingState.isPendingConfirm && r.tipo_reserva !== 'hora') {
+                              if (resizingState && resizingState.direction !== null && r.tipo_reserva !== 'hora') {
                                 const rect = e.currentTarget.getBoundingClientRect();
                                 const offsetY = e.clientY - rect.top;
                                 const rowIndex = Math.floor(offsetY / 48);
@@ -1482,66 +1519,69 @@ export const Bookings: React.FC = () => {
                             title={`${r.huesped} · ${getStatusLabel(status)} · ${r.tipo_reserva === 'hora' ? 'Horas' : 'Noche'} del ${dayKey} — clic derecho`}
                             style={{
                               position: 'relative',
+                              height: effectiveRowSpan * 48,
+                              boxSizing: 'border-box',
                               background: (movingReserva && moveTarget?.habId === hab.id_habitacion) ? '#dbeafe' : color + '20',
                               borderLeft: r.tipo_reserva === 'hora' ? '3px solid #a855f7' : (movingReserva && moveTarget?.habId === hab.id_habitacion) ? '2px solid #2563eb' : 'none',
                               borderRight: (movingReserva && moveTarget?.habId === hab.id_habitacion) ? '2px solid #2563eb' : 'none',
                               borderBottom: (movingReserva && moveTarget?.habId === hab.id_habitacion) ? '2px solid #2563eb' : 'none',
                               borderTop: isFirstNight ? `3px solid ${color}` : (movingReserva && moveTarget?.habId === hab.id_habitacion) ? '2px solid #2563eb' : 'none',
                               padding: '5px 8px',
-                              cursor: (resizingState && !resizingState.isPendingConfirm && r.tipo_reserva !== 'hora') ? 'ns-resize' : movingReserva ? 'crosshair' : 'context-menu',
+                              cursor: (resizingState && resizingState.direction !== null && r.tipo_reserva !== 'hora') ? 'ns-resize' : (resizingState && r.id_reserva_hotel === resizingState.reserva.id_reserva_hotel) ? 'default' : movingReserva ? 'crosshair' : 'context-menu',
                               verticalAlign: 'top',
-                              overflow: 'hidden',
+                              overflow: (resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel) ? 'visible' : 'hidden',
                               maxWidth: 0,
                               userSelect: 'none',
                               transition: 'background 0.15s, border 0.15s',
                             }}
                           >
                             {/* Handle superior — arrastra para cambiar check-in */}
-                            {resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel && r.tipo_reserva !== 'hora' && isFirstNight && (
-                              <div
-                                onMouseDown={e => { e.preventDefault(); e.stopPropagation(); startResize(r, 'top'); }}
-                                className="resize-handle"
-                                style={{
-                                  position: 'absolute', top: 0, left: 0, right: 0, height: 10,
-                                  cursor: 'n-resize', zIndex: 5,
-                                  display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-                                }}
-                              >
-                                <div style={{ width: 24, height: 4, background: color, borderBottomLeftRadius: 4, borderBottomRightRadius: 4 }} />
-                              </div>
-                            )}
+                            {resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel && r.tipo_reserva !== 'hora' && isFirstNight && (() => {
+                              const { newCi } = getResizePreview(resizingState);
+                              return (
+                                <div
+                                  onMouseDown={e => { e.preventDefault(); e.stopPropagation(); startResize(r, 'top'); }}
+                                  className="resize-handle"
+                                  style={{
+                                    position: 'absolute', top: nightsBetween(getOnlyDate(r.check_in), newCi) * 48, left: 0, right: 0, height: 10,
+                                    cursor: 'n-resize', zIndex: 5,
+                                    display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+                                  }}
+                                >
+                                  <div style={{ width: 24, height: 4, background: color, borderBottomLeftRadius: 4, borderBottomRightRadius: 4 }} />
+                                </div>
+                              );
+                            })()}
 
                             {/* Resize preview mask */}
-                            {resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel && r.tipo_reserva !== 'hora' && (() => {
+                            {resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel && r.tipo_reserva !== 'hora' && isFirstNight && (() => {
                               const { newCi, newCo } = getResizePreview(resizingState);
                               const origCi = getOnlyDate(r.check_in);
                               const origCo = getOnlyDate(r.check_out);
-                              const totalNights = nightsBetween(origCi, origCo) || 1;
                               const masks = [];
+                              const ROW_H = 48;
 
-                              if (newCo < origCo && isLastNight) {
-                                const keptDays = nightsBetween(origCi, newCo);
-                                const removePct = Math.max(0, 100 - (keptDays / totalNights) * 100);
+                              if (newCo < origCo) {
+                                const removedNights = nightsBetween(newCo, origCo);
                                 masks.push(
                                   <div key="bottom-mask" style={{
-                                    position: 'absolute', bottom: 0, left: 0, right: 0,
-                                    height: `${removePct}%`,
-                                    background: 'repeating-linear-gradient(45deg,#94a3b8 0,#94a3b8 3px,transparent 3px,transparent 8px)',
-                                    opacity: 0.55, pointerEvents: 'none',
-                                    borderTop: '2px dashed #64748b',
+                                    position: 'absolute', top: nightsBetween(origCi, newCo) * ROW_H, left: 0, right: 0, height: removedNights * ROW_H,
+                                    background: 'repeating-linear-gradient(45deg,#fca5a5 0,#fca5a5 4px,#fee2e2 4px,#fee2e2 10px)',
+                                    opacity: 0.85, pointerEvents: 'none',
+                                    borderTop: '2px dashed #ef4444',
+                                    zIndex: 4,
                                   }} />
                                 );
                               }
-                              if (newCi > origCi && isFirstNight) {
-                                const removedDays = nightsBetween(origCi, newCi);
-                                const removePct = (removedDays / totalNights) * 100;
+                              if (newCi > origCi) {
+                                const removedNights = nightsBetween(origCi, newCi);
                                 masks.push(
                                   <div key="top-mask" style={{
-                                    position: 'absolute', top: 0, left: 0, right: 0,
-                                    height: `${removePct}%`,
-                                    background: 'repeating-linear-gradient(45deg,#94a3b8 0,#94a3b8 3px,transparent 3px,transparent 8px)',
-                                    opacity: 0.55, pointerEvents: 'none',
-                                    borderBottom: '2px dashed #64748b',
+                                    position: 'absolute', top: 0, left: 0, right: 0, height: removedNights * ROW_H,
+                                    background: 'repeating-linear-gradient(45deg,#fca5a5 0,#fca5a5 4px,#fee2e2 4px,#fee2e2 10px)',
+                                    opacity: 0.85, pointerEvents: 'none',
+                                    borderBottom: '2px dashed #ef4444',
+                                    zIndex: 4,
                                   }} />
                                 );
                               }
@@ -1596,19 +1636,22 @@ export const Bookings: React.FC = () => {
                             )}
 
                             {/* Handle inferior — arrastra para cambiar check-out */}
-                            {resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel && r.tipo_reserva !== 'hora' && isLastNight && (
-                              <div
-                                onMouseDown={e => { e.preventDefault(); e.stopPropagation(); startResize(r, 'bottom'); }}
-                                className="resize-handle"
-                                style={{
-                                  position: 'absolute', bottom: 0, left: 0, right: 0, height: 10,
-                                  cursor: 's-resize', zIndex: 5,
-                                  display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-                                }}
-                              >
-                                <div style={{ width: 24, height: 4, background: color, borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
-                              </div>
-                            )}
+                            {resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel && r.tipo_reserva !== 'hora' && isFirstNight && (() => {
+                              const { newCo } = getResizePreview(resizingState);
+                              return (
+                                <div
+                                  onMouseDown={e => { e.preventDefault(); e.stopPropagation(); startResize(r, 'bottom'); }}
+                                  className="resize-handle"
+                                  style={{
+                                    position: 'absolute', top: nightsBetween(getOnlyDate(r.check_in), newCo) * 48 - 10, left: 0, right: 0, height: 10,
+                                    cursor: 's-resize', zIndex: 5,
+                                    display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+                                  }}
+                                >
+                                  <div style={{ width: 24, height: 4, background: color, borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
+                                </div>
+                              );
+                            })()}
                           </td>
                         );
                       }
@@ -1752,7 +1795,7 @@ export const Bookings: React.FC = () => {
                 ctxMenu.reserva.estado === 'check_in' &&
                 { icon: '✅', label: 'Marcar como Check-out', action: () => { closeCtxMenu(); void updateEstado(ctxMenu!.reserva.id_reserva_hotel, 'check_out'); } },
                 { icon: '✏️', label: 'Editar', action: () => { closeCtxMenu(); openEditReserva(ctxMenu!.reserva); } },
-                !isPast && { icon: '↕️', label: 'Ampliar / Reducir noches', action: () => { closeCtxMenu(); startResize(ctxMenu!.reserva, 'bottom'); } },
+                !isPast && { icon: '↕️', label: 'Ampliar / Reducir noches', action: () => { closeCtxMenu(); activateResize(ctxMenu!.reserva); } },
                 !isPast && { icon: '🚚', label: 'Mover a otra habitación', action: () => startMoving(ctxMenu!.reserva) },
                 nightsBetween(ctxMenu.reserva.check_in, ctxMenu.reserva.check_out) > 1 &&
                 ctxMenu.reserva.estado !== 'cancelada' &&
@@ -1821,7 +1864,7 @@ export const Bookings: React.FC = () => {
         const noches = nightsBetween(newCi, newCo);
         const fmt = (d: string) => new Date(d + 'T12:00:00Z').toLocaleDateString('es-HN', { day: 'numeric', month: 'short' });
 
-        if (resizingState.isPendingConfirm) {
+        if (resizingState.direction === null) {
           return (
             <div style={{
               position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',

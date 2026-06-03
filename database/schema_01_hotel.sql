@@ -16,6 +16,10 @@ CREATE TABLE IF NOT EXISTS public.hoteles (
                        CHECK (estado IN ('activo','inactivo','mantenimiento')),
   enlace_google_maps text,
   slug               varchar     UNIQUE,
+  logo_url           text,
+  color_primario     varchar(7)  DEFAULT '#1c1917',
+  color_secundario   varchar(7),
+  redes_sociales     jsonb       DEFAULT '{}'::jsonb,
   created_at         timestamptz NOT NULL DEFAULT now(),
   updated_at         timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT hoteles_pkey PRIMARY KEY (id_hotel)
@@ -345,7 +349,7 @@ CREATE TABLE IF NOT EXISTS public.chat_channels (
   channel_type varchar     DEFAULT 'general'
                  CHECK (channel_type IN ('general','operativo','cliente','privado')),
   id_huesped   uuid        REFERENCES public.huespedes(id_huesped),
-  created_by   uuid        NOT NULL REFERENCES auth.users(id),
+  created_by   uuid        REFERENCES auth.users(id),
   metadata     jsonb       DEFAULT '{}',
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz NOT NULL DEFAULT now(),
@@ -355,7 +359,7 @@ CREATE TABLE IF NOT EXISTS public.chat_channels (
 CREATE TABLE IF NOT EXISTS public.chat_messages (
   id            uuid        NOT NULL DEFAULT gen_random_uuid(),
   channel_id    uuid        NOT NULL REFERENCES public.chat_channels(id) ON DELETE CASCADE,
-  sender_id     uuid        NOT NULL REFERENCES auth.users(id),
+  sender_id     uuid        REFERENCES auth.users(id),
   sender_name   varchar     NOT NULL,
   sender_avatar text,
   content       text        NOT NULL CHECK (length(content) <= 4000),
@@ -467,18 +471,24 @@ ALTER TABLE public.chat_messages         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_read_status      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_references       ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "hotel_select" ON public.hoteles FOR SELECT USING (public.tiene_acceso_hotel(id_hotel));
+CREATE POLICY "hotel_select"        ON public.hoteles FOR SELECT USING (public.tiene_acceso_hotel(id_hotel));
+CREATE POLICY "hotel_public_select" ON public.hoteles FOR SELECT TO anon, authenticated USING (estado = 'activo');
 CREATE POLICY "hotel_insert" ON public.hoteles FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.business_modules bm WHERE bm.id_module = hoteles.id_module AND bm.owner_id = auth.uid()));
 CREATE POLICY "hotel_update" ON public.hoteles FOR UPDATE USING (EXISTS (SELECT 1 FROM public.business_modules bm WHERE bm.id_module = hoteles.id_module AND bm.owner_id = auth.uid()));
 CREATE POLICY "hotel_delete" ON public.hoteles FOR DELETE USING (EXISTS (SELECT 1 FROM public.business_modules bm WHERE bm.id_module = hoteles.id_module AND bm.owner_id = auth.uid()));
 
-CREATE POLICY "config_all"    ON public.configuracion_hotelera FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
-CREATE POLICY "tipohab_all"   ON public.tipos_habitacion       FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
+CREATE POLICY "config_all"          ON public.configuracion_hotelera FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
+CREATE POLICY "config_public_select" ON public.configuracion_hotelera FOR SELECT TO anon, authenticated USING (EXISTS (SELECT 1 FROM public.hoteles h WHERE h.id_hotel = configuracion_hotelera.id_hotel AND h.estado = 'activo'));
+CREATE POLICY "tipohab_all"         ON public.tipos_habitacion FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
+CREATE POLICY "tipohab_public_select" ON public.tipos_habitacion FOR SELECT TO anon, authenticated USING (EXISTS (SELECT 1 FROM public.hoteles h WHERE h.id_hotel = tipos_habitacion.id_hotel AND h.estado = 'activo'));
 CREATE POLICY "cattarifa_all" ON public.categorias_tarifa      FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
 CREATE POLICY "tar_all" ON public.tarifas FOR ALL USING (EXISTS (SELECT 1 FROM public.tipos_habitacion th WHERE th.id_tipo_habitacion = tarifas.id_tipo_habitacion AND public.tiene_acceso_hotel(th.id_hotel)));
-CREATE POLICY "hab_all"      ON public.habitaciones         FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
+CREATE POLICY "hab_all"      ON public.habitaciones FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
+CREATE POLICY "hab_public_select" ON public.habitaciones FOR SELECT TO anon, authenticated USING (EXISTS (SELECT 1 FROM public.hoteles h WHERE h.id_hotel = habitaciones.id_hotel AND h.estado = 'activo'));
 CREATE POLICY "habcomod_all" ON public.habitacion_comodidades FOR ALL USING (EXISTS (SELECT 1 FROM public.habitaciones h WHERE h.id_habitacion = habitacion_comodidades.id_habitacion AND public.tiene_acceso_hotel(h.id_hotel)));
-CREATE POLICY "habimg_all"   ON public.habitacion_imagenes   FOR ALL USING (EXISTS (SELECT 1 FROM public.habitaciones h WHERE h.id_habitacion = habitacion_imagenes.id_habitacion AND public.tiene_acceso_hotel(h.id_hotel)));
+CREATE POLICY "habcomod_public_select" ON public.habitacion_comodidades FOR SELECT TO anon, authenticated USING (EXISTS (SELECT 1 FROM public.habitaciones hab JOIN public.hoteles h ON h.id_hotel = hab.id_hotel WHERE hab.id_habitacion = habitacion_comodidades.id_habitacion AND h.estado = 'activo'));
+CREATE POLICY "habimg_all"   ON public.habitacion_imagenes FOR ALL USING (EXISTS (SELECT 1 FROM public.habitaciones h WHERE h.id_habitacion = habitacion_imagenes.id_habitacion AND public.tiene_acceso_hotel(h.id_hotel)));
+CREATE POLICY "habimg_public_select" ON public.habitacion_imagenes FOR SELECT TO anon, authenticated USING (EXISTS (SELECT 1 FROM public.habitaciones hab JOIN public.hoteles h ON h.id_hotel = hab.id_hotel WHERE hab.id_habitacion = habitacion_imagenes.id_habitacion AND h.estado = 'activo'));
 CREATE POLICY "comod_all"    ON public.comodidades_hotel      FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
 CREATE POLICY "srv_all"      ON public.servicios_adicionales  FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
 CREATE POLICY "bloq_all" ON public.bloqueos_habitacion FOR ALL USING (EXISTS (SELECT 1 FROM public.habitaciones h WHERE h.id_habitacion = bloqueos_habitacion.id_habitacion AND public.tiene_acceso_hotel(h.id_hotel)));

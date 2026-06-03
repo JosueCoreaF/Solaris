@@ -9,12 +9,22 @@ let io: SocketIOServer;
 export function setIO(socketServer: SocketIOServer) { io = socketServer; }
 export function getIO() { return io; }
 
+import fs from 'fs';
+
 // Obtiene el UUID del usuario autenticado desde el JWT
 async function getUserId(req: Request): Promise<string | null> {
   const token = extractToken(req);
-  if (!token) return null;
-  const { data: { user } } = await supabaseAdmin.auth.getUser(token);
-  return user?.id ?? null;
+  if (!token) {
+    fs.appendFileSync('auth_debug.log', `[${new Date().toISOString()}] No token\n`);
+    return null;
+  }
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  if (error) {
+    fs.appendFileSync('auth_debug.log', `[${new Date().toISOString()}] getUser error: ${error.message} - token: ${token.slice(0, 15)}...\n`);
+  } else {
+    fs.appendFileSync('auth_debug.log', `[${new Date().toISOString()}] getUser OK: ${data?.user?.id}\n`);
+  }
+  return data?.user?.id ?? null;
 }
 
 // Tipos de canal y entidad válidos según el schema

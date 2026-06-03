@@ -6,8 +6,9 @@ const adminDb = () => supabaseAdmin ?? supabase;
 /** Extrae el Bearer token del header Authorization */
 export function extractToken(req: Request): string | null {
   const h = req.headers.authorization;
-  if (!h?.startsWith('Bearer ')) return null;
-  return h.slice(7);
+  if (!h) return null;
+  const match = h.match(/^bearer\s+(.+)$/i);
+  return match ? match[1] : null;
 }
 
 /** Decodifica email y rol del JWT sin re-verificar (solo para logging) */

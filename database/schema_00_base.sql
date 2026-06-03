@@ -55,6 +55,56 @@ CREATE TABLE IF NOT EXISTS public.suscripciones_owner (
   CONSTRAINT suscripciones_owner_pkey PRIMARY KEY (id_suscripcion)
 );
 
+-- ── Métodos de Pago ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.owner_metodos_pago (
+  id_metodo     uuid        NOT NULL DEFAULT gen_random_uuid(),
+  owner_id      uuid        NOT NULL REFERENCES public.owners(id_owner) ON DELETE CASCADE,
+  brand         varchar     NOT NULL,
+  last4         varchar     NOT NULL,
+  is_default    boolean     NOT NULL DEFAULT false,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT owner_metodos_pago_pkey PRIMARY KEY (id_metodo)
+);
+
+-- ── Historial de Pagos ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.historial_pagos (
+  id_pago       uuid        NOT NULL DEFAULT gen_random_uuid(),
+  owner_id      uuid        NOT NULL REFERENCES public.owners(id_owner) ON DELETE CASCADE,
+  id_suscripcion uuid       REFERENCES public.suscripciones_owner(id_suscripcion),
+  concepto      varchar     NOT NULL,
+  metodo_pago   varchar     NOT NULL,
+  monto         numeric     NOT NULL DEFAULT 0.00,
+  estado        varchar     NOT NULL DEFAULT 'completado' CHECK (estado IN ('completado','fallido','pendiente')),
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT historial_pagos_pkey PRIMARY KEY (id_pago)
+);
+
+-- ── Preferencias de Usuario ───────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.preferencias_usuario (
+  id           uuid        NOT NULL DEFAULT gen_random_uuid(),
+  usuario_id   uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  tema         varchar     NOT NULL DEFAULT 'claro' CHECK (tema IN ('claro','oscuro')),
+  idioma       varchar     NOT NULL DEFAULT 'es' CHECK (idioma IN ('es','en')),
+  notificaciones_activas boolean NOT NULL DEFAULT true,
+  login_automatico       boolean NOT NULL DEFAULT false,
+  recordar_dispositivo   boolean NOT NULL DEFAULT false,
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT preferencias_usuario_pkey PRIMARY KEY (id),
+  CONSTRAINT preferencias_usuario_uid_unique UNIQUE (usuario_id)
+);
+
+-- ── Bitácora de Actividad ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.bitacora_actividad (
+  id              uuid        NOT NULL DEFAULT gen_random_uuid(),
+  usuario_id      uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  accion          varchar     NOT NULL,
+  tabla_afectada  varchar     NOT NULL DEFAULT '',
+  valores_antiguos jsonb,
+  valores_nuevos   jsonb,
+  timestamp       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT bitacora_actividad_pkey PRIMARY KEY (id)
+);
+
 -- ── Business Modules ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.business_modules (
   id_module     uuid        NOT NULL DEFAULT gen_random_uuid(),
@@ -210,7 +260,7 @@ BEGIN
     split_part(v_email,'@',1)
   );
   INSERT INTO public.owners (id_owner, nombre_empresa, email_contacto, estado)
-  VALUES (gen_random_uuid(), v_nombre, v_email, 'activo')
+  VALUES (NEW.id, v_nombre, v_email, 'activo')
   RETURNING id_owner INTO v_owner_id;
   INSERT INTO public.usuarios_roles (owner_id, user_id, rol, estado)
   VALUES (v_owner_id, NEW.id, 'ADMIN', 'activo');

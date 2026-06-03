@@ -106,8 +106,14 @@ router.get('/history', async (req, res) => {
     const owner_id = await resolveOwnerId(user.id);
     if (!owner_id) return res.status(400).json({ error: 'Owner no encontrado' });
 
-    // historial_pagos no existe en el schema actual — retorna vacío
-    res.json([]);
+    const { data: historial, error } = await supabaseAdmin
+      .from('historial_pagos')
+      .select('*')
+      .eq('owner_id', owner_id)
+      .order('created_at', { ascending: false });
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(historial || []);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -147,6 +153,71 @@ router.get('/status', async (req, res) => {
     }
 
     res.json(suscripciones || []);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+// GET /api/hub/billing/payment-methods
+router.get('/payment-methods', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+
+    const owner_id = await resolveOwnerId(user.id);
+    if (!owner_id) return res.status(400).json({ error: 'Owner no encontrado' });
+
+    const { data, error } = await supabaseAdmin
+      .from('owner_metodos_pago')
+      .select('*')
+      .eq('owner_id', owner_id)
+      .order('is_default', { ascending: false });
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/hub/billing/payment-methods
+router.post('/payment-methods', express.json(), async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+
+    const owner_id = await resolveOwnerId(user.id);
+    if (!owner_id) return res.status(400).json({ error: 'Owner no encontrado' });
+
+    const { brand, last4 } = req.body;
+    if (!brand || !last4) return res.status(400).json({ error: 'Faltan datos de la tarjeta simulada' });
+
+    // Desmarcar otros como default
+    await supabaseAdmin
+      .from('owner_metodos_pago')
+      .update({ is_default: false })
+      .eq('owner_id', owner_id);
+
+    const { data, error } = await supabaseAdmin
+      .from('owner_metodos_pago')
+      .insert({
+        owner_id,
+        brand,
+        last4,
+        is_default: true
+      })
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    // Activar suscripciones impagas
+    await supabaseAdmin
+      .from('suscripciones_owner')
+      .update({ estado: 'activa' })
+      .eq('owner_id', owner_id)
+      .eq('estado', 'impaga');
+
+    res.json({ success: true, paymentMethod: data });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -301,7 +372,23 @@ router.post('/upgrade', express.json(), async (req, res) => {
     }
 
     if (!updateErr) {
-      // historial_pagos no existe en schema actual — omitido
+      // Intentar obtener el metodo principal (simulado) para el historial
+      const { data: pmData } = await supabaseAdmin
+        .from('owner_metodos_pago')
+        .select('brand, last4')
+        .eq('owner_id', owner_id)
+        .eq('is_default', true)
+        .maybeSingle();
+
+      const metodoStr = pmData ? `${pmData.brand} ****${pmData.last4}` : 'Stripe Checkout';
+
+      await supabaseAdmin.from('historial_pagos').insert({
+        owner_id,
+        concepto: `Suscripción Plan ${plan_id} (${tipo_modulo})`,
+        metodo_pago: metodoStr,
+        monto: monto,
+        estado: 'completado'
+      });
     }
 
     if (updateErr) {
@@ -354,7 +441,23 @@ router.post('/addon', express.json(), async (req, res) => {
         });
     }
 
-    // historial_pagos no existe en schema actual — omitido
+    // Intentar obtener el metodo principal (simulado) para el historial
+    const { data: pmData } = await supabaseAdmin
+      .from('owner_metodos_pago')
+      .select('brand, last4')
+      .eq('owner_id', owner_id)
+      .eq('is_default', true)
+      .maybeSingle();
+
+    const metodoStr = pmData ? `${pmData.brand} ****${pmData.last4}` : 'Stripe Checkout';
+
+    await supabaseAdmin.from('historial_pagos').insert({
+      owner_id,
+      concepto: `Cupo Extra de Negocio (${tipo_modulo})`,
+      metodo_pago: metodoStr,
+      monto: montoAddon,
+      estado: 'completado'
+    });
 
     res.json({ success: true, negocios_extra: currentExtras + 1 });
   } catch (err: any) {

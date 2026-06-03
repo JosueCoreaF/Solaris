@@ -111,10 +111,11 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     await supabase.auth.signOut();
   };
 
-  const handleEnterBusiness = (moduleType: string, referenceId: string) => {
+  const handleEnterBusiness = (moduleType: string, referenceId: string, hotelId?: string | null) => {
     const normalized = moduleType?.toLowerCase?.() ?? 'hotel';
     const base = MODULE_URLS[normalized] || MODULE_URLS.hotel;
     const params = new URLSearchParams({ business_id: referenceId });
+    if (hotelId) params.set('hotel_id', hotelId);
     if (session) {
       params.set('access_token', session.access_token);
       params.set('refresh_token', session.refresh_token);
@@ -171,7 +172,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                   modules.map(mod => (
                     <div key={mod.id} className="flex items-center gap-1">
                       <button
-                        onClick={() => handleEnterBusiness(mod.type, mod.reference_id)}
+                        onClick={() => handleEnterBusiness(mod.type, mod.reference_id, mod.hotel_id)}
                         className="flex items-center justify-between flex-1 px-4 py-2.5 hover:bg-slate-800 hover:text-white rounded-xl transition-all text-left text-sm text-slate-400"
                       >
                         <div className="flex items-center gap-3">
@@ -190,7 +191,10 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                       </button>
                       {mod.type === 'hotel' && (
                         <button
-                          onClick={() => window.open(mod.slug ? `${PORTAL_BASE}/${mod.slug}` : PORTAL_BASE, '_blank')}
+                          onClick={() => {
+                            const key = mod.slug || mod.hotel_id;
+                            window.open(key ? `${PORTAL_BASE}/${key}` : PORTAL_BASE, '_blank');
+                          }}
                           className="p-2 rounded-xl hover:bg-slate-800 text-slate-600 hover:text-emerald-400 transition-all shrink-0"
                           title="Ver portal público"
                         >
@@ -211,7 +215,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
               <p className="px-4 text-[11px] font-semibold text-slate-500 uppercase tracking-widest mb-1">Administración</p>
               <nav className="space-y-0.5">
                 {[
-                  { label: 'Portal de Reservas', icon: <Globe size={17} />, path: '__portal__', match: [] },
+                  { label: 'Portal de Reservas', icon: <Globe size={17} />, path: '__portal__', match: [], portalKey: (() => { const m = modules.find((m: any) => m.type === 'hotel'); return m?.slug || m?.hotel_id || null; })() },
                   { label: 'Facturación y Planes', icon: <CreditCard size={17} />, path: '/billing', match: ['/billing', '/upgrade'] },
                   { label: 'Notificaciones', icon: <Bell size={17} />, path: '/notifications', match: ['/notifications'], badge: urgentNotifCount },
                   { label: 'Chat Operativo', icon: <MessageSquare size={17} />, path: '/chat', match: ['/chat'] },
@@ -223,7 +227,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                     <button
                       key={item.label}
                       onClick={() => {
-                        if (item.path === '__portal__') window.open(PORTAL_BASE, '_blank');
+                        if (item.path === '__portal__') window.open((item as any).portalKey ? `${PORTAL_BASE}/${(item as any).portalKey}` : PORTAL_BASE, '_blank');
                         else if (item.path !== '#') navigate(item.path);
                       }}
                       className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-all text-left text-sm font-medium ${

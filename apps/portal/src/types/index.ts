@@ -8,6 +8,10 @@ export interface Hotel {
   correo: string | null;
   estrellas: number;
   mapsUrl: string | null;
+  logoUrl?: string | null;
+  colorPrimario?: string | null;
+  colorSecundario?: string | null;
+  redesSociales?: Record<string, string> | null;
   moneda: string;
   tipoCambio: number;
   tasaIsv: number;

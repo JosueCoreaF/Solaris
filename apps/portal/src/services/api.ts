@@ -47,3 +47,32 @@ export async function crearSolicitudReserva(payload: Record<string, any>) {
   if (!res.ok) throw new Error(data.error || 'Error al crear reserva.');
   return data;
 }
+
+export async function initGuestChat(nombre: string, correo: string | undefined, telefono: string | undefined, hotelId: string) {
+  const res = await fetch(`${BASE}/chat/init`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hotel-id': hotelId },
+    body: JSON.stringify({ nombre, correo, telefono }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Error al conectar con recepción.');
+  return body as { channelId: string; guestId: string; messages: any[] };
+}
+
+export async function sendGuestMessage(channelId: string, guestId: string, nombre: string, content: string) {
+  const res = await fetch(`${BASE}/chat/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channelId, guestId, nombre, content }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Error al enviar mensaje.');
+  return body;
+}
+
+export async function fetchGuestMessages(channelId: string, after?: string) {
+  const params = after ? `?after=${encodeURIComponent(after)}` : '';
+  const res = await fetch(`${BASE}/chat/messages/${channelId}${params}`);
+  if (!res.ok) throw new Error('Error al obtener mensajes.');
+  return res.json() as Promise<any[]>;
+}

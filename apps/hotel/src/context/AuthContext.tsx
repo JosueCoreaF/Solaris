@@ -21,48 +21,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const handleUrlAuth = async () => {
       const params = new URLSearchParams(window.location.search);
-      const accessToken = params.get('access_token');
+      const accessToken  = params.get('access_token');
       const refreshToken = params.get('refresh_token');
-      const hotelId = params.get('hotel_id') || params.get('business_id');
+      const hotelId      = params.get('hotel_id') || params.get('business_id');
 
-      if (accessToken && refreshToken) {
-        setLoading(true);
-        try {
-          const { data, error } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken
-          });
-          if (error) {
-            console.error('Error restoring session from URL:', error);
-          } else if (data.session) {
-            setSession(data.session);
-            setUser(data.session.user);
-          }
-        } catch (err) {
-          console.error('Failed to set session from URL:', err);
-        }
-      }
-
+      // Guardar hotel_id antes de limpiar la URL
       if (hotelId) {
         localStorage.setItem('active_hotel_id', hotelId);
       }
 
-      // Limpiar URL si procesamos tokens
+      // Limpiar tokens de la URL
       if (accessToken || refreshToken || hotelId) {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
 
-      // Si no restauramos tokens o ya terminamos, cargar sesión normal si es necesario
-      if (!accessToken) {
+      // Si vienen tokens explícitos (desde hub), establecer sesión
+      if (accessToken && refreshToken) {
         try {
-          const { data } = await supabase.auth.getSession();
-          setSession(data?.session ?? null);
-          setUser(data?.session?.user ?? null);
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (!error && data.session) {
+            setSession(data.session);
+            setUser(data.session.user);
+            setLoading(false);
+            return;
+          }
         } catch (err) {
-          console.error('getSession error:', err);
+          console.error('[AuthContext] setSession error:', err);
         }
       }
-      
+
+      // Fallback: leer sesión desde localStorage (misma sesión que hub)
+      try {
+        const { data } = await supabase.auth.getSession();
+        setSession(data?.session ?? null);
+        setUser(data?.session?.user ?? null);
+      } catch (err) {
+        console.error('[AuthContext] getSession error:', err);
+      }
+
       setLoading(false);
     };
 

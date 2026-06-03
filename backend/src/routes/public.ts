@@ -32,18 +32,36 @@ async function getOwnerId(hotelId?: any): Promise<string> {
   return ownerId;
 }
 
-// GET /api/public/hotel/:slug — datos públicos de un hotel por su slug
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// GET /api/public/hotel/:slug — datos públicos de un hotel por slug o id_hotel (UUID)
 router.get('/hotel/:slug', async (req: Request, res: Response) => {
   try {
     const { slug } = req.params;
 
-    // Query 1: hotel básico (sin nested select para evitar problemas de FK en PostgREST)
-    const { data: hotel, error: hotelErr } = await db()
-      .from('hoteles')
-      .select('id_hotel, nombre_hotel, slug, ciudad, direccion, telefono, correo_contacto, estrellas, enlace_google_maps, estado')
-      .ilike('slug', slug)          // ilike para búsqueda case-insensitive
-      .eq('estado', 'activo')
-      .maybeSingle();
+    const select = 'id_hotel, nombre_hotel, slug, ciudad, direccion, telefono, correo_contacto, estrellas, enlace_google_maps, estado, logo_url, color_primario, color_secundario, redes_sociales';
+
+    // Si el parámetro es un UUID, busca directamente por id_hotel
+    let q = db().from('hoteles').select(select).eq('estado', 'activo');
+    if (UUID_RE.test(slug)) {
+      q = q.eq('id_hotel', slug);
+    } else {
+      q = q.ilike('slug', slug);
+    }
+
+    let { data: hotel, error: hotelErr } = await q.maybeSingle();
+
+    // Si no encontró por slug, intenta por id_hotel como último recurso
+    if (!hotel && !hotelErr && !UUID_RE.test(slug)) {
+      const fallback = await db()
+        .from('hoteles')
+        .select(select)
+        .eq('id_hotel', slug)
+        .eq('estado', 'activo')
+        .maybeSingle();
+      hotel = fallback.data;
+      hotelErr = fallback.error;
+    }
 
     if (hotelErr) {
       console.error('[portal/hotel/:slug] error hoteles:', hotelErr.message);
@@ -71,6 +89,10 @@ router.get('/hotel/:slug', async (req: Request, res: Response) => {
       correo:             hotel.correo_contacto,
       estrellas:          hotel.estrellas ?? 3,
       mapsUrl:            hotel.enlace_google_maps,
+      logoUrl:            hotel.logo_url,
+      colorPrimario:      hotel.color_primario,
+      colorSecundario:    hotel.color_secundario,
+      redesSociales:      hotel.redes_sociales,
       moneda:             config?.moneda             ?? 'HNL',
       tipoCambio:         Number(config?.tipo_cambio_base    ?? 26.58),
       tasaIsv:            Number(config?.porcentaje_impuesto ?? 0.15),
@@ -626,7 +648,6 @@ router.post('/chat/init', async (req: Request, res: Response) => {
         id_hotel: chatHotelId,
         name: channelName,
         channel_type: 'cliente',
-        created_by: huespedId || 'portal-web',
         id_huesped: huespedId,
         metadata: {
           email: correo,
@@ -716,13 +737,12 @@ router.post('/chat/send', async (req: Request, res: Response) => {
       msgOwnerId = chanData?.owner_id || await getOwnerId();
     }
 
-    // Insertar el mensaje
+    // Insertar el mensaje (sender_id = null para clientes del portal, no tienen auth.users)
     const { data: messageData, error: msgError } = await supabaseAdmin
       .from('chat_messages')
       .insert({
-        ...(isMultiTenant && msgOwnerId ? { owner_id: msgOwnerId } : {}),
         channel_id: channelId,
-        sender_id: guestId || 'guest',
+        sender_id: null,
         sender_name: nombre || 'Huésped Web',
         content: content,
         message_type: 'text'
@@ -734,7 +754,7 @@ router.post('/chat/send', async (req: Request, res: Response) => {
 
     // Emitir socket event para notificar en tiempo real al panel operativo
     const io = getIO();
-    if (io) {
+    if (io && messageData) {
       io.to(`channel:${channelId}`).emit('new_message', messageData);
       io.emit('unread_update', { channelId });
     }
@@ -824,7 +844,7 @@ async function handleBotResponse(channelId: string, content: string) {
         .insert({
           ...(isMultiTenant && botOwnerId ? { owner_id: botOwnerId } : {}),
           channel_id: channelId,
-          sender_id: 'bot:concierge',
+          sender_id: null,
           sender_name: 'Concierge Bot',
           content: botResponse,
           message_type: 'text'
@@ -912,7 +932,7 @@ async function handleBotResponse(channelId: string, content: string) {
       .limit(10);
 
     const formattedHistory = (history || []).reverse().map(msg => ({
-      role: msg.sender_id.startsWith('bot') ? 'model' : 'user',
+      role: msg.sender_name === 'Concierge Bot' ? 'model' : 'user',
       parts: [{ text: msg.content }]
     }));
 

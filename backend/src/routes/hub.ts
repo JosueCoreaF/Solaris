@@ -247,8 +247,6 @@ router.get('/dashboard-summary', async (req, res) => {
     if (ownerError) return res.status(400).json({ error: ownerError.message });
     if (ownerIds.length === 0) return res.json({ needsOwnerSetup: true });
 
-    const owner_id = ownerIds[0];
-
     // Módulos activos
     const { data: modules, error: modulesErr } = await db
       .from('business_modules')
@@ -258,8 +256,9 @@ router.get('/dashboard-summary', async (req, res) => {
 
     if (modulesErr) return res.status(400).json({ error: modulesErr.message });
 
-    // Hoteles activos via business_modules (sin owner_id directo en hoteles)
     const moduleIds = (modules || []).map((m: any) => m.id_module);
+
+    // ── HOTELES ──
     let hoteles: any[] = [];
     if (moduleIds.length > 0) {
       const { data: h } = await db
@@ -270,66 +269,248 @@ router.get('/dashboard-summary', async (req, res) => {
       hoteles = h || [];
     }
 
-    // Mapa de slug por id_module para enriquecer los módulos
-    const slugByModule: Record<string, string> = {};
-    hoteles.forEach((h: any) => { if (h.id_module && h.slug) slugByModule[h.id_module] = h.slug; });
-
-    const moduleSet = new Set((modules || []).map((m: any) => m.id_module));
-    const combinedModules = [
-      ...(modules || []).map((m: any) => ({
-        id: m.id_module,
-        type: m.tipo_modulo?.toLowerCase() ?? 'hotel',
-        reference_id: m.id_module,
-        is_active: m.estado === 'activo',
-        name: m.nombre_modulo,
-        slug: slugByModule[m.id_module] ?? null,
-      })),
-      ...hoteles
-        .filter((h: any) => !moduleSet.has(h.id_module))
-        .map((h: any) => ({
-          id: h.id_hotel,
-          type: 'hotel',
-          reference_id: h.id_module || h.id_hotel,
-          is_active: h.estado === 'activo',
-          name: h.nombre_hotel,
-          slug: h.slug ?? null,
-        })),
-    ];
-
-    // Reservas del mes — filtrar por hotel IDs (sin owner_id en reservas_hotel)
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
-
-    let reservas: any[] = [];
-    const allHotelIds = [...new Set([...hotelIds, ...hoteles.map((h: any) => h.id_hotel)])];
-    if (allHotelIds.length > 0) {
-      const { data: r } = await db
-        .from('reservas_hotel')
-        .select('id_hotel, total_reserva, estado')
-        .in('id_hotel', allHotelIds)
-        .gte('created_at', startOfMonth.toISOString());
-      reservas = r || [];
+    const toSlug = (s: string) =>
+      s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    for (const hotel of hoteles) {
+      if (!hotel.slug) {
+        const base = toSlug(hotel.nombre_hotel) || `hotel-${hotel.id_hotel.slice(0, 8)}`;
+        let candidato = base;
+        let intento = 1;
+        while (true) {
+          const { data: existing } = await db.from('hoteles').select('id_hotel').eq('slug', candidato).maybeSingle();
+          if (!existing) break;
+          intento++;
+          candidato = `${base}-${intento}`;
+        }
+        await db.from('hoteles').update({ slug: candidato }).eq('id_hotel', hotel.id_hotel);
+        hotel.slug = candidato;
+      }
     }
 
-    const hotelStats = reservas.reduce((acc: any, r: any) => {
-      const hid = r.id_hotel;
-      if (!acc[hid]) acc[hid] = { ingresos: 0, ocupacion: 0, total_reservas: 0 };
-      acc[hid].total_reservas += 1;
-      if (['confirmada', 'check_in', 'check_out'].includes(r.estado)) {
-        acc[hid].ingresos  += Number(r.total_reserva || 0);
-        acc[hid].ocupacion += 1;
+    // ── GIMNASIOS ──
+    let gimnasios: any[] = [];
+    if (moduleIds.length > 0) {
+      const { data: g } = await db
+        .from('gimnasios')
+        .select('id_gimnasio, nombre_gimnasio, estado, id_module')
+        .in('id_module', moduleIds)
+        .eq('estado', 'activo');
+      gimnasios = g || [];
+    }
+
+    // ── RESTAURANTES ──
+    let restaurantes: any[] = [];
+    if (moduleIds.length > 0) {
+      const { data: r } = await db
+        .from('restaurante')
+        .select('id_restaurante, nombre_restaurante, estado, id_module')
+        .in('id_module', moduleIds)
+        .eq('estado', 'activo');
+      restaurantes = r || [];
+    }
+
+    // Mapas para encontrar el module_id desde el ID específico
+    const moduleIdByHotel: Record<string, string> = {};
+    const hotelIdByModule: Record<string, string> = {};
+    const slugByModule: Record<string, string> = {};
+    hoteles.forEach((h: any) => { 
+      if (h.id_module) {
+        moduleIdByHotel[h.id_hotel] = h.id_module;
+        hotelIdByModule[h.id_module] = h.id_hotel;
+        slugByModule[h.id_module] = h.slug;
       }
-      return acc;
-    }, {});
+    });
+
+    const moduleIdByGym: Record<string, string> = {};
+    gimnasios.forEach((g: any) => {
+      if (g.id_module) moduleIdByGym[g.id_gimnasio] = g.id_module;
+    });
+
+    const moduleIdByRest: Record<string, string> = {};
+    restaurantes.forEach((r: any) => {
+      if (r.id_module) moduleIdByRest[r.id_restaurante] = r.id_module;
+    });
+
+    const combinedModules = (modules || []).map((m: any) => ({
+      id: m.id_module,
+      type: m.tipo_modulo?.toLowerCase() ?? 'hotel',
+      reference_id: m.id_module,
+      is_active: m.estado === 'activo',
+      name: m.nombre_modulo,
+      slug: slugByModule[m.id_module] ?? null,
+      hotel_id: hotelIdByModule[m.id_module] ?? null,
+    }));
+
+    // Fechas para métricas del mes
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
+    const startIso = startOfMonth.toISOString();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayIso = todayStart.toISOString();
+    const tomorrowEnd = new Date(todayStart);
+    tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
+    tomorrowEnd.setHours(23, 59, 59, 999);
+    const tomorrowIso = tomorrowEnd.toISOString();
+
+    const statsByModule: Record<string, { ingresos: number, ocupacion: number, total_reservas: number, tareas: number }> = {};
+    moduleIds.forEach((id: string) => {
+      statsByModule[id] = { ingresos: 0, ocupacion: 0, total_reservas: 0, tareas: 0 };
+    });
+
+    // ── MÉTRICAS HOTELES ──
+    const allHotelIds = hoteles.map((h: any) => h.id_hotel);
+    if (allHotelIds.length > 0) {
+      // Total de habitaciones por hotel (para calcular ocupación real)
+      const { data: habsData } = await db
+        .from('habitaciones')
+        .select('id_hotel, estado')
+        .in('id_hotel', allHotelIds);
+
+      const totalHabsByHotel: Record<string, number> = {};
+      const occupiedHabsByHotel: Record<string, number> = {};
+      (habsData || []).forEach((h: any) => {
+        if (!totalHabsByHotel[h.id_hotel]) totalHabsByHotel[h.id_hotel] = 0;
+        totalHabsByHotel[h.id_hotel] += 1;
+        // Habitaciones ocupadas = estado 'ocupada'
+        if (h.estado === 'ocupada') {
+          if (!occupiedHabsByHotel[h.id_hotel]) occupiedHabsByHotel[h.id_hotel] = 0;
+          occupiedHabsByHotel[h.id_hotel] += 1;
+        }
+      });
+
+      // Ingresos reales del mes - usar pagos_hotel con id_reserva_hotel y luego join a reservas
+      const { data: reservasIds } = await db
+        .from('reservas_hotel')
+        .select('id_reserva_hotel, id_hotel')
+        .in('id_hotel', allHotelIds)
+        .gte('check_in', startIso);
+
+      const reservaIdToHotelId: Record<string, string> = {};
+      (reservasIds || []).forEach((r: any) => {
+        reservaIdToHotelId[r.id_reserva_hotel] = r.id_hotel;
+      });
+      const allReservaIds = Object.keys(reservaIdToHotelId);
+
+      if (allReservaIds.length > 0) {
+        const { data: pagos } = await db
+          .from('pagos_hotel')
+          .select('monto, id_reserva_hotel')
+          .in('id_reserva_hotel', allReservaIds)
+          .gte('fecha_pago', startIso)
+          .eq('estado', 'aplicado');
+
+        (pagos || []).forEach((p: any) => {
+          const hotelId = reservaIdToHotelId[p.id_reserva_hotel];
+          const idModule = moduleIdByHotel[hotelId];
+          if (idModule && statsByModule[idModule]) {
+            statsByModule[idModule].ingresos += Number(p.monto || 0);
+          }
+        });
+      }
+
+      // Calcular ocupación real: habitaciones ocupadas / total habitaciones
+      hoteles.forEach((hotel: any) => {
+        const idModule = moduleIdByHotel[hotel.id_hotel];
+        if (idModule && statsByModule[idModule]) {
+          const total = totalHabsByHotel[hotel.id_hotel] || 0;
+          const occupied = occupiedHabsByHotel[hotel.id_hotel] || 0;
+          // Guardamos total y ocupadas para calcular % después
+          statsByModule[idModule].ocupacion = total > 0 ? Math.round((occupied / total) * 100) : 0;
+        }
+      });
+
+      // Alertas de checkins
+      const { data: res } = await db
+        .from('reservas_hotel')
+        .select('id_hotel, estado, estado_pago, check_in')
+        .in('id_hotel', allHotelIds)
+        .gte('check_in', startIso);
+
+      (res || []).forEach((r: any) => {
+        const idModule = moduleIdByHotel[r.id_hotel];
+        if (idModule && statsByModule[idModule]) {
+          // Tareas (checkins próximos o deudas)
+          const isCheckinNear = (new Date(r.check_in) >= todayStart && new Date(r.check_in) <= tomorrowEnd && ['confirmada','pendiente'].includes(r.estado));
+          const isDeuda = (r.estado_pago === 'deuda' && ['check_in','check_out','confirmada'].includes(r.estado));
+          if (isCheckinNear || isDeuda) {
+            statsByModule[idModule].tareas += 1;
+          }
+        }
+      });
+    }
+
+    // ── MÉTRICAS GIMNASIOS ──
+    const allGymIds = gimnasios.map((g: any) => g.id_gimnasio);
+    if (allGymIds.length > 0) {
+      // Ingresos reales (pagos_gym del mes)
+      const { data: pagosG } = await db
+        .from('pagos_gym')
+        .select('monto, inscripciones_gym!inner(id_gimnasio)')
+        .in('inscripciones_gym.id_gimnasio', allGymIds)
+        .gte('fecha_pago', startIso)
+        .in('estado', ['registrado', 'aplicado']);
+
+      (pagosG || []).forEach((p: any) => {
+        const idModule = moduleIdByGym[p.inscripciones_gym.id_gimnasio];
+        if (idModule && statsByModule[idModule]) {
+          statsByModule[idModule].ingresos += Number(p.monto || 0);
+        }
+      });
+
+      // Ocupación y alertas (inscripciones activas y deudas)
+      const { data: ins } = await db
+        .from('inscripciones_gym')
+        .select('id_gimnasio, estado, estado_pago, fecha_fin')
+        .in('id_gimnasio', allGymIds);
+
+      (ins || []).forEach((i: any) => {
+        const idModule = moduleIdByGym[i.id_gimnasio];
+        if (idModule && statsByModule[idModule]) {
+          if (i.estado === 'activa') {
+            statsByModule[idModule].ocupacion += 1; // Miembros activos
+          }
+          // Tareas (deudas o vencimientos cercanos)
+          const isVencimientoNear = (new Date(i.fecha_fin) >= todayStart && new Date(i.fecha_fin) <= tomorrowEnd && i.estado === 'activa');
+          if (i.estado_pago === 'deuda' || isVencimientoNear) {
+            statsByModule[idModule].tareas += 1;
+          }
+        }
+      });
+    }
+
+    // ── MÉTRICAS RESTAURANTES ──
+    const allRestIds = restaurantes.map((r: any) => r.id_restaurante);
+    if (allRestIds.length > 0) {
+      // Asumiendo que pueden haber pagos en pagos_rest, pero es una tabla de gastos (categorias_gasto_rest).
+      // Si la base de datos de restaurante no tiene tabla de ingresos, mantenemos en 0 o lo que haya.
+      // Aquí se omiten métricas de ingresos/ocupacion de restaurantes por ahora, o podríamos usar pagos si fuera ingresos.
+    }
 
     let globalIngresos = 0, globalOcupacion = 0;
 
     const modulesWithKpis = combinedModules.map((mod: any) => {
-      const stats = hotelStats[mod.reference_id] || { ingresos: 0, ocupacion: 0, total_reservas: 0 };
-      const ocPercent = stats.ocupacion > 0 ? Math.min(100, Math.round((stats.ocupacion / 30) * 100)) : 0;
+      const stats = statsByModule[mod.reference_id] || { ingresos: 0, ocupacion: 0, total_reservas: 0, tareas: 0 };
+      
+      // Ocupación relativa
+      let ocPercent = 0;
+      if (mod.type === 'hotel') {
+         ocPercent = stats.ocupacion; // Ya viene como % (hab_ocupadas / total_habs * 100)
+      } else if (mod.type === 'gym') {
+         ocPercent = stats.ocupacion > 0 ? Math.min(100, Math.round((stats.ocupacion / 50) * 100)) : 0; // max ~50 activos
+      }
+
       globalIngresos  += stats.ingresos;
       globalOcupacion += ocPercent;
-      return { ...mod, kpis: { ingresos: stats.ingresos, ocupacion: ocPercent, tareas: 0 } };
+
+      return { 
+        ...mod, 
+        kpis: { 
+          ingresos: stats.ingresos, 
+          ocupacion: ocPercent, 
+          tareas: stats.tareas 
+        } 
+      };
     });
 
     const avgOcupacion = modulesWithKpis.length > 0 ? Math.round(globalOcupacion / modulesWithKpis.length) : 0;
@@ -351,7 +532,7 @@ router.get('/dashboard-summary', async (req, res) => {
         ingresos:         globalIngresos,
         negocios_activos: modulesWithKpis.filter((m: any) => m.is_active).length,
         ocupacion:        avgOcupacion,
-        tareas:           0,
+        tareas:           modulesWithKpis.reduce((sum: number, m: any) => sum + m.kpis.tareas, 0),
       },
       ai_recommendation: aiRecommendation,
     });
