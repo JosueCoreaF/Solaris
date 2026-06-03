@@ -320,10 +320,11 @@ const DashboardContent = () => {
                     <button
                       onClick={() => {
                         const baseUrl = getModuleUrl(mod.type);
+                        const hotelParam = mod.hotel_id ? `&hotel_id=${encodeURIComponent(mod.hotel_id)}` : '';
                         if (session) {
-                          window.location.href = `${baseUrl}/?access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}&business_id=${encodeURIComponent(mod.reference_id)}`;
+                          window.location.href = `${baseUrl}/?access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}&business_id=${encodeURIComponent(mod.reference_id)}${hotelParam}`;
                         } else {
-                          window.location.href = `${baseUrl}/?business_id=${encodeURIComponent(mod.reference_id)}`;
+                          window.location.href = `${baseUrl}/?business_id=${encodeURIComponent(mod.reference_id)}${hotelParam}`;
                         }
                       }}
                       className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-colors shadow-sm"

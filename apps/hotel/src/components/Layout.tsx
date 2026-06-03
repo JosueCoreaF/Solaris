@@ -10,9 +10,11 @@ export const Layout: React.FC = () => {
   const location = useLocation();
   const isChatPage = location.pathname === '/chat';
   const { addToast } = useToast();
-  const { user } = useAuth();
+  const { user, session, loading: authLoading } = useAuth();
   const userId = user?.email || 'anon';
   const userName = user?.email?.split('@')[0] || 'Personal';
+  // Token directo desde el contexto (siempre disponible cuando session existe)
+  const accessToken = session?.access_token ?? null;
 
   useEffect(() => {
     const s = getSocket();
@@ -82,6 +84,8 @@ export const Layout: React.FC = () => {
     };
 
     const onUnreadUpdate = () => {
+      // Solo hacer fetch si tenemos token disponible
+      if (!accessToken) return;
       fetchChannels()
         .then(chs => {
           const total = chs.reduce((sum, ch) => sum + (ch.unread_count ?? 0), 0);
@@ -94,6 +98,8 @@ export const Layout: React.FC = () => {
     };
 
     const joinAllChannels = () => {
+      // Solo hacer fetch si tenemos token disponible
+      if (!accessToken) return;
       fetchChannels()
         .then(chs => {
           chs.forEach(ch => {
@@ -158,9 +164,11 @@ export const Layout: React.FC = () => {
       playReservationArpeggio();
     };
 
-    // Fetch inicial de canales para contar no leídos y unirse a sus salas
-    onUnreadUpdate();
-    joinAllChannels();
+    // Fetch inicial de canales — solo cuando tengamos sesión con token válido
+    if (!authLoading && user && accessToken) {
+      onUnreadUpdate();
+      joinAllChannels();
+    }
 
     s.on('new_message', onNewMsg);
     s.on('unread_update', onUnreadUpdate);
@@ -175,7 +183,7 @@ export const Layout: React.FC = () => {
       s.off('new_client_chat', onNewClientChat);
       s.off('nueva_solicitud_reserva', onNewBooking);
     };
-  }, [location.pathname, userId, userName, addToast]);
+  }, [location.pathname, userId, userName, addToast, authLoading, user, accessToken]);
 
   return (
     <div className="dashboard-root">

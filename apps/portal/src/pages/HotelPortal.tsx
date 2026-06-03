@@ -6,13 +6,14 @@ import {
   BedDouble, ChevronLeft, ChevronRight, CheckCircle2,
   Loader2, X, Hotel, ArrowLeft, Search, Wifi, Coffee,
   Wind, Tv, ShowerHead, Car, Dumbbell, Eye, Info,
-  RotateCcw,
+  RotateCcw, MessageSquare, Send,
 } from 'lucide-react';
 import { DateRangePicker, DatePicker } from '@tremor/react';
 import { es } from 'date-fns/locale';
 import {
   fetchHotelBySlug, fetchDisponibilidad, crearSolicitudReserva,
   buscarHuesped, registrarHuesped,
+  initGuestChat, sendGuestMessage, fetchGuestMessages,
 } from '../services/api';
 import { Hotel as HotelType, Habitacion, ReservaForm } from '../types';
 import { formatearFecha, calcularNoches, formatMoneda } from '../utils/slug';
@@ -367,6 +368,7 @@ const RoomCard = ({ hab, noches, moneda, hotel, onReservar, onDetalle, index }: 
 
 // ── Booking Modal (3 pasos) ───────────────────────────────────────────────────
 type ModalStep = 'identificacion' | 'registro' | 'reserva' | 'done';
+type ChatStep = 'idle' | 'loading' | 'open';
 interface HuespedInfo { nombre: string; correo: string; telefono: string; }
 
 const FORM_INIT: ReservaForm = {
@@ -391,6 +393,56 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
   const [checkingDisp,setCheckingDisp] = useState(false);
   const [dispOk,     setDispOk]     = useState<boolean | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Chat con recepción
+  const [chatStep,      setChatStep]      = useState<ChatStep>('idle');
+  const [channelId,     setChannelId]     = useState<string | null>(null);
+  const [guestIdentifier, setGuestIdentifier] = useState<string | null>(null);
+  const [chatMessages,  setChatMessages]  = useState<any[]>([]);
+  const [chatInput,     setChatInput]     = useState('');
+  const [sendingChat,   setSendingChat]   = useState(false);
+  const [chatError,     setChatError]     = useState('');
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const pollRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (chatStep === 'open' && channelId) {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      pollRef.current = setInterval(async () => {
+        try {
+          const msgs = await fetchGuestMessages(channelId);
+          setChatMessages(msgs);
+        } catch { /* silencioso */ }
+      }, 3000);
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [chatStep, channelId]);
+
+  const handleOpenChat = async () => {
+    setChatStep('loading'); setChatError('');
+    try {
+      const res = await initGuestChat(form.nombre || correoInput, form.correo || correoInput, form.telefono, hotel.id);
+      setChannelId(res.channelId);
+      setGuestIdentifier(res.guestId);
+      setChatMessages(res.messages || []);
+      setChatStep('open');
+    } catch (e: any) {
+      setChatError(e.message);
+      setChatStep('idle');
+    }
+  };
+
+  const handleSendChat = async () => {
+    if (!chatInput.trim() || !channelId || !guestIdentifier) return;
+    const text = chatInput.trim(); setChatInput(''); setSendingChat(true);
+    try {
+      await sendGuestMessage(channelId, guestIdentifier, form.nombre || 'Huésped', text);
+      const msgs = await fetchGuestMessages(channelId);
+      setChatMessages(msgs);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    } catch { /* silencioso */ }
+    finally { setSendingChat(false); }
+  };
 
   const noches   = calcularNoches(form.checkIn, form.checkOut);
   const personasExtra = Math.max(0, form.adultos + form.ninos - hab.capacidad);
@@ -458,18 +510,98 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
       style={{ background: 'rgba(10,10,10,0.7)', backdropFilter: 'blur(8px)' }}>
       <motion.div initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         transition={{ type: 'spring', damping: 28, stiffness: 280 }}
-        className="bg-white w-full sm:max-w-sm sm:rounded-3xl rounded-t-3xl p-8 text-center shadow-2xl">
-        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}
-          transition={{ type: 'spring', delay: 0.15, damping: 12 }}
-          className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-5">
-          <CheckCircle2 size={40} className="text-emerald-500" />
-        </motion.div>
-        <h3 className="text-xl font-black text-stone-900 mb-2">Solicitud enviada</h3>
-        <p className="text-sm text-stone-500 leading-relaxed mb-6">
-          Tu solicitud para <strong className="text-stone-700">{hab.nombreAlias || hab.nombre}</strong> fue recibida.<br />
-          El hotel te confirmará a <strong className="text-stone-700">{form.correo || form.telefono}</strong>.
-        </p>
-        <button onClick={onClose} className="w-full py-3.5 bg-[var(--color-brand)] text-white rounded-2xl font-black text-sm transition-all">Listo</button>
+        className="bg-white w-full sm:max-w-sm sm:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden">
+
+        {/* ── Vista de éxito ── */}
+        {chatStep !== 'open' && (
+          <div className="p-8 text-center">
+            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}
+              transition={{ type: 'spring', delay: 0.15, damping: 12 }}
+              className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-5">
+              <CheckCircle2 size={40} className="text-emerald-500" />
+            </motion.div>
+            <h3 className="text-xl font-black text-stone-900 mb-2">Solicitud enviada</h3>
+            <p className="text-sm text-stone-500 leading-relaxed mb-6">
+              Tu solicitud para <strong className="text-stone-700">{hab.nombreAlias || hab.nombre}</strong> fue recibida.<br />
+              El hotel te confirmará a <strong className="text-stone-700">{form.correo || form.telefono}</strong>.
+            </p>
+            {chatError && (
+              <p className="text-xs text-red-500 bg-red-50 rounded-xl px-3 py-2 mb-3">{chatError}</p>
+            )}
+            <button onClick={handleOpenChat} disabled={chatStep === 'loading'}
+              className="w-full py-3.5 border-2 border-[var(--color-brand)] text-[var(--color-brand)] rounded-2xl font-black text-sm transition-all hover:bg-[var(--color-brand)] hover:text-white mb-3 flex items-center justify-center gap-2 disabled:opacity-60">
+              {chatStep === 'loading'
+                ? <><Loader2 size={15} className="animate-spin" /> Conectando...</>
+                : <><MessageSquare size={15} /> Contactar a Recepción</>}
+            </button>
+            <button onClick={onClose} className="w-full py-3 text-stone-400 text-sm font-medium transition-all hover:text-stone-600">
+              Cerrar
+            </button>
+          </div>
+        )}
+
+        {/* ── Widget de chat ── */}
+        {chatStep === 'open' && channelId && (
+          <div className="flex flex-col h-[480px]">
+            {/* Header del chat */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-stone-100 bg-stone-50">
+              <div className="w-8 h-8 rounded-full bg-[var(--color-brand)] flex items-center justify-center flex-shrink-0">
+                <MessageSquare size={14} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-stone-900 leading-none">Recepción</p>
+                <p className="text-[10px] text-emerald-500 font-medium mt-0.5">En línea</p>
+              </div>
+              <button onClick={onClose}
+                className="w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center text-stone-400 hover:text-stone-600 flex-shrink-0">
+                <X size={13} />
+              </button>
+            </div>
+
+            {/* Mensajes */}
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+              {chatMessages.length === 0 && (
+                <p className="text-xs text-stone-400 text-center py-6">
+                  Escríbenos, la recepción te responderá en breve.
+                </p>
+              )}
+              {chatMessages.map((msg: any) => {
+                const isGuest = msg.sender_id === guestIdentifier;
+                return (
+                  <div key={msg.id} className={`flex ${isGuest ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[78%] px-3 py-2 rounded-2xl text-sm leading-snug ${
+                      isGuest
+                        ? 'bg-[var(--color-brand)] text-white rounded-br-sm'
+                        : 'bg-stone-100 text-stone-800 rounded-bl-sm'
+                    }`}>
+                      {!isGuest && (
+                        <p className="text-[10px] font-bold mb-0.5 opacity-60">{msg.sender_name}</p>
+                      )}
+                      <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input */}
+            <div className="px-3 py-3 border-t border-stone-100 flex gap-2">
+              <input
+                className="flex-1 bg-stone-50 border border-stone-200 rounded-2xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-stone-900/10"
+                placeholder="Escribe tu mensaje..."
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
+                disabled={sendingChat}
+              />
+              <button onClick={handleSendChat} disabled={sendingChat || !chatInput.trim()}
+                className="w-10 h-10 rounded-2xl bg-[var(--color-brand)] flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-opacity">
+                {sendingChat ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+              </button>
+            </div>
+          </div>
+        )}
       </motion.div>
     </div>
   );
@@ -771,6 +903,177 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
   );
 };
 
+// ── Floating Chat Widget ──────────────────────────────────────────────────────
+type FCPhase = 'form' | 'chat';
+
+const FloatingChat = ({ hotel }: { hotel: HotelType }) => {
+  const [open,      setOpen]      = useState(false);
+  const [phase,     setPhase]     = useState<FCPhase>('form');
+  const [nombre,    setNombre]    = useState('');
+  const [correo,    setCorreo]    = useState('');
+  const [telefono,  setTelefono]  = useState('');
+  const [starting,  setStarting]  = useState(false);
+  const [formError, setFormError] = useState('');
+  const [channelId, setChannelId] = useState<string | null>(null);
+  const [guestId,   setGuestId]   = useState<string | null>(null);
+  const [messages,  setMessages]  = useState<any[]>([]);
+  const [input,     setInput]     = useState('');
+  const [sending,   setSending]   = useState(false);
+  const endRef  = useRef<HTMLDivElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (phase === 'chat' && channelId) {
+      endRef.current?.scrollIntoView({ behavior: 'smooth' });
+      pollRef.current = setInterval(async () => {
+        try { setMessages(await fetchGuestMessages(channelId)); } catch { /* silent */ }
+      }, 3000);
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [phase, channelId]);
+
+  const handleStart = async () => {
+    if (!nombre.trim()) { setFormError('Tu nombre es obligatorio.'); return; }
+    setStarting(true); setFormError('');
+    try {
+      const res = await initGuestChat(nombre.trim(), correo.trim() || undefined, telefono.trim() || undefined, hotel.id);
+      setChannelId(res.channelId); setGuestId(res.guestId);
+      setMessages(res.messages || []); setPhase('chat');
+    } catch (e: any) { setFormError(e.message); }
+    finally { setStarting(false); }
+  };
+
+  const handleSend = async () => {
+    if (!input.trim() || !channelId || !guestId) return;
+    const text = input.trim(); setInput(''); setSending(true);
+    try {
+      await sendGuestMessage(channelId, guestId, nombre || 'Huésped', text);
+      setMessages(await fetchGuestMessages(channelId));
+      setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
+    } catch { /* silent */ }
+    finally { setSending(false); }
+  };
+
+  const inp = 'w-full border border-stone-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-stone-900/10 bg-stone-50 transition-all';
+
+  return (
+    <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            key="fc-widget"
+            initial={{ opacity: 0, y: 12, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.95 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+            className="w-80 bg-white rounded-3xl shadow-2xl border border-stone-100 flex flex-col overflow-hidden"
+            style={{ maxHeight: '480px' }}>
+
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-stone-100"
+              style={{ background: hotel.colorPrimario || '#1c1917' }}>
+              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
+                <MessageSquare size={14} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white leading-none">{hotel.nombre}</p>
+                <p className="text-[10px] text-white/60 mt-0.5">Recepción · En línea</p>
+              </div>
+              <button onClick={() => setOpen(false)}
+                className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-white/70 hover:text-white flex-shrink-0">
+                <X size={13} />
+              </button>
+            </div>
+
+            {/* Fase: formulario de identificación */}
+            {phase === 'form' && (
+              <div className="p-4 space-y-3">
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  Hola, ¿en qué podemos ayudarte? Cuéntanos tu nombre para conectarte con recepción.
+                </p>
+                <div>
+                  <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1">Nombre *</label>
+                  <input className={inp} placeholder="Tu nombre completo"
+                    value={nombre} onChange={e => { setNombre(e.target.value); setFormError(''); }}
+                    onKeyDown={e => e.key === 'Enter' && handleStart()} />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1">Correo (opcional)</label>
+                  <input type="email" className={inp} placeholder="tu@correo.com"
+                    value={correo} onChange={e => setCorreo(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1">Teléfono (opcional)</label>
+                  <input type="tel" className={inp} placeholder="+504 9999-9999"
+                    value={telefono} onChange={e => setTelefono(e.target.value)} />
+                </div>
+                {formError && <p className="text-xs text-red-500 bg-red-50 rounded-xl px-3 py-2">{formError}</p>}
+                <button onClick={handleStart} disabled={starting}
+                  className="w-full py-3 rounded-2xl font-black text-sm text-white flex items-center justify-center gap-2 disabled:opacity-60 transition-all"
+                  style={{ background: hotel.colorPrimario || '#1c1917' }}>
+                  {starting ? <><Loader2 size={14} className="animate-spin" /> Conectando...</> : 'Iniciar conversación'}
+                </button>
+              </div>
+            )}
+
+            {/* Fase: chat */}
+            {phase === 'chat' && (
+              <>
+                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2" style={{ minHeight: '200px', maxHeight: '300px' }}>
+                  {messages.length === 0 && (
+                    <p className="text-xs text-stone-400 text-center py-6">Escríbenos, la recepción te responderá en breve.</p>
+                  )}
+                  {messages.map((msg: any) => {
+                    const isMe = msg.sender_id === guestId;
+                    return (
+                      <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm leading-snug ${
+                          isMe ? 'text-white rounded-br-sm' : 'bg-stone-100 text-stone-800 rounded-bl-sm'
+                        }`} style={isMe ? { background: hotel.colorPrimario || '#1c1917' } : {}}>
+                          {!isMe && <p className="text-[10px] font-bold mb-0.5 opacity-50">{msg.sender_name}</p>}
+                          <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div ref={endRef} />
+                </div>
+                <div className="px-3 py-3 border-t border-stone-100 flex gap-2">
+                  <input className="flex-1 bg-stone-50 border border-stone-200 rounded-2xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-stone-900/10"
+                    placeholder="Escribe tu mensaje..."
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                    disabled={sending} />
+                  <button onClick={handleSend} disabled={sending || !input.trim()}
+                    className="w-10 h-10 rounded-2xl flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-opacity"
+                    style={{ background: hotel.colorPrimario || '#1c1917' }}>
+                    {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  </button>
+                </div>
+              </>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Botón flotante */}
+      <motion.button
+        whileTap={{ scale: 0.92 }}
+        onClick={() => setOpen(o => !o)}
+        className="w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-white relative"
+        style={{ background: hotel.colorPrimario || '#1c1917' }}>
+        <AnimatePresence mode="wait">
+          {open
+            ? <motion.span key="x" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }} transition={{ duration: 0.15 }}><X size={22} /></motion.span>
+            : <motion.span key="msg" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }} transition={{ duration: 0.15 }}><MessageSquare size={22} /></motion.span>
+          }
+        </AnimatePresence>
+      </motion.button>
+    </div>
+  );
+};
+
 // helper: Date ↔ string 'YYYY-MM-DD'
 const toStr = (d?: Date) => d ? d.toISOString().split('T')[0] : '';
 const toDate = (s: string) => s ? new Date(s + 'T12:00:00') : undefined;
@@ -1021,6 +1324,9 @@ export default function HotelPortal() {
             onClose={() => setSelectedHab(null)} />
         )}
       </AnimatePresence>
+
+      {/* Widget de contacto flotante */}
+      <FloatingChat hotel={hotel} />
     </div>
   );
 }

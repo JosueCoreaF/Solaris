@@ -204,7 +204,7 @@ interface SuggestionItem {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 const ChatOperativo: React.FC = () => {
-  const { user } = useAuth();
+  const { user, session, loading: authLoading } = useAuth();
   const { role } = useRole();
   const { addToast } = useToast();
   const navigate = useNavigate();
@@ -495,7 +495,7 @@ const ChatOperativo: React.FC = () => {
     } finally { setLoadingCh(false); }
   }, [activeId]);
 
-  useEffect(() => { void loadChannels(); }, [loadChannels]);
+  useEffect(() => { if (!authLoading && user && session?.access_token) void loadChannels(); }, [loadChannels, authLoading, user, session?.access_token]);
 
   // load messages on channel switch
   useEffect(() => {

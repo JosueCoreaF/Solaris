@@ -79,7 +79,7 @@ async function executeTool(name: string, args: any, ownerIds: string[], hotelIds
           habitaciones(nombre_habitacion, nombre_alias)`)
         .eq('id_hotel', args.hotel_id)
         .order('created_at', { ascending: false })
-        .limit(args.limit || 20);
+        .limit(args.limit || 100);
       if (args.estado) q = q.eq('estado', args.estado);
       if (args.fecha_desde) q = q.gte('check_in', args.fecha_desde);
       if (args.fecha_hasta) q = q.lte('check_in', args.fecha_hasta);
@@ -100,7 +100,7 @@ async function executeTool(name: string, args: any, ownerIds: string[], hotelIds
         .select('id_huesped, nombre_completo, correo, telefono, documento_identidad, estado, created_at')
         .eq('id_hotel', args.hotel_id).order('created_at', { ascending: false }).limit(args.limit || 20);
       if (args.busqueda) q = q.or(`nombre_completo.ilike.%${args.busqueda}%,correo.ilike.%${args.busqueda}%`);
-      const { data, error } = await q;
+      const { data, error } = await (q as any).limit(args.limit || 100);
       if (error) throw new Error(error.message);
       return { guests: data };
     }
@@ -111,7 +111,7 @@ async function executeTool(name: string, args: any, ownerIds: string[], hotelIds
         .in('id_reserva_hotel',
           (await db.from('reservas_hotel').select('id_reserva_hotel').eq('id_hotel', args.hotel_id)).data?.map((r: any) => r.id_reserva_hotel) || []
         )
-        .order('fecha_pago', { ascending: false }).limit(args.limit || 20);
+        .order('fecha_pago', { ascending: false }).limit(args.limit || 100);
       if (error) throw new Error(error.message);
       return { payments: data };
     }
@@ -244,7 +244,7 @@ async function executeTool(name: string, args: any, ownerIds: string[], hotelIds
     case 'search_database': {
       const allowed = ['hoteles','habitaciones','huespedes','reservas_hotel','pagos_hotel','empresas','facturas','cierres_diarios','saldos_clientes','tipos_habitacion','comodidades_hotel','servicios_adicionales','habitaciones_con_detalles','business_modules'];
       if (!allowed.includes(args.tabla)) throw new Error(`Tabla no permitida. Disponibles: ${allowed.join(', ')}`);
-      let q = (db.from(args.tabla) as any).select(args.columnas || '*').limit(args.limite || 20);
+      let q = (db.from(args.tabla) as any).select(args.columnas || '*').limit(args.limite || 100);
       if (args.filtros) for (const [k, v] of Object.entries(args.filtros)) q = q.eq(k, v);
       const { data, error } = await q;
       if (error) throw new Error(error.message);
@@ -292,6 +292,8 @@ const HALLUCINATION_PATTERNS = [
   /^si hay voz/i,
   /^transcribe/i,
   /^si no hay/i,
+  /^tarea/i,
+  /^regla/i,
 ];
 
 function isHallucination(text: string): boolean {
@@ -333,8 +335,21 @@ async function callGeminiTranscribe(audioBase64: string, mimeType: string): Prom
 }
 
 // ─── Llamada a Gemini REST API ────────────────────────────────────────────────
-async function callGemini(contents: any[], systemInstruction: string): Promise<any> {
+async function callGemini(contents: any[], systemInstruction: string, enabledTools?: string[]): Promise<any> {
   let lastError: any;
+  
+  // Filtrar herramientas si el cliente especificó cuáles están habilitadas
+  let activeTools: any[] | undefined = TOOLS;
+  if (enabledTools !== undefined) {
+    if (enabledTools.length === 0) {
+      activeTools = undefined; // Sin herramientas
+    } else {
+      activeTools = [{
+        function_declarations: TOOLS[0].function_declarations.filter(t => enabledTools.includes(t.name))
+      }];
+    }
+  }
+
   for (const key of GEMINI_KEYS) {
     try {
       const response = await fetch(`${GEMINI_URL}?key=${key}`, {
@@ -343,7 +358,7 @@ async function callGemini(contents: any[], systemInstruction: string): Promise<a
         body: JSON.stringify({
           system_instruction: { parts: [{ text: systemInstruction }] },
           contents,
-          tools: TOOLS,
+          tools: activeTools,
           generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
         }),
       });
@@ -376,30 +391,59 @@ router.post('/chat', async (req, res) => {
     if (!ownerIds.length) return res.status(400).json({ error: 'Perfil de propietario no encontrado.' });
     if (!GEMINI_KEYS.length) return res.status(500).json({ error: 'GEMINI_API_KEY no configurada.' });
 
-    const { prompt, history = [] } = req.body;
+    const { prompt, history = [], enabledTools = [] } = req.body;
     const now = new Date().toLocaleString('es-HN', { timeZone: 'America/Tegucigalpa' });
+    const todayISO = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
 
-    const systemInstruction = `Eres "Solaris AI", el asistente inteligente del Hub de gestión de negocios.
+    // Pre-cargar negocios y hoteles para embeber en el contexto (sin round-trip extra)
+    let hotelContext = '';
+    if (hotelIds.length > 0) {
+      const { data: hoteles } = await db.from('hoteles')
+        .select('id_hotel, nombre_hotel, ciudad, estado')
+        .in('id_hotel', hotelIds);
+      if (hoteles?.length) {
+        hotelContext = '\nHOTELES DEL PROPIETARIO (IDs ya conocidos — úsalos directamente sin llamar get_businesses):\n' +
+          hoteles.map((h: any) => `- "${h.nombre_hotel}" | ID: ${h.id_hotel} | Ciudad: ${h.ciudad || '—'} | Estado: ${h.estado}`).join('\n');
+      }
+    }
+
+    const allTools = TOOLS[0].function_declarations.map(t => t.name);
+    const disabledTools = enabledTools.length === 0 ? allTools : allTools.filter(t => !enabledTools.includes(t));
+    const disabledText = disabledTools.length > 0
+      ? `\nHERRAMIENTAS DESHABILITADAS:\n${disabledTools.join(', ')}\nSi el usuario pide algo que requiere una herramienta deshabilitada, explícalo y sugiere activarla.`
+      : '';
+
+    const systemInstruction = `Eres "Solaris AI", asistente de gestión hotelera.
 
 Propietario: ${ownerRow?.nombre_empresa || 'Sin nombre'} (${ownerRow?.email_contacto || user.email})
-Hoteles registrados: ${hotelIds.length}
-Fecha y hora: ${now}
+Fecha y hora actual: ${now} (hoy es ${todayISO})
+${hotelContext}
 
-INSTRUCCIONES GENERALES:
-- Usa SIEMPRE las herramientas para obtener datos reales. NUNCA inventes información.
-- Si necesitas el hotel_id, primero llama a get_businesses.
-- Al modificar algo, confirma brevemente qué se hizo.
-- Responde en español, claro y directo.
-- Usa markdown para tablas y listas cuando muestres múltiples datos.
+REGLAS ABSOLUTAS — INCUMPLIRLAS ES UN ERROR GRAVE:
+1. SIEMPRE usa las herramientas para obtener datos. NUNCA respondas de memoria ni inventes ningún dato (IDs, nombres, números, fechas). Si no tienes el dato, usa una herramienta para buscarlo.
+2. Si el usuario pregunta por reservas, huéspedes, pagos, habitaciones o métricas: PRIMERO llama a la herramienta correspondiente, LUEGO responde con los datos reales recibidos.
+3. Cuando uses get_reservations, get_guests o search_database, pasa siempre limit: 100 para obtener datos completos salvo que el usuario pida menos.
+4. Si una herramienta devuelve error, repórtalo textualmente. NUNCA inventes el resultado.
+5. Para fechas "hoy", usa ${todayISO}. Para "este mes" usa ${todayISO.slice(0, 7)}.
 
-FLUJO PARA CREAR UNA RESERVA:
-1. Llama a get_businesses para obtener el hotel_id si no lo tienes.
-2. Llama a get_available_rooms con hotel_id + check_in + check_out para ver habitaciones libres. Muéstraselas al usuario si necesita elegir.
-3. Si el huésped no tiene id, llama a get_guests para buscarlo. Si no existe, usa create_guest para registrarlo.
-4. Con id_huesped e id_habitacion confirmados, llama a create_reservation.
-5. Confirma al usuario el resultado con los datos de la reserva creada.
+INSTRUCCIONES:
+- Responde en español, claro y conciso.
+- Usa markdown: tablas para listas de datos, negritas para IDs y fechas importantes.
+- Si recibes más de 10 registros, muestra un resumen con los más relevantes e indica el total.
+- Al modificar datos (crear/editar/cancelar), confirma qué se hizo con el ID afectado.
+${disabledText}
 
-Si el usuario no da todos los datos (nombre huésped, fechas, habitación), pídelos antes de ejecutar las herramientas.`;
+FLUJO CREAR RESERVA — SÉ PROACTIVO, NO HAGAS LISTAS DE PREGUNTAS:
+Cuando el usuario diga "crea una reserva para [nombre]":
+1. INMEDIATAMENTE llama get_guests con busqueda=[nombre] para encontrarlo en la BD.
+2. Si solo hay un hotel en el contexto, asúmelo. Si hay varios, pregunta cuál con un menú simple.
+3. Pregunta SOLO lo que falta — normalmente solo las fechas. Un solo mensaje conciso.
+4. Cuando tengas fechas, llama get_available_rooms y muestra las opciones en tabla.
+5. Cuando el usuario confirme habitación, llama create_reservation.
+6. Confirma con ID y detalles.
+
+REGLA ANTI-INTERROGATORIO: NUNCA presentes una lista de 5+ preguntas juntas. Usa las herramientas para obtener lo que puedas y pregunta SOLO lo verdaderamente faltante.
+ATAJO FORMULARIO: Si el usuario dice "crear reserva", "nueva reserva" o similar SIN dar fechas ni huésped, responde brevemente indicando que puede usar [Abrir formulario de reserva] para rellenar todos los datos de una vez, Y al mismo tiempo busca con get_guests si mencionó un nombre.`;
 
     // Construir historial en formato Gemini
     const contents: any[] = (history as { role: string; content: string }[])
@@ -413,7 +457,7 @@ Si el usuario no da todos los datos (nombre huésped, fechas, habitación), píd
     let maxIter = 8;
 
     while (maxIter-- > 0) {
-      const data = await callGemini(contents, systemInstruction);
+      const data = await callGemini(contents, systemInstruction, enabledTools);
       const candidate = data.candidates?.[0];
 
       if (!candidate) {
