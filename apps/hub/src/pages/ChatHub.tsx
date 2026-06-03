@@ -406,7 +406,8 @@ export default function ChatHub() {
   const [wakeWord,   setWakeWord]   = useState(() => localStorage.getItem('voice_wake_word')   || 'solaris');
   const [closeWords, setCloseWords] = useState(() => (localStorage.getItem('voice_close_words') || 'cancelar,parar,detener,stop').split(',').map(w => w.trim()).filter(Boolean));
   const [autoSend,   setAutoSend]   = useState(() => localStorage.getItem('voice_auto_send') !== 'false');
-  const wakeWordRef   = useRef(wakeWord);
+  const wakeWordRef       = useRef(wakeWord);
+  const wakeWordEnabledRef = useRef(false); // true mientras el modo wake está activo o debería estarlo
   const closeWordsRef = useRef(closeWords);
   const autoSendRef   = useRef(autoSend);
   const wakeRecogRef  = useRef<any>(null);
@@ -581,6 +582,8 @@ export default function ChatHub() {
             const isClose = closeWordsRef.current.some(w => w && lower.includes(w.toLowerCase()));
             if (isClose) {
               stopAll();
+              // Si el wake word estaba habilitado, volver a escuchar la palabra de activación
+              if (wakeWordEnabledRef.current) startWakeWord();
               return;
             }
             // ── Auto-enviar o poner en textarea ───────────────────────────
@@ -681,6 +684,7 @@ export default function ChatHub() {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) { setVoiceError('Wake word no soportado en este navegador (usa Chrome)'); return; }
     if (wakeRecogRef.current) return;
+    wakeWordEnabledRef.current = true;
     const r = new SR();
     r.continuous = true; r.interimResults = true; r.lang = 'es-ES';
     r.onresult = (e: any) => {
@@ -689,23 +693,38 @@ export default function ChatHub() {
         if (t.includes(wakeWordRef.current.toLowerCase())) {
           r.stop(); wakeRecogRef.current = null;
           setModeBoth('idle');
-          toggleListening();
+          toggleListening(); // inicia grabación completa
           break;
         }
       }
     };
-    r.onerror = () => { wakeRecogRef.current = null; setModeBoth('idle'); };
+    r.onerror = () => {
+      wakeRecogRef.current = null;
+      // Reintentar si el flag sigue activo (ej. error temporal de permisos)
+      if (wakeWordEnabledRef.current && modeRef.current === 'wake') {
+        setTimeout(() => { if (wakeWordEnabledRef.current) startWakeWord(); }, 1000);
+      } else {
+        setModeBoth('idle');
+      }
+    };
     r.onend = () => {
-      // Reinicia solo si todavía estamos en modo wake
-      if (modeRef.current === 'wake') { try { r.start(); } catch { /* ignorar */ } }
-      else { wakeRecogRef.current = null; }
+      wakeRecogRef.current = null;
+      if (modeRef.current === 'wake' && wakeWordEnabledRef.current) {
+        // Reiniciar automáticamente si seguimos en modo wake
+        try { startWakeWord(); } catch { /* ignorar */ }
+      } else if (!wakeWordEnabledRef.current && modeRef.current === 'wake') {
+        setModeBoth('idle');
+      }
+      // Si mode !== 'wake' (grabando o idle), no reiniciamos ahora —
+      // lo hará la close word cuando termine la sesión
     };
     wakeRecogRef.current = r;
     setModeBoth('wake');
-    try { r.start(); } catch { setVoiceError('No se pudo iniciar reconocimiento de voz'); wakeRecogRef.current = null; setModeBoth('idle'); }
+    try { r.start(); } catch { setVoiceError('No se pudo iniciar reconocimiento de voz'); wakeRecogRef.current = null; wakeWordEnabledRef.current = false; setModeBoth('idle'); }
   };
 
   const stopWakeWord = () => {
+    wakeWordEnabledRef.current = false;
     if (wakeRecogRef.current) { try { wakeRecogRef.current.stop(); } catch { /* ignorar */ } wakeRecogRef.current = null; }
     if (modeRef.current === 'wake') setModeBoth('idle');
   };
