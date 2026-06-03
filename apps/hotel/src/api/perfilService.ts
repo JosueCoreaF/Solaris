@@ -197,7 +197,7 @@ export async function guardarPreferenciasUsuario(preferencias: Partial<UserPrefe
           usuario_id: user.id,
           ...preferencias,
           updated_at: new Date().toISOString(),
-        })
+        }, { onConflict: 'usuario_id' })
         .select();
 
       if (!bdError) {
