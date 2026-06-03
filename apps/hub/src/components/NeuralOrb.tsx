@@ -19,15 +19,6 @@ const PALETTE = {
 export default function NeuralOrb({ state = 'idle', voiceLevel = 0, onClick, size = 200 }: NeuralOrbProps) {
   const [tick,    setTick]    = useState(0);
   const [hexData, setHexData] = useState<string[]>(['0x4F', '0xA1', '0xC3', '0xD2']);
-  const [particles] = useState(() =>
-    Array.from({ length: 24 }, (_, i) => ({
-      angle: (i * 360) / 24 + Math.random() * 8,
-      r: 80 + Math.random() * 20,
-      size: 0.8 + Math.random() * 1.4,
-      speed: 0.3 + Math.random() * 0.7,
-      phase: Math.random() * Math.PI * 2,
-    }))
-  );
 
   const frameRef = useRef<number | null>(null);
   const tRef     = useRef(0);
