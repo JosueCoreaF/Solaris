@@ -1,16 +1,13 @@
+// App.tsx - Versión corregida
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
-import Dashboard from '../src/Pages/Dashboard';
-import reporte_comida from '../src/Pages/reporte_comida'
-import reporte_pedido from '../src/Pages/reporte_pedido'
-import reporte_productos from '../src/Pages/reporte_productos'
-import reporteingreso from '../src/Pages/reporte_promocio'
-import reporte_promociones from '../src/Pages/reporteingreso'
-import Reporteingreso from '../src/Pages/reporteingreso';
-import Reporte_promocio from '../src/Pages/reporte_promocio';
-import Reporte_pedido from '../src/Pages/reporte_pedido';
-import Reporte_productos from '../src/Pages/reporte_productos';
-import Reporte_Comida from '../src/Pages/reporte_comida';
+import Dashboard from '../src/Pages/Dashboard'
+import ReporteComida from '../src/Pages/Reporte_comida'
+import ReportePedido from '../src/Pages/Reporte_pedido'
+import ReporteProductos from '../src/Pages/Reporte_productos'
+import ReportePromocio from '../src/Pages/Reporte_promocio'
+import ReporteIngreso from '../src/Pages/Reporteingreso' 
+
 
 
 const Welcome = () => (
@@ -29,14 +26,14 @@ function App() {
   return (
     <Router>
       <Routes>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/reportes/ingresos" element={<ReporteIngreso />} />
+        <Route path="/reportes/promocion" element={<ReportePromocio />} />
+        <Route path="/reportes/pedidos" element={<ReportePedido />} />
+        <Route path="/reportes/producto" element={<ReporteProductos />} />
+        <Route path="/reportes/plato" element={<ReporteComida />} />
         <Route path="/" element={<Welcome />} />
         <Route path="*" element={<Navigate to="/" replace />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-         <Route path="/reportes/ingresos" element={<Reporteingreso />} />
-        <Route path="/reportes/promocion" element={<Reporte_promocio/>} />
-        <Route path="/reportes/pedidos" element={<Reporte_pedido />} />
-        <Route path="/reportes/producto" element={<Reporte_productos/>} />
-        <Route path="/reportes/plato" element={<Reporte_Comida/>} />
       </Routes>
     </Router>
   )

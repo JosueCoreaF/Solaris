@@ -1,10 +1,9 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
-import { useNavigate } from 'react-router-dom'
+// src/components/Topvar.jsx - El mismo que ya funciona
+import React from 'react';
 
-export default function Topvar(){
-
-    return (
-   <div className="bg-white shadow-sm p-4">
+export default function Topvar() {
+  return (
+    <div className="bg-white shadow-sm p-4">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-xl font-bold text-gray-800">Reportes de restaurante</h1>
@@ -19,5 +18,4 @@ export default function Topvar(){
       </div>
     </div>
   );
-
 }
