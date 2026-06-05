@@ -176,247 +176,173 @@ export const Finance: React.FC = () => {
   const displayEgresos = moneda === 'USD' ? Math.round(data.egresosTotal / data.tipoCambio) : data.egresosTotal;
   const displaySaldo = moneda === 'USD' ? Math.round(data.saldo / data.tipoCambio) : data.saldo;
 
+  const symb = moneda === 'USD' ? '$' : 'L';
+
   return (
-    <div className="min-h-screen bg-white p-8">
-      {/* Header */}
-      <div className="mb-6 flex justify-between items-start">
-        <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">ADMINISTRACIÓN</p>
-          <h1 className="text-3xl font-light text-gray-900 flex items-center gap-3">
-            <DollarSign size={36} className="text-green-500" />
+    <div style={{ padding: '28px clamp(20px, 3vw, 52px)', width: '100%' }}>
+
+      {/* ── Header ────────────────────────────────────────── */}
+      <div className="page-header" style={{ marginBottom: 24 }}>
+        <div className="page-header-left" style={{ position: 'relative', paddingLeft: 18 }}>
+          <div style={{ position: 'absolute', left: 0, top: 2, bottom: 4, width: 4, borderRadius: 99, background: 'linear-gradient(to bottom, #10b981, #3b82f6)' }} />
+          <span className="page-kicker">Contabilidad</span>
+          <h1 className="page-title" style={{ background: 'linear-gradient(135deg, var(--text-h) 0%, #10b981 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
             Finanzas e Ingresos
           </h1>
-          <p className="text-gray-500 text-sm mt-2">Gestión de pagos, conversión de moneda y flujo de caja</p>
+          <p className="page-sub">Gestión de pagos, conversión de moneda y flujo de caja</p>
         </div>
-        <button
-          onClick={cargarDatos}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '10px 16px',
-            background: '#1e293b',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 8,
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          <RefreshCw size={16} /> Sincronizar
+        <button onClick={cargarDatos} className="btn-premium btn-premium-secondary" style={{ height: 38, gap: 7 }}>
+          <RefreshCw size={14} /> Sincronizar
         </button>
       </div>
 
-      {/* Tabs de navegación */}
-      <div className="flex gap-1 mb-8 border-b border-gray-100">
-        <button
-          onClick={() => {
-            setVistaActiva('resumen');
-            setFacturaAEditar(null);
-          }}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px ${
-            vistaActiva === 'resumen'
-              ? 'border-slate-800 text-slate-800'
-              : 'border-transparent text-gray-400 hover:text-gray-600'
-          }`}
-        >
-          <DollarSign size={15} /> Resumen
-        </button>
-        <button
-          onClick={() => {
-            setVistaActiva('registrar');
-            setFacturaAEditar(null);
-          }}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px ${
-            vistaActiva === 'registrar'
-              ? 'border-slate-800 text-slate-800'
-              : 'border-transparent text-gray-400 hover:text-gray-600'
-          }`}
-        >
-          <Receipt size={15} /> Registrar Factura
-        </button>
-        <button
-          onClick={() => {
-            setVistaActiva('historial');
-            setFacturaAEditar(null);
-          }}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px ${
-            vistaActiva === 'historial'
-              ? 'border-slate-800 text-slate-800'
-              : 'border-transparent text-gray-400 hover:text-gray-600'
-          }`}
-        >
-          <List size={15} /> Historial de Facturas
-        </button>
+      {/* ── Tabs ──────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 4, padding: '0 0 16px' }}>
+        {([
+          { id: 'resumen',   label: 'Resumen',           icon: <DollarSign size={14} /> },
+          { id: 'registrar', label: 'Registrar Factura',  icon: <Receipt size={14} /> },
+          { id: 'historial', label: 'Historial Facturas', icon: <List size={14} /> },
+        ] as const).map(tab => (
+          <button key={tab.id}
+            onClick={() => { setVistaActiva(tab.id); setFacturaAEditar(null); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 7,
+              padding: '8px 18px', borderRadius: 10, border: 'none', cursor: 'pointer',
+              fontSize: 13, fontWeight: 600, transition: 'all .18s ease',
+              background: vistaActiva === tab.id ? 'var(--accent)' : 'rgba(15,23,42,.04)',
+              color: vistaActiva === tab.id ? '#ffffff' : 'var(--muted)',
+              boxShadow: vistaActiva === tab.id ? '0 2px 8px rgba(37,99,235,.22)' : 'none',
+            }}>
+            {tab.icon} {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* Tab: Registrar Factura (Crear o Editar) */}
+      {/* ── Tab: Registrar ────────────────────────────────── */}
       {vistaActiva === 'registrar' && (
         <RegistrarFactura
           facturaAEditar={facturaAEditar}
-          onCancelarEdicion={() => {
-            setFacturaAEditar(null);
-            setVistaActiva('historial');
-          }}
-          onFacturaGuardada={() => {
-            setFacturaAEditar(null);
-            setRecargarTrigger(prev => prev + 1);
-            setVistaActiva('historial');
-          }}
+          onCancelarEdicion={() => { setFacturaAEditar(null); setVistaActiva('historial'); }}
+          onFacturaGuardada={() => { setFacturaAEditar(null); setRecargarTrigger(p => p + 1); setVistaActiva('historial'); }}
         />
       )}
 
-      {/* Tab: Historial de Facturas */}
+      {/* ── Tab: Historial ────────────────────────────────── */}
       {vistaActiva === 'historial' && (
         <ListaFacturas
           recargarTrigger={recargarTrigger}
-          onEditarFactura={(f) => {
-            setFacturaAEditar(f);
-            setVistaActiva('registrar');
-          }}
+          onEditarFactura={(f) => { setFacturaAEditar(f); setVistaActiva('registrar'); }}
         />
       )}
 
-      {/* Tab: Resumen */}
+      {/* ── Tab: Resumen ──────────────────────────────────── */}
       {vistaActiva === 'resumen' && (
         loading ? (
-          <div className="p-8 text-center">
-            <div className="inline-block text-gray-400">
-              <div className="animate-pulse">Cargando resumen financiero...</div>
-            </div>
+          <div style={{ padding: '60px 0', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            <RefreshCw size={22} style={{ animation: 'spin 1s linear infinite', color: 'var(--accent)' }} />
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>Cargando resumen financiero…</span>
           </div>
         ) : error ? (
-          <div className="p-8">
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-              <AlertCircle size={20} className="text-red-500" />
-              <p className="text-red-700">{error}</p>
-            </div>
+          <div className="alert-banner alert-banner-red">
+            <div className="alert-banner-icon"><AlertCircle size={16} /></div>
+            <div><p className="alert-banner-title">Error al cargar</p><p className="alert-banner-desc">{error}</p></div>
           </div>
         ) : (
           <>
-            {/* Selector de moneda y período */}
-            <div className="flex gap-6 mb-8">
+            {/* ── Moneda + Período ────────────────────────── */}
+            <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <div>
-                <label className="text-xs font-semibold text-gray-600 uppercase mb-2 block">Moneda</label>
-                <div className="flex gap-2">
-                  {['HNL', 'USD'].map(m => (
-                    <button
-                      key={m}
-                      onClick={() => setMoneda(m as 'HNL' | 'USD')}
-                      style={{
-                        padding: '8px 16px',
-                        border: moneda === m ? 'none' : '1px solid #e2e8f0',
-                        background: moneda === m ? '#1e293b' : '#fff',
-                        color: moneda === m ? '#fff' : '#64748b',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {m}
-                    </button>
+                <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Moneda</label>
+                <div style={{ display: 'flex', gap: 4, padding: 4, background: 'rgba(15,23,42,.03)', borderRadius: 11, border: '1px solid var(--shell-border)' }}>
+                  {(['HNL', 'USD'] as const).map(m => (
+                    <button key={m} onClick={() => setMoneda(m)} style={{
+                      padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                      fontSize: 12, fontWeight: 700, transition: 'all .18s',
+                      background: moneda === m ? 'var(--accent)' : 'transparent',
+                      color: moneda === m ? '#fff' : 'var(--muted)',
+                      boxShadow: moneda === m ? '0 2px 8px rgba(37,99,235,.22)' : 'none',
+                    }}>{m}</button>
                   ))}
                 </div>
               </div>
               <div>
-                <label className="text-xs font-semibold text-gray-600 uppercase mb-2 block">Período</label>
-                <div className="flex gap-2">
-                  {['semana', 'mes', 'trimestre'].map(p => (
-                    <button
-                      key={p}
-                      onClick={() => setFiltro(p)}
-                      style={{
-                        padding: '8px 14px',
-                        border: filtro === p ? 'none' : '1px solid #e2e8f0',
-                        background: filtro === p ? '#1e293b' : '#fff',
-                        color: filtro === p ? '#fff' : '#64748b',
-                        borderRadius: 6,
-                        fontSize: 12,
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        textTransform: 'capitalize',
-                      }}
-                    >
-                      {p}
-                    </button>
+                <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Período</label>
+                <div style={{ display: 'flex', gap: 4, padding: 4, background: 'rgba(15,23,42,.03)', borderRadius: 11, border: '1px solid var(--shell-border)' }}>
+                  {[{ k: 'semana', l: '7 días' }, { k: 'mes', l: '30 días' }, { k: 'trimestre', l: '90 días' }].map(p => (
+                    <button key={p.k} onClick={() => setFiltro(p.k)} style={{
+                      padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                      fontSize: 12, fontWeight: 700, transition: 'all .18s',
+                      background: filtro === p.k ? 'var(--accent)' : 'transparent',
+                      color: filtro === p.k ? '#fff' : 'var(--muted)',
+                      boxShadow: filtro === p.k ? '0 2px 8px rgba(37,99,235,.22)' : 'none',
+                    }}>{p.l}</button>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* KPIs */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-              <div className="bg-green-50 rounded-lg p-6 border border-green-100">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-xs font-semibold text-green-600 uppercase mb-2">Ingresos</p>
-                    <p className="text-3xl font-light text-green-900">
-                      {moneda === 'USD' ? '$' : 'L'} {displayIngresos.toLocaleString()}
-                    </p>
-                    <p className="text-xs text-green-600 mt-2">↑ 12% vs mes anterior</p>
-                  </div>
-                  <TrendingUp className="text-green-500" size={28} />
+            {/* ── KPI Cards ───────────────────────────────── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+              <div className="kpi-card kpi-card-emerald" style={{ animationDelay: '0ms' }}>
+                <div className="kpi-icon-wrap"><TrendingUp size={18} /></div>
+                <div className="kpi-label">Ingresos</div>
+                <div className="kpi-value" style={{ fontSize: 24 }}>{symb} {displayIngresos.toLocaleString('es-HN')}</div>
+                <div className="kpi-sub">
+                  <span className="kpi-trend-badge kpi-trend-up">Activo</span>
+                  <span className="kpi-sub-text">Total del período</span>
                 </div>
               </div>
-
-              <div className="bg-red-50 rounded-lg p-6 border border-red-100">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-xs font-semibold text-red-600 uppercase mb-2">Egresos</p>
-                    <p className="text-3xl font-light text-red-900">
-                      {moneda === 'USD' ? '$' : 'L'} {displayEgresos.toLocaleString()}
-                    </p>
-                    <p className="text-xs text-red-600 mt-2">Gastos totales</p>
-                  </div>
-                  <TrendingDown className="text-red-500" size={28} />
-                </div>
+              <div className="kpi-card kpi-card-rose" style={{ animationDelay: '60ms' }}>
+                <div className="kpi-icon-wrap"><TrendingDown size={18} /></div>
+                <div className="kpi-label">Egresos</div>
+                <div className="kpi-value" style={{ fontSize: 24 }}>{symb} {displayEgresos.toLocaleString('es-HN')}</div>
+                <div className="kpi-sub"><span className="kpi-sub-text">Gastos totales</span></div>
               </div>
-
-              <div className="bg-blue-50 rounded-lg p-6 border border-blue-100">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-xs font-semibold text-blue-600 uppercase mb-2">Saldo Neto</p>
-                    <p className="text-3xl font-light text-blue-900">
-                      {moneda === 'USD' ? '$' : 'L'} {displaySaldo.toLocaleString()}
-                    </p>
-                    <p className="text-xs text-blue-600 mt-2">Disponible</p>
-                  </div>
-                  <Zap className="text-blue-500" size={28} />
+              <div className="kpi-card kpi-card-blue" style={{ animationDelay: '120ms' }}>
+                <div className="kpi-icon-wrap"><Zap size={18} /></div>
+                <div className="kpi-label">Saldo Neto</div>
+                <div className="kpi-value" style={{ fontSize: 24 }}>{symb} {displaySaldo.toLocaleString('es-HN')}</div>
+                <div className="kpi-sub">
+                  {displaySaldo >= 0
+                    ? <span className="kpi-trend-badge kpi-trend-up">Positivo</span>
+                    : <span className="kpi-trend-badge kpi-trend-down">Negativo</span>}
+                  <span className="kpi-sub-text">Balance disponible</span>
                 </div>
               </div>
             </div>
 
-            {/* Conversión de moneda */}
-            <div className="bg-amber-50 border border-amber-100 rounded-lg p-4 mb-8">
-              <p className="text-sm text-amber-900">
-                <strong>💱 Tipo de cambio:</strong> 1 USD = L {data.tipoCambio.toFixed(2)}
-              </p>
+            {/* ── Tipo de cambio ─────────────────────────── */}
+            <div className="alert-banner alert-banner-orange" style={{ marginBottom: 20 }}>
+              <div className="alert-banner-icon" style={{ fontSize: 14 }}>💱</div>
+              <div>
+                <p className="alert-banner-title">Tipo de cambio activo</p>
+                <p className="alert-banner-desc">1 USD = L {data.tipoCambio.toFixed(2)} · Equivalente en USD: ${data.ingresoUSD.toLocaleString('en-US')}</p>
+              </div>
             </div>
 
-            {/* Gráficos y tabla */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Gráfico de pastel */}
-              <div className="bg-white rounded-lg border border-gray-200 p-6 lg:col-span-1">
-                <h3 className="text-lg font-light text-gray-900 mb-4">Proporción I/E</h3>
-                <div className="flex justify-center">
+            {/* ── Proporción + Movimientos ───────────────── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 20, marginBottom: 20 }}>
+
+              {/* Pie chart panel */}
+              <div className="panel-card" style={{ display: 'flex', flexDirection: 'column' }}>
+                <p className="panel-card-title"><BarChart3 size={15} color="var(--accent)" /> Proporción I/E</p>
+                <div style={{ display: 'flex', justifyContent: 'center', flex: 1 }}>
                   <PieChart ingresos={data.ingresoTotal} egresos={data.egresosTotal} />
                 </div>
-                <div className="mt-4 space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Ingresos:</span>
-                    <span className="font-semibold text-green-600">
-                      {data.ingresoTotal + data.egresosTotal > 0 
-                        ? ((data.ingresoTotal / (data.ingresoTotal + data.egresosTotal)) * 100).toFixed(0) 
+                <div style={{ display: 'flex', flexDirection: 'column', marginTop: 8 }}>
+                  <div className="stat-row">
+                    <span className="stat-row-label">Ingresos</span>
+                    <span className="stat-row-value" style={{ color: 'var(--success)' }}>
+                      {data.ingresoTotal + data.egresosTotal > 0
+                        ? ((data.ingresoTotal / (data.ingresoTotal + data.egresosTotal)) * 100).toFixed(0)
                         : 0}%
                     </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Egresos:</span>
-                    <span className="font-semibold text-red-600">
-                      {data.ingresoTotal + data.egresosTotal > 0 
-                        ? ((data.egresosTotal / (data.ingresoTotal + data.egresosTotal)) * 100).toFixed(0) 
+                  <div className="stat-row" style={{ borderBottom: 'none' }}>
+                    <span className="stat-row-label">Egresos</span>
+                    <span className="stat-row-value" style={{ color: 'var(--danger)' }}>
+                      {data.ingresoTotal + data.egresosTotal > 0
+                        ? ((data.egresosTotal / (data.ingresoTotal + data.egresosTotal)) * 100).toFixed(0)
                         : 0}%
                     </span>
                   </div>
@@ -424,206 +350,174 @@ export const Finance: React.FC = () => {
               </div>
 
               {/* Movimientos recientes */}
-              <div className="bg-white rounded-lg border border-gray-200 p-6 lg:col-span-2">
-                <h3 className="text-lg font-light text-gray-900 mb-4">Movimientos Recientes</h3>
-                <div className="space-y-3">
-                  {data.movimientos && data.movimientos.length > 0 ? (
-                    data.movimientos.map((mov, i) => (
-                      <div key={i} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                        <div className="flex items-center gap-3 flex-1">
-                          <div
-                            className="w-3 h-3 rounded-full"
-                            style={{ background: mov.tipo === 'ingreso' ? '#10b981' : '#ef4444' }}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-gray-900 font-medium">{mov.concepto}</p>
-                            <p className="text-xs text-gray-500">{mov.fecha}</p>
-                          </div>
+              <div className="panel-card">
+                <p className="panel-card-title"><TrendingUp size={15} color="var(--accent)" /> Movimientos Recientes</p>
+                {data.movimientos && data.movimientos.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                    <div style={{ position: 'absolute', left: 13, top: 10, bottom: 8, width: 1.5, background: 'linear-gradient(to bottom, rgba(37,99,235,.25), transparent)', borderRadius: 99 }} />
+                    {data.movimientos.map((mov, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', paddingBottom: i < data.movimientos.length - 1 ? 14 : 0 }}>
+                        <div style={{
+                          width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                          background: mov.tipo === 'ingreso' ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)',
+                          border: `1.5px solid ${mov.tipo === 'ingreso' ? 'rgba(16,185,129,.25)' : 'rgba(239,68,68,.25)'}`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          position: 'relative', zIndex: 1, boxShadow: '0 0 0 3px var(--shell-bg)',
+                        }}>
+                          {mov.tipo === 'ingreso'
+                            ? <TrendingUp size={12} color="#10b981" />
+                            : <TrendingDown size={12} color="#ef4444" />}
                         </div>
-                        <span
-                          className="text-sm font-semibold ml-2 whitespace-nowrap"
-                          style={{ color: mov.tipo === 'ingreso' ? '#10b981' : '#ef4444' }}
-                        >
-                          {mov.tipo === 'ingreso' ? '+' : '-'} {moneda === 'USD' ? '$' : 'L'}
-                          {(moneda === 'USD' ? Math.round(mov.monto / data.tipoCambio) : mov.monto).toLocaleString()}
-                        </span>
+                        <div style={{ flex: 1, paddingTop: 4 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-h)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mov.concepto}</span>
+                            <span style={{ fontWeight: 700, fontSize: 13, flexShrink: 0, color: mov.tipo === 'ingreso' ? 'var(--success)' : 'var(--danger)', fontVariantNumeric: 'tabular-nums' }}>
+                              {mov.tipo === 'ingreso' ? '+' : '−'} {symb} {(moneda === 'USD' ? Math.round(mov.monto / data.tipoCambio) : mov.monto).toLocaleString('es-HN')}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--shell-border-subtle)', padding: '1px 7px', borderRadius: 99, fontWeight: 600 }}>{mov.fecha}</span>
+                        </div>
                       </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-gray-400 text-xs">
-                      No hay movimientos recientes registrados.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Reporte de Gastos Detallados por Categoría */}
-            <div className="mt-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-100 pb-4 mb-6">
-                <div className="flex items-center gap-2">
-                  <BarChart3 className="text-indigo-600 animate-pulse" size={22} />
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-800">Reporte Mensual de Egresos por Categoría</h3>
-                    <p className="text-xs text-gray-400">Analiza el detalle al centavo de tus gastos contables.</p>
-                  </div>
-                </div>
-
-                {/* Alternar entre Caja Chica y Gastos Generales */}
-                <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-250/50">
-                  <button
-                    onClick={() => {
-                      setTipoGastoReporte('caja_chica');
-                      setCategoriaExpandida(null);
-                    }}
-                    className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${
-                      tipoGastoReporte === 'caja_chica'
-                        ? 'bg-white text-slate-800 shadow-sm'
-                        : 'text-gray-400 hover:text-gray-600'
-                    }`}
-                  >
-                    ☕ Caja Chica
-                  </button>
-                  <button
-                    onClick={() => {
-                      setTipoGastoReporte('general');
-                      setCategoriaExpandida(null);
-                    }}
-                    className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${
-                      tipoGastoReporte === 'general'
-                        ? 'bg-white text-slate-800 shadow-sm'
-                        : 'text-gray-400 hover:text-gray-600'
-                    }`}
-                  >
-                    🏢 Gastos Generales
-                  </button>
-                </div>
-              </div>
-
-              {/* Contenido del Reporte */}
-              <div className="space-y-4">
-                {totalTipoGasto === 0 ? (
-                  <div className="text-center py-12 text-gray-400 text-sm">
-                    No se han registrado gastos de tipo <strong className="text-slate-600">{tipoGastoReporte === 'caja_chica' ? 'Caja Chica' : 'Gastos Generales'}</strong> en este período.
+                    ))}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    {/* Barra de progreso / Lista de Categorías */}
-                    <div className="lg:col-span-6 space-y-3">
-                      <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Distribución</h4>
-                      <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-                        {egresosPorCategoria.map(c => {
-                          const porcentaje = totalTipoGasto > 0 ? (c.total / totalTipoGasto) * 100 : 0;
-                          if (c.total === 0) return null; // No mostrar las vacías en la distribución para no saturar
-
-                          const estaExpandida = categoriaExpandida === c.id;
-
-                          return (
-                            <div 
-                              key={c.id} 
-                              onClick={() => setCategoriaExpandida(estaExpandida ? null : c.id)}
-                              className={`p-3 rounded-lg border transition-all cursor-pointer ${
-                                estaExpandida 
-                                  ? 'bg-indigo-50/50 border-indigo-200 shadow-sm' 
-                                  : 'bg-white border-gray-150 hover:bg-slate-50/60'
-                              }`}
-                            >
-                              <div className="flex justify-between items-center mb-1.5">
-                                <span className="font-semibold text-xs text-slate-700 flex items-center gap-1.5">
-                                  <span>📁</span> {c.nombre}
-                                  <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-gray-500 font-normal">
-                                    {c.transacciones.length} {c.transacciones.length === 1 ? 'reg.' : 'regs.'}
-                                  </span>
-                                </span>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-xs text-slate-800">
-                                    L {c.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
-                                  </span>
-                                  <span className="text-[10px] text-gray-400 font-mono w-8 text-right">
-                                    {porcentaje.toFixed(0)}%
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                                <div 
-                                  className="bg-indigo-600 h-full rounded-full transition-all duration-500" 
-                                  style={{ width: `${porcentaje}%` }} 
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Detalle interactivo de la Categoría Seleccionada */}
-                    <div className="lg:col-span-6 border border-gray-150 rounded-xl bg-slate-50/30 p-4 flex flex-col min-h-[350px]">
-                      {categoriaExpandida === null ? (
-                        <div className="flex-1 flex flex-col justify-center items-center text-center p-6">
-                          <span className="text-3xl mb-2">👈</span>
-                          <h5 className="font-semibold text-xs text-slate-700">Selecciona una categoría</h5>
-                          <p className="text-xxs text-gray-400 mt-1 max-w-[240px]">
-                            Haz clic sobre cualquier categoría para ver el desglose al centavo: qué día se compró, qué factura y a qué precio.
-                          </p>
-                        </div>
-                      ) : (
-                        (() => {
-                          const catSel = egresosPorCategoria.find(c => c.id === categoriaExpandida);
-                          if (!catSel) return null;
-
-                          return (
-                            <div className="space-y-3 flex-1 flex flex-col">
-                              <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-lg">📁</span>
-                                  <div>
-                                    <h5 className="font-bold text-xs text-slate-800">{catSel.nombre}</h5>
-                                    <p className="text-[10px] text-gray-400">{catSel.transacciones.length} transacciones registradas</p>
-                                  </div>
-                                </div>
-                                <span className="bg-indigo-100 text-indigo-800 font-bold text-xs px-2.5 py-1 rounded-full">
-                                  Total: L {catSel.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
-                                </span>
-                              </div>
-
-                              <div className="flex-1 overflow-y-auto max-h-[320px] divide-y divide-gray-100">
-                                {catSel.transacciones.map((tr, index) => (
-                                  <div key={index} className="py-2.5 flex justify-between items-start gap-4">
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex items-center gap-1.5 mb-0.5">
-                                        <span className="text-[10px] bg-slate-100 font-mono text-gray-500 px-1 py-0.25 rounded">
-                                          {tr.fecha}
-                                        </span>
-                                        <span className="font-semibold text-slate-700 text-xxs truncate">
-                                          {tr.proveedor}
-                                        </span>
-                                      </div>
-                                      <p className="text-xxs text-slate-500 italic truncate">{tr.descripcion}</p>
-                                      {tr.no_factura && (
-                                        <p className="text-[9px] text-gray-400 font-mono">Factura: {tr.no_factura}</p>
-                                      )}
-                                    </div>
-                                    <div className="text-right font-bold text-slate-800 text-xs whitespace-nowrap">
-                                      L {tr.monto.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })()
-                      )}
-                    </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 160, gap: 8 }}>
+                    <DollarSign size={24} color="var(--shell-border-strong)" />
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>No hay movimientos recientes</span>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Footer */}
-            <div className="mt-12 p-6 bg-blue-50 rounded-lg border border-blue-100">
-              <p className="text-sm text-blue-900">
-                <strong>📋 Nota:</strong> Los ingresos y egresos se calculan automáticamente desde las reservas y gastos registrados. Asegúrate de sincronizar regularmente los datos.
-              </p>
+            {/* ── Egresos por Categoría ──────────────────── */}
+            <div className="panel-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+                <div>
+                  <p className="panel-card-title" style={{ marginBottom: 2 }}><BarChart3 size={15} color="var(--accent)" /> Egresos por Categoría</p>
+                  <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Desglose detallado de gastos contables del período</p>
+                </div>
+                <div style={{ display: 'flex', gap: 4, padding: 4, background: 'rgba(15,23,42,.03)', borderRadius: 11, border: '1px solid var(--shell-border)' }}>
+                  {([{ k: 'caja_chica' as const, l: '☕ Caja Chica' }, { k: 'general' as const, l: '🏢 Gastos Generales' }]).map(t => (
+                    <button key={t.k} onClick={() => { setTipoGastoReporte(t.k); setCategoriaExpandida(null); }}
+                      style={{
+                        padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                        fontSize: 12, fontWeight: 700, transition: 'all .18s',
+                        background: tipoGastoReporte === t.k ? 'var(--card-bg)' : 'transparent',
+                        color: tipoGastoReporte === t.k ? 'var(--accent)' : 'var(--muted)',
+                        boxShadow: tipoGastoReporte === t.k ? '0 1px 4px rgba(15,23,42,.1)' : 'none',
+                      }}>{t.l}</button>
+                  ))}
+                </div>
+              </div>
+
+              {totalTipoGasto === 0 ? (
+                <div style={{ padding: '40px 0', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                  <BarChart3 size={28} color="var(--shell-border-strong)" />
+                  <p style={{ fontSize: 13, color: 'var(--muted)' }}>
+                    Sin gastos de <strong style={{ color: 'var(--text-h)' }}>{tipoGastoReporte === 'caja_chica' ? 'Caja Chica' : 'Gastos Generales'}</strong> en este período
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+
+                  {/* Distribución */}
+                  <div>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 12 }}>Distribución</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto', paddingRight: 4 }}>
+                      {egresosPorCategoria.map(c => {
+                        if (c.total === 0) return null;
+                        const pct = totalTipoGasto > 0 ? (c.total / totalTipoGasto) * 100 : 0;
+                        const sel = categoriaExpandida === c.id;
+                        return (
+                          <div key={c.id} onClick={() => setCategoriaExpandida(sel ? null : c.id)}
+                            style={{
+                              padding: '12px 14px', borderRadius: 12, cursor: 'pointer', transition: 'all .18s',
+                              background: sel ? 'var(--accent-bg)' : 'var(--card-bg)',
+                              border: `1px solid ${sel ? 'var(--accent-border)' : 'var(--shell-border)'}`,
+                              boxShadow: sel ? '0 2px 8px rgba(37,99,235,.08)' : 'none',
+                            }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-h)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                📁 {c.nombre}
+                                <span style={{ fontSize: 10, background: 'var(--shell-border-subtle)', padding: '1px 7px', borderRadius: 99, color: 'var(--muted)', fontWeight: 500 }}>
+                                  {c.transacciones.length} reg.
+                                </span>
+                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-h)', fontVariantNumeric: 'tabular-nums' }}>
+                                  L {c.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                                </span>
+                                <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace', width: 28, textAlign: 'right' }}>{pct.toFixed(0)}%</span>
+                              </div>
+                            </div>
+                            <div className="kpi-progress" style={{ height: 6 }}>
+                              <div className="kpi-progress-fill" style={{ width: `${pct}%`, background: sel ? 'var(--accent)' : 'linear-gradient(90deg, #8b5cf6, #3b82f6)' }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Detalle de categoría seleccionada */}
+                  <div style={{ border: '1px solid var(--shell-border)', borderRadius: 14, background: 'rgba(15,23,42,.015)', padding: 16, display: 'flex', flexDirection: 'column', minHeight: 320 }}>
+                    {categoriaExpandida === null ? (
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 8, textAlign: 'center', padding: 24 }}>
+                        <span style={{ fontSize: 28 }}>👈</span>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-h)', margin: 0 }}>Selecciona una categoría</p>
+                        <p style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 240, lineHeight: 1.5 }}>
+                          Haz clic en cualquier categoría para ver el desglose detallado de transacciones.
+                        </p>
+                      </div>
+                    ) : (() => {
+                      const catSel = egresosPorCategoria.find(c => c.id === categoriaExpandida);
+                      if (!catSel) return null;
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid var(--shell-border-subtle)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 18 }}>📁</span>
+                              <div>
+                                <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-h)', margin: 0 }}>{catSel.nombre}</p>
+                                <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>{catSel.transacciones.length} transacciones</p>
+                              </div>
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-bg)', padding: '4px 12px', borderRadius: 99, border: '1px solid var(--accent-border)' }}>
+                              L {catSel.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          <div style={{ flex: 1, overflowY: 'auto', maxHeight: 320, display: 'flex', flexDirection: 'column' }}>
+                            {catSel.transacciones.map((tr, idx) => (
+                              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--shell-border-subtle)' }}>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                    <span style={{ fontSize: 10, fontFamily: 'monospace', background: 'var(--shell-border-subtle)', padding: '1px 6px', borderRadius: 6, color: 'var(--muted)' }}>{tr.fecha}</span>
+                                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-h)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tr.proveedor}</span>
+                                  </div>
+                                  <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tr.descripcion}</p>
+                                  {tr.no_factura && <p style={{ fontSize: 10, color: 'var(--muted)', margin: '1px 0 0', fontFamily: 'monospace' }}>Fact: {tr.no_factura}</p>}
+                                </div>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-h)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                                  L {tr.monto.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── Footer ──────────────────────────────────── */}
+            <div className="alert-banner alert-banner-blue" style={{ marginTop: 20 }}>
+              <div className="alert-banner-icon"><DollarSign size={16} /></div>
+              <div>
+                <p className="alert-banner-title">Datos en tiempo real</p>
+                <p className="alert-banner-desc">Ingresos y egresos calculados automáticamente desde reservas y gastos registrados. Sincroniza regularmente.</p>
+              </div>
             </div>
           </>
         )

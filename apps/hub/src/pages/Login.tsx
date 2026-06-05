@@ -68,8 +68,9 @@ export const Login = () => {
       password: regPassword,
       options: {
         data: {
-          full_name: regNombre.trim(),
-          nombre_empresa: regEmpresa.trim(),
+          full_name:       regNombre.trim(),
+          nombre_empresa:  regEmpresa.trim(),
+          tipo_registro:   'propietario',
         },
       },
     });

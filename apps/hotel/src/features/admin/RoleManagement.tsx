@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, EyeOff, RefreshCw, Trash2, Check, X, UserPlus, Users, Mail } from 'lucide-react';
+import { Eye, EyeOff, RefreshCw, Trash2, Check, X, UserPlus, Users, Mail, Search, AlertTriangle } from 'lucide-react';
 import { obtenerTodosLosUsuarios, asignarRol, cambiarEstadoUsuario, UsuarioRol } from '../../api/usuariosRolesService';
 import { crearInvitacion, obtenerInvitacionesActivas, resendInvitacion, eliminarInvitacion, Invitacion } from '../../api/invitacionesService';
-import { crearUsuarioManual } from '../../api/usuariosService';
+import { crearUsuarioManual, eliminarUsuario, buscarUsuarioPorEmail, eliminarUsuarioPorEmail, BusquedaUsuario } from '../../api/usuariosService';
 
 const ROL_COLOR: Record<string, string> = {
   PROPIETARIO: '#2563eb',
@@ -61,6 +61,12 @@ export const RoleManagement: React.FC = () => {
   const [manualRol,     setManualRol]     = useState<typeof ROLES[number]>('RECEPCIONISTA');
   const [manualEstado,  setManualEstado]  = useState<'activo'|'inactivo'|'suspendido'>('activo');
   const [manualLoading, setManualLoading] = useState(false);
+
+  // Buscar / eliminar cuenta por email
+  const [buscarEmail,    setBuscarEmail]    = useState('');
+  const [buscarResult,   setBuscarResult]   = useState<BusquedaUsuario | null>(null);
+  const [buscarLoading,  setBuscarLoading]  = useState(false);
+  const [eliminandoCuenta, setEliminandoCuenta] = useState(false);
 
   const showToast = (msg: string, type: 'ok' | 'err' = 'ok') => {
     setToast({ msg, type });
@@ -151,6 +157,49 @@ export const RoleManagement: React.FC = () => {
       showToast('Usuario rechazado.');
     } else {
       showToast(res.error ?? 'Error.', 'err');
+    }
+  };
+
+  const handleBuscarCuenta = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!buscarEmail.trim()) return;
+    setBuscarLoading(true);
+    setBuscarResult(null);
+    try {
+      const result = await buscarUsuarioPorEmail(buscarEmail.trim());
+      setBuscarResult(result);
+    } catch (err: any) {
+      showToast(err.message ?? 'Usuario no encontrado.', 'err');
+    } finally {
+      setBuscarLoading(false);
+    }
+  };
+
+  const handleEliminarCuentaCompleta = async () => {
+    if (!buscarResult) return;
+    if (!confirm(`¿Eliminar completamente la cuenta de ${buscarResult.email}?\n\nEsto borrará su acceso a todo el sistema y no se puede deshacer.`)) return;
+    setEliminandoCuenta(true);
+    try {
+      await eliminarUsuarioPorEmail(buscarResult.email!);
+      setBuscarResult(null);
+      setBuscarEmail('');
+      setUsuarios(p => p.filter(u => u.user_id !== buscarResult.user_id));
+      showToast('Cuenta eliminada del sistema.');
+    } catch (err: any) {
+      showToast(err.message ?? 'Error al eliminar.', 'err');
+    } finally {
+      setEliminandoCuenta(false);
+    }
+  };
+
+  const handleEliminarUsuario = async (u: UsuarioRol) => {
+    if (!confirm(`¿Eliminar a ${u.email} del sistema?\n\nEsto revocará su acceso por completo.`)) return;
+    try {
+      await eliminarUsuario(u.user_id);
+      setUsuarios(p => p.filter(x => x.user_id !== u.user_id));
+      showToast('Usuario eliminado.');
+    } catch (err: any) {
+      showToast(err.message ?? 'Error al eliminar.', 'err');
     }
   };
 
@@ -282,6 +331,69 @@ export const RoleManagement: React.FC = () => {
             </form>
           </div>
 
+          {/* ── Buscar y eliminar cuenta por correo ── */}
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+            <div className="flex items-center gap-2 mb-1">
+              <Search size={15} className="text-red-500"/>
+              <h3 className="text-sm font-semibold text-red-700">Buscar cuenta por correo</h3>
+            </div>
+            <p className="text-xs text-red-500 mb-4">
+              Útil para gestionar usuarios registrados como propietarios que no aparecen en la lista.
+            </p>
+            <form onSubmit={handleBuscarCuenta} className="flex gap-3">
+              <input
+                type="email"
+                value={buscarEmail}
+                onChange={e => { setBuscarEmail(e.target.value); setBuscarResult(null); }}
+                placeholder="correo@ejemplo.com"
+                className="flex-1 px-3 py-2 rounded-xl border border-red-200 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 bg-white"
+              />
+              <button type="submit" disabled={buscarLoading || !buscarEmail.trim()}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-60 flex items-center gap-2">
+                {buscarLoading ? <RefreshCw size={13} className="animate-spin"/> : <Search size={13}/>}
+                Buscar
+              </button>
+            </form>
+
+            {buscarResult && (
+              <div className="mt-4 bg-white border border-red-200 rounded-xl p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1.5">
+                    <p className="text-sm font-semibold text-slate-800">{buscarResult.email}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {buscarResult.en_owners && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-xs font-bold">
+                          <AlertTriangle size={10}/> Registrado como Propietario
+                          {buscarResult.nombre_empresa && ` — ${buscarResult.nombre_empresa}`}
+                        </span>
+                      )}
+                      {buscarResult.roles.map((r, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded-md text-xs font-semibold"
+                          style={{ background: `${ROL_COLOR[r.rol] ?? '#64748b'}18`, color: ROL_COLOR[r.rol] ?? '#64748b' }}>
+                          {r.rol} · {r.estado}
+                        </span>
+                      ))}
+                      {!buscarResult.en_owners && buscarResult.roles.length === 0 && (
+                        <span className="text-xs text-slate-400">Sin rol asignado</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Registrado: {new Date(buscarResult.created_at).toLocaleDateString('es-HN')}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleEliminarCuentaCompleta}
+                    disabled={eliminandoCuenta}
+                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-60"
+                  >
+                    <Trash2 size={12}/>
+                    {eliminandoCuenta ? 'Eliminando...' : 'Eliminar cuenta'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* ── Invitaciones Activas ── */}
           {invActivas.length > 0 && (
             <div className="border border-slate-200 rounded-2xl overflow-hidden">
@@ -407,10 +519,18 @@ export const RoleManagement: React.FC = () => {
                             </button>
                           </div>
                         ) : (
-                          <button onClick={() => { setEditingId(u.user_id); setEditingRol(u.rol); setEditingEstado(u.estado); }}
-                            className="px-3 py-1.5 border border-slate-200 bg-slate-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-50 transition-colors">
-                            Editar
-                          </button>
+                          <div className="flex gap-2">
+                            <button onClick={() => { setEditingId(u.user_id); setEditingRol(u.rol); setEditingEstado(u.estado); }}
+                              className="px-3 py-1.5 border border-slate-200 bg-slate-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-50 transition-colors">
+                              Editar
+                            </button>
+                            {u.rol !== 'PROPIETARIO' && (
+                              <button onClick={() => handleEliminarUsuario(u)}
+                                className="flex items-center gap-1 px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-xs font-semibold hover:bg-red-50 transition-colors">
+                                <Trash2 size={11}/> Eliminar
+                              </button>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>

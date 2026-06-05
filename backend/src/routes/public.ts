@@ -1197,4 +1197,37 @@ router.get('/local-guide', async (req: Request, res: Response) => {
   }
 });
 
+// ── Validar invitación (sin auth requerida, usa supabaseAdmin para bypasear RLS) ──
+router.post('/invitacion/validar', async (req: Request, res: Response) => {
+  try {
+    const { email, codigo } = req.body as { email: string; codigo: string };
+    if (!email || !codigo) return res.status(400).json({ error: 'email y codigo requeridos' });
+
+    const client = supabaseAdmin ?? supabase;
+    const { data, error } = await client
+      .from('invitaciones')
+      .select('id, email, codigo_unico, id_hotel, rol_sugerido, owner_id, usado, expira_en')
+      .eq('email', email.toLowerCase().trim())
+      .eq('codigo_unico', codigo.toUpperCase().trim())
+      .maybeSingle();
+
+    if (error) return res.status(400).json({ error: error.message });
+    if (!data)  return res.json({ valida: false, razon: 'Código o correo inválido' });
+    if (data.usado) return res.json({ valida: false, razon: 'Este código ya fue utilizado' });
+    if (new Date(data.expira_en) < new Date()) {
+      return res.json({ valida: false, razon: 'El código de invitación ha expirado' });
+    }
+
+    return res.json({
+      valida:       true,
+      id_hotel:     data.id_hotel,
+      rol_sugerido: data.rol_sugerido,
+      owner_id:     data.owner_id,
+      codigo:       data.codigo_unico,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

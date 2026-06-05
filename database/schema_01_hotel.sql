@@ -340,6 +340,30 @@ CREATE TABLE IF NOT EXISTS public.cierres_diarios (
   CONSTRAINT cierres_hotel_fecha_unico UNIQUE (id_hotel, fecha)
 );
 
+-- ── Mantenimiento ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.tareas_mantenimiento (
+  id_tarea          uuid        NOT NULL DEFAULT gen_random_uuid(),
+  id_hotel          uuid        NOT NULL REFERENCES public.hoteles(id_hotel) ON DELETE CASCADE,
+  owner_id          uuid        NOT NULL REFERENCES auth.users(id),
+  id_habitacion     uuid        REFERENCES public.habitaciones(id_habitacion) ON DELETE SET NULL,
+  titulo            text        NOT NULL,
+  descripcion       text,
+  prioridad         varchar     NOT NULL DEFAULT 'media'
+                      CHECK (prioridad IN ('baja','media','alta','urgente')),
+  estado            varchar     NOT NULL DEFAULT 'pendiente'
+                      CHECK (estado IN ('pendiente','en_progreso','completada','cancelada')),
+  asignado_a        uuid        REFERENCES auth.users(id) ON DELETE SET NULL,
+  asignado_nombre   varchar,
+  creado_por        uuid        REFERENCES auth.users(id) ON DELETE SET NULL,
+  creado_nombre     varchar,
+  fecha_limite      date,
+  completada_at     timestamptz,
+  notas             text,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT tareas_mantenimiento_pkey PRIMARY KEY (id_tarea)
+);
+
 -- ── Chat ──────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.chat_channels (
   id           uuid        NOT NULL DEFAULT gen_random_uuid(),
@@ -466,6 +490,7 @@ ALTER TABLE public.saldos_clientes       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.creditos_empresa      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.facturas              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cierres_diarios       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tareas_mantenimiento  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_channels         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_messages         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_read_status      ENABLE ROW LEVEL SECURITY;
@@ -502,6 +527,7 @@ CREATE POLICY "saldos_all"   ON public.saldos_clientes     FOR ALL USING (EXISTS
 CREATE POLICY "creditemp_all" ON public.creditos_empresa   FOR ALL USING (EXISTS (SELECT 1 FROM public.empresas e WHERE e.id_empresa = creditos_empresa.id_empresa AND public.tiene_acceso_hotel(e.id_hotel)));
 CREATE POLICY "fact_all"   ON public.facturas        FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
 CREATE POLICY "cierre_all" ON public.cierres_diarios FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
+CREATE POLICY "tarea_all"  ON public.tareas_mantenimiento FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
 CREATE POLICY "chch_all"   ON public.chat_channels   FOR ALL USING (public.tiene_acceso_hotel(id_hotel));
 CREATE POLICY "chmsg_select" ON public.chat_messages FOR SELECT USING (is_deleted = false AND EXISTS (SELECT 1 FROM public.chat_channels cc WHERE cc.id = chat_messages.channel_id AND public.tiene_acceso_hotel(cc.id_hotel)));
 CREATE POLICY "chmsg_insert" ON public.chat_messages FOR INSERT WITH CHECK (sender_id = auth.uid() AND EXISTS (SELECT 1 FROM public.chat_channels cc WHERE cc.id = chat_messages.channel_id AND public.tiene_acceso_hotel(cc.id_hotel)));
@@ -550,6 +576,81 @@ SELECT h.id_habitacion, h.id_hotel, h.codigo_habitacion, h.nombre_habitacion, h.
 FROM public.habitaciones h
 LEFT JOIN public.tipos_habitacion t ON t.id_tipo_habitacion = h.id_tipo_habitacion;
 GRANT SELECT ON public.habitaciones_con_detalles TO authenticated;
+
+-- ── Vista auditoría legible ───────────────────────────────────────────────────
+CREATE OR REPLACE VIEW public.vw_audit_log_legible AS
+SELECT
+  al.id,
+  al.owner_id,
+  al.id_hotel,
+  al.accion,
+  al.entidad,
+  al.entidad_id,
+  al.usuario_id,
+  al.usuario_email,
+  al.usuario_rol,
+  al.datos_anteriores,
+  al.datos_nuevos,
+  al.cambios_resumidos,
+  al.ip_cliente,
+  al.created_at                                                         AS created_at_iso,
+  to_char(al.created_at AT TIME ZONE 'America/Tegucigalpa',
+          'DD/MM/YYYY HH24:MI:SS')                                      AS fecha_hora,
+  EXTRACT(EPOCH FROM (now() - al.created_at))::integer                  AS segundos_atras,
+  NULL::text                                                             AS user_agent,
+  NULL::text                                                             AS referencia_externa,
+  NULL::text                                                             AS notas
+FROM public.audit_log al;
+
+GRANT SELECT ON public.vw_audit_log_legible TO authenticated;
+
+-- ── Función estadísticas auditoría ───────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_estadisticas_auditoria(
+  p_hotel_id uuid,
+  p_dias     integer DEFAULT 30
+)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_desde     timestamptz := now() - (p_dias || ' days')::interval;
+  v_total     integer;
+  v_por_tipo  jsonb;
+  v_por_user  jsonb;
+  v_por_ent   jsonb;
+BEGIN
+  SELECT COUNT(*) INTO v_total
+    FROM public.audit_log WHERE id_hotel = p_hotel_id AND created_at >= v_desde;
+
+  SELECT jsonb_object_agg(accion, cnt) INTO v_por_tipo FROM (
+    SELECT accion, COUNT(*) AS cnt FROM public.audit_log
+    WHERE id_hotel = p_hotel_id AND created_at >= v_desde
+    GROUP BY accion ORDER BY cnt DESC LIMIT 10
+  ) t;
+
+  SELECT jsonb_object_agg(email, cnt) INTO v_por_user FROM (
+    SELECT COALESCE(usuario_email, 'Sistema') AS email, COUNT(*) AS cnt
+    FROM public.audit_log
+    WHERE id_hotel = p_hotel_id AND created_at >= v_desde
+    GROUP BY usuario_email ORDER BY cnt DESC LIMIT 10
+  ) t;
+
+  SELECT jsonb_object_agg(entidad, cnt) INTO v_por_ent FROM (
+    SELECT entidad, COUNT(*) AS cnt FROM public.audit_log
+    WHERE id_hotel = p_hotel_id AND created_at >= v_desde
+    GROUP BY entidad ORDER BY cnt DESC LIMIT 10
+  ) t;
+
+  RETURN jsonb_build_object(
+    'total_acciones',     v_total,
+    'acciones_por_tipo',  COALESCE(v_por_tipo, '{}'::jsonb),
+    'acciones_por_usuario', COALESCE(v_por_user, '{}'::jsonb),
+    'acciones_por_entidad', COALESCE(v_por_ent, '{}'::jsonb),
+    'periodo',            p_dias || ' días'
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.fn_estadisticas_auditoria(uuid, integer) TO authenticated;
+
 
 CREATE OR REPLACE VIEW public.v_mis_hoteles AS
 SELECT h.id_hotel, h.nombre_hotel, h.ciudad, h.estado, bm.owner_id,

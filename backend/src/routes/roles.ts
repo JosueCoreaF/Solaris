@@ -29,6 +29,14 @@ router.post('/crear', async (req, res) => {
     }
 
     if (!owner_id) {
+      const caller = await getAuthUser(req);
+      if (caller) {
+        const { ownerIds } = await getOwnerHotelIdsForUser(caller);
+        owner_id = ownerIds[0] || null;
+      }
+    }
+
+    if (!owner_id) {
       return res.status(400).json({ error: 'No se pudo resolver el owner_id. Proporciona owner_id o id_hotel válido.' });
     }
 

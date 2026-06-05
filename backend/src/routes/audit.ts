@@ -14,15 +14,26 @@ async function getAuthUser(req: express.Request) {
   return data.user;
 }
 
-// Verifica si el usuario es PROPIETARIO
+// Verifica si el usuario es PROPIETARIO o ADMIN
 async function isPropietario(userId: string): Promise<boolean> {
+  // Check 1: Is owner in 'owners' table?
+  const { data: ownerRow } = await db()
+    .from('owners')
+    .select('id_owner')
+    .eq('id_owner', userId)
+    .maybeSingle();
+  if (ownerRow) return true;
+
+  // Check 2: Is PROPIETARIO or ADMIN in usuarios_roles?
   const { data } = await db()
     .from('usuarios_roles')
     .select('rol')
-    .eq('usuario_id', userId)
+    .eq('user_id', userId)
     .eq('estado', 'activo')
-    .single();
-  return data?.rol === 'PROPIETARIO';
+    .in('rol', ['PROPIETARIO', 'ADMIN'])
+    .limit(1)
+    .maybeSingle();
+  return !!data;
 }
 
 // ─── Auditoría: Obtener todos los logs (Solo PROPIETARIO) ───────────────────

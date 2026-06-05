@@ -7,7 +7,7 @@ interface AuthContextValue {
   user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: string | null; user_id?: string }>;
+  signUp: (email: string, password: string, metadata?: Record<string, any>) => Promise<{ error: string | null; user_id?: string }>;
   signOut: () => Promise<void>;
 }
 
@@ -110,13 +110,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error: null };
   };
 
-  const signUp = async (email: string, password: string): Promise<{ error: string | null; user_id?: string }> => {
+  const signUp = async (email: string, password: string, metadata?: Record<string, any>): Promise<{ error: string | null; user_id?: string }> => {
     const maxRetries = 3;
     let lastError: any = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: metadata ? { data: metadata } : undefined,
+        });
         
         if (error) {
           // Check if it's a rate limiting error

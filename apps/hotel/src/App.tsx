@@ -21,6 +21,10 @@ import { PerfilUsuario } from './features/profile/PerfilUsuario';
 import { EstadoCuenta } from './features/bookings/EstadoCuenta';
 import { Clients } from './features/clients/Clients';
 import { ClienteDetalle } from './features/clients/ClienteDetalle';
+import { AuditPanel } from './features/admin/AuditPanel';
+import { ImportadorReservasPage } from './features/bookings/ImportadorReservasPage';
+import { MantenimientoPanel } from './features/mantenimiento/MantenimientoPanel';
+import { Housekeeping } from './features/housekeeping/Housekeeping';
 import { ToastProvider } from './components/Toast';
 import ChatOperativo from './components/ChatOperativo';
 import { FinanceAIProvider, FloatingAIProgressWidget } from './context/FinanceAIContext';
@@ -122,6 +126,38 @@ export const App: React.FC = () => {
                   element={
                     <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN', 'CONTADOR']}>
                       <ExportadorDatos />
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/auditoria"
+                  element={
+                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN']}>
+                      <AuditPanel />
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/importar-reservas"
+                  element={
+                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN']}>
+                      <ImportadorReservasPage />
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/mantenimiento"
+                  element={
+                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO']}>
+                      <MantenimientoPanel />
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/housekeeping"
+                  element={
+                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO']}>
+                      <Housekeeping />
                     </RoleGuard>
                   }
                 />

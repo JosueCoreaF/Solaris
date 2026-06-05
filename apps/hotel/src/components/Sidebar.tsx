@@ -75,6 +75,30 @@ const IconClients = () => (
     <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" fill="currentColor" />
   </svg>
 );
+const IconWrench = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+  </svg>
+);
+const IconSparkles = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3l1.88 5.76L20 10l-5.76 1.88L12 18l-1.88-5.76L4 10l5.76-1.88z" />
+    <path d="M5 3l.94 2.88L9 7l-2.88.94L5 11l-.94-2.88L1 7l2.88-.94z" strokeWidth="1.4" />
+    <path d="M19 17l.94 2.88L23 21l-2.88.94L19 25" strokeWidth="1.4" />
+  </svg>
+);
+const IconShield = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+  </svg>
+);
+const IconUploadCloud = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="16 16 12 12 8 16" />
+    <line x1="12" y1="12" x2="12" y2="21" />
+    <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+  </svg>
+);
 const IconChevron = () => (
   <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="6 9 12 15 18 9" />
@@ -95,6 +119,8 @@ const getSidebarSections = (role: string) => {
         items: [
           { to: '/', label: 'Panel', icon: IconPanel, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'] },
           { to: '/habitaciones', label: 'Habitaciones', icon: IconServices, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'] },
+          { to: '/housekeeping', label: 'Housekeeping', icon: IconSparkles, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'] },
+          { to: '/mantenimiento', label: 'Mantenimiento', icon: IconWrench, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'] },
           { to: '/reservas', label: 'Reservas', icon: IconReservations, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'] },
           { to: '/pagos', label: 'Pagos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/clientes', label: 'Clientes', icon: IconClients, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
@@ -108,8 +134,10 @@ const getSidebarSections = (role: string) => {
           { to: '/finanzas', label: 'Ingresos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/tarifas', label: 'Tarifas', icon: IconRates, roles: ['PROPIETARIO', 'ADMIN'] },
           { to: '/exportar', label: 'Exportar Datos', icon: IconExport, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
+          { to: '/importar-reservas', label: 'Importar Reservas', icon: IconUploadCloud, roles: ['PROPIETARIO', 'ADMIN'] },
           { to: '/config', label: 'Configuración', icon: IconSettings, roles: ['PROPIETARIO', 'ADMIN'] },
           { to: '/gestionar-roles', label: 'Roles y Permisos', icon: IconUsers, roles: ['PROPIETARIO'] },
+          { to: '/auditoria', label: 'Auditoría', icon: IconShield, roles: ['PROPIETARIO', 'ADMIN'] },
         ],
       },
       {

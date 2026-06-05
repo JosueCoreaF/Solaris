@@ -2,23 +2,26 @@ import { supabase } from './supabase';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
-async function getAuthHeader(): Promise<Record<string, string>> {
+async function getHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
-  return token ? { 'Authorization': `Bearer ${token}` } : {};
+  const hotelId = localStorage.getItem('active_hotel_id') || '';
+  return {
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    ...(hotelId ? { 'X-Hotel-ID': hotelId } : {}),
+  };
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const authHeader = await getAuthHeader();
+  const headers = await getHeaders();
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...authHeader,
-      ...(options.headers || {}),
-    },
+    headers: { 'Content-Type': 'application/json', ...headers, ...(options.headers || {}) },
   });
-  if (!res.ok) throw new Error(res.statusText);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || res.statusText);
+  }
   return res.json();
 }
 
@@ -53,171 +56,87 @@ export interface AuditLogsResponse {
   data: AuditLog[];
   limit: number;
   offset: number;
-  total: number;
 }
 
+const PREFIX = '/hotel/audit/logs';
+
 class AuditService {
-  // Obtener todos los logs con filtros opcionales
   async obtenerLogs(
-    limit = 100,
+    limit = 50,
     offset = 0,
     filtros?: {
       entidad?: string;
       accion?: string;
-      usuario_id?: string;
+      usuario?: string;
       fecha_desde?: string;
       fecha_hasta?: string;
     }
   ): Promise<AuditLogsResponse> {
-    const params = new URLSearchParams({
-      limit: limit.toString(),
-      offset: offset.toString(),
-    });
-
-    if (filtros?.entidad) params.append('entidad', filtros.entidad);
-    if (filtros?.accion) params.append('accion', filtros.accion);
-    if (filtros?.usuario_id) params.append('usuario_id', filtros.usuario_id);
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (filtros?.entidad)     params.append('entidad',     filtros.entidad);
+    if (filtros?.accion)      params.append('accion',      filtros.accion);
+    if (filtros?.usuario)     params.append('usuario',     filtros.usuario);
     if (filtros?.fecha_desde) params.append('fecha_desde', filtros.fecha_desde);
     if (filtros?.fecha_hasta) params.append('fecha_hasta', filtros.fecha_hasta);
-
-    return apiFetch<AuditLogsResponse>(`/audit-logs?${params.toString()}`);
+    return apiFetch<AuditLogsResponse>(`${PREFIX}?${params}`);
   }
 
-  // Obtener estadísticas de auditoría
   async obtenerEstadisticas(dias = 30): Promise<AuditStats> {
-    return apiFetch<AuditStats>(`/audit-logs/stats?dias=${dias}`);
+    return apiFetch<AuditStats>(`${PREFIX}/stats?dias=${dias}`);
   }
 
-  // Obtener detalles de un log específico
-  async obtenerLog(id: string): Promise<AuditLog> {
-    return apiFetch<AuditLog>(`/audit-logs/${id}`);
-  }
-
-  // Obtener historial completo de una entidad específica
-  async obtenerHistorialEntidad(
-    tipo: string,
-    id: string
-  ): Promise<AuditLog[]> {
-    return apiFetch<AuditLog[]>(`/audit-logs/entity/${tipo}/${id}`);
-  }
-
-  // Obtener auditoría de un usuario específico
-  async obtenerAuditoriaPorUsuario(
-    email: string,
-    limit = 100,
-    offset = 0
-  ): Promise<AuditLogsResponse> {
+  async buscar(query: string, limit = 50, offset = 0): Promise<AuditLogsResponse> {
     return apiFetch<AuditLogsResponse>(
-      `/audit-logs/user/${encodeURIComponent(email)}?limit=${limit}&offset=${offset}`
+      `${PREFIX}/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`
     );
   }
 
-  // Buscar en auditoría
-  async buscar(
-    query: string,
-    limit = 50,
-    offset = 0
-  ): Promise<AuditLogsResponse> {
-    return apiFetch<AuditLogsResponse>(
-      `/audit-logs/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`
-    );
-  }
-
-  // Exportar auditoría a CSV
-  async exportarCSV(
-    fecha_desde?: string,
-    fecha_hasta?: string
-  ): Promise<Blob> {
+  async exportarCSV(fecha_desde?: string, fecha_hasta?: string): Promise<Blob> {
+    const headers = await getHeaders();
     const params = new URLSearchParams();
     if (fecha_desde) params.append('fecha_desde', fecha_desde);
     if (fecha_hasta) params.append('fecha_hasta', fecha_hasta);
-
-    const authHeader = await getAuthHeader();
-    const res = await fetch(`${API_BASE}/audit-logs/export/csv?${params.toString()}`, {
-      headers: authHeader,
-    });
-    if (!res.ok) throw new Error(res.statusText);
+    const res = await fetch(`${API_BASE}${PREFIX}/export?${params}`, { headers });
+    if (!res.ok) throw new Error('Error exportando CSV');
     return res.blob();
   }
 
-  // Helper: Formatear fecha para lectura
   formatearFecha(fecha: string): string {
-    return new Date(fecha).toLocaleString('es-ES', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
+    return new Date(fecha).toLocaleString('es-HN', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
     });
   }
 
-  // Helper: Obtener icono para acción
   obtenerIconoAccion(accion: string): string {
-    switch (accion) {
-      case 'INSERT':
-      case 'CREATE_USER':
-        return 'CREAR';
-      case 'UPDATE':
-      case 'CHANGE_ROLE':
-        return 'EDITAR';
-      case 'DELETE':
-        return 'ELIMINAR';
-      case 'LOGIN':
-        return 'ACCESO';
-      case 'LOGOUT':
-        return 'BLOQUEO';
-      case 'ACCESS_REPORT':
-        return 'VER';
-      case 'APPLY_BALANCE':
-        return 'PAGO';
-      case 'CANCEL_PAYMENT':
-        return 'ERROR';
-      case 'CREATE_INVOICE':
-        return 'DOC';
-      default:
-        return '•';
-    }
+    const map: Record<string, string> = {
+      INSERT: '➕', CREATE_USER: '👤', UPDATE: '✏️', CHANGE_ROLE: '🔄',
+      DELETE: '🗑️', LOGIN: '🔑', LOGOUT: '🚪', APPLY_BALANCE: '💰',
+      CANCEL_PAYMENT: '↩️', CREATE_INVOICE: '📄', CHECK_IN: '🏠',
+      CHECK_OUT: '🏁', CANCEL_RESERVATION: '❌', BLOCK_ROOM: '🔒',
+      UNBLOCK_ROOM: '🔓',
+    };
+    return map[accion] || '•';
   }
 
-  // Helper: Obtener color para acción
   obtenerColorAccion(accion: string): string {
-    switch (accion) {
-      case 'INSERT':
-      case 'CREATE_USER':
-        return 'text-green-600';
-      case 'UPDATE':
-      case 'CHANGE_ROLE':
-        return 'text-blue-600';
-      case 'DELETE':
-        return 'text-red-600';
-      case 'LOGIN':
-        return 'text-purple-600';
-      case 'LOGOUT':
-        return 'text-yellow-600';
-      case 'APPLY_BALANCE':
-        return 'text-emerald-600';
-      case 'CANCEL_PAYMENT':
-        return 'text-orange-600';
-      default:
-        return 'text-gray-600';
-    }
+    if (['INSERT', 'CREATE_USER', 'CHECK_IN', 'UNBLOCK_ROOM'].includes(accion)) return 'text-emerald-600';
+    if (['UPDATE', 'CHANGE_ROLE', 'APPLY_BALANCE'].includes(accion)) return 'text-blue-600';
+    if (['DELETE', 'CANCEL_RESERVATION', 'CANCEL_PAYMENT', 'BLOCK_ROOM'].includes(accion)) return 'text-red-600';
+    if (['LOGIN'].includes(accion)) return 'text-violet-600';
+    if (['CHECK_OUT', 'LOGOUT'].includes(accion)) return 'text-amber-600';
+    return 'text-slate-500';
   }
 
-  // Helper: Obtener etiqueta amigable para acción
   obtenerEtiquetaAccion(accion: string): string {
     const map: Record<string, string> = {
-      'INSERT': 'Creado',
-      'UPDATE': 'Actualizado',
-      'DELETE': 'Eliminado',
-      'LOGIN': 'Ingreso',
-      'LOGOUT': 'Salida',
-      'ACCESS_REPORT': 'Acceso a Reporte',
-      'CREATE_USER': 'Usuario Creado',
-      'CHANGE_ROLE': 'Cambio de Rol',
-      'APPLY_BALANCE': 'Saldo Aplicado',
-      'CANCEL_PAYMENT': 'Pago Cancelado',
-      'CREATE_INVOICE': 'Factura Creada',
+      INSERT: 'Creado', UPDATE: 'Actualizado', DELETE: 'Eliminado',
+      LOGIN: 'Ingreso al sistema', LOGOUT: 'Cierre de sesión',
+      CREATE_USER: 'Usuario creado', CHANGE_ROLE: 'Rol cambiado',
+      APPLY_BALANCE: 'Saldo aplicado', CANCEL_PAYMENT: 'Pago anulado',
+      CREATE_INVOICE: 'Factura creada', CHECK_IN: 'Check-in',
+      CHECK_OUT: 'Check-out', CANCEL_RESERVATION: 'Reserva cancelada',
+      BLOCK_ROOM: 'Habitación bloqueada', UNBLOCK_ROOM: 'Habitación desbloqueada',
     };
     return map[accion] || accion;
   }

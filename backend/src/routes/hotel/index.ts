@@ -9,6 +9,7 @@ import auditRouter from './audit.js';
 import publicHotelRouter from './public.js';
 import habitacionesRouter from './habitaciones.js';
 import exportsRouter from './exports.js';
+import mantenimientoRouter from './mantenimiento.js';
 import { syncContext } from '../../controllers/hotel/contexto.controller.js';
 
 const router = express.Router();
@@ -24,6 +25,7 @@ router.use('/audit', auditRouter);
 router.use('/public', publicHotelRouter);
 router.use('/habitaciones', habitacionesRouter);
 router.use('/exports', exportsRouter);
+router.use('/mantenimiento', mantenimientoRouter);
 
 export { chatRouter };
 export default router;
