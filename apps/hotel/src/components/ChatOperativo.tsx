@@ -11,6 +11,7 @@ import {
 } from '../api/chatService';
 import { fetchReservas, fetchPagos, fetchHabitaciones, fetchHuespedes } from '../api/bookingsService';
 import { useRole } from '../hooks/useRole';
+import { canAccessChannel, canDo } from '../config/rbac';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtTime(iso: string): string {
@@ -193,6 +194,48 @@ const CSS = `
 .chat-sug-tab-btn{background:var(--shell-bg);border:1px solid var(--shell-border-strong);color:var(--muted);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.15s;display:flex;align-items:center;gap:4px;}
 .chat-sug-tab-btn:hover{background:var(--sidebar-item-hover);color:var(--text-h);border-color:var(--shell-border-strong);}
 .chat-sug-tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 2px 6px rgba(37,99,235,0.25);}
+.chat-root.in-sidebar {
+  height: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+.chat-root.in-sidebar .chat-sidebar {
+  width: 170px;
+  margin: 8px 0 8px 8px;
+  border-radius: 12px;
+}
+.chat-root.in-sidebar .chat-main {
+  margin: 8px;
+  border-radius: 12px;
+}
+.chat-root.in-sidebar .chat-ch-item {
+  padding: 6px 8px 6px 10px;
+  gap: 6px;
+}
+.chat-root.in-sidebar .chat-ch-name {
+  font-size: 11.5px;
+}
+.chat-root.in-sidebar .chat-sidebar-title {
+  font-size: 12px;
+  gap: 4px;
+}
+.chat-root.in-sidebar .chat-user-foot {
+  padding: 8px;
+  gap: 6px;
+}
+.chat-root.in-sidebar .chat-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 9px;
+}
+.chat-root.in-sidebar .chat-bubble {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.chat-root.in-sidebar .chat-main-head {
+  padding: 8px 12px;
+}
 `;
 
 interface SuggestionItem {
@@ -203,7 +246,7 @@ interface SuggestionItem {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-const ChatOperativo: React.FC = () => {
+const ChatOperativo: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
   const { user, session, loading: authLoading } = useAuth();
   const { role } = useRole();
   const { addToast } = useToast();
@@ -483,13 +526,15 @@ const ChatOperativo: React.FC = () => {
   const prevCh      = useRef<string | null>(null);
 
 
-  // load channels
+  // load channels — filtrados por rol
   const loadChannels = useCallback(async () => {
     try {
       const data = await fetchChannels();
-      setChannels(data);
+      // Solo mostrar canales a los que el rol tiene acceso
+      const visible = data.filter(ch => canAccessChannel(role, ch.tipo ?? ch.channel_type ?? 'general'));
+      setChannels(visible);
       const map: Record<string, number> = {};
-      data.forEach(ch => { map[ch.id] = ch.unread_count ?? 0; });
+      visible.forEach(ch => { map[ch.id] = ch.unread_count ?? 0; });
       setUnread(map);
       if (!activeId && data.length > 0) setActiveId(data[0].id);
     } finally { setLoadingCh(false); }
@@ -648,6 +693,7 @@ const ChatOperativo: React.FC = () => {
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
+    if (!canDo(role, 'chat', 'crear_canal')) return;
     try {
       const ch = await createChannel({ name: newName.trim(), channel_type: newType });
       setChannels(p => [...p, ch]); setActiveId(ch.id); setShowModal(false); setNewName('');
@@ -670,7 +716,7 @@ const ChatOperativo: React.FC = () => {
   return (
     <>
       <style>{CSS}</style>
-      <div className="chat-root">
+      <div className={`chat-root${embedded ? ' in-sidebar' : ''}`}>
 
         {/* ── Sidebar ── */}
         <div className="chat-sidebar">
@@ -680,7 +726,9 @@ const ChatOperativo: React.FC = () => {
               Chat
               {totalUnread > 0 && <span className="chat-sidebar-badge">{totalUnread}</span>}
             </span>
-            <button className="chat-sidebar-add" onClick={() => setShowModal(true)} title="Nuevo canal">+</button>
+            {canDo(role, 'chat', 'crear_canal') && (
+              <button className="chat-sidebar-add" onClick={() => setShowModal(true)} title="Nuevo canal">+</button>
+            )}
           </div>
 
           <div className="chat-ch-list">
@@ -700,7 +748,9 @@ const ChatOperativo: React.FC = () => {
                   <ChannelIcon type={ch.channel_type} size={15} />
                   <span className="chat-ch-name" style={{ paddingRight: u > 0 ? 0 : 20 }}>{ch.name}</span>
                   {u > 0 && <span className="chat-ch-unread">{u}</span>}
-                  <button className="chat-ch-del" onClick={(e) => void handleDelete(ch, e)} title="Eliminar canal">✕</button>
+                  {canDo(role, 'chat', 'eliminar_canal') && (
+                    <button className="chat-ch-del" onClick={(e) => void handleDelete(ch, e)} title="Eliminar canal">✕</button>
+                  )}
                 </div>
               );
             })}

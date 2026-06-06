@@ -5,6 +5,7 @@ import {
   Trash2, RefreshCw, Calendar, User, AlertCircle, ChevronRight,
   BedDouble, StickyNote, Flame,
 } from 'lucide-react';
+import { DatePicker } from '../../components/DatePicker';
 import apiClient from '../../services/api';
 import { useRole } from '../../hooks/useRole';
 
@@ -793,11 +794,12 @@ export const MantenimientoPanel: React.FC = () => {
                       </select>
                     </FieldBlock>
                     <FieldBlock label="Fecha Límite">
-                      <input
-                        type="date"
+                      <DatePicker
                         value={form.fecha_limite}
-                        onChange={e => setForm(p => ({ ...p, fecha_limite: e.target.value }))}
+                        onChange={v => setForm(p => ({ ...p, fecha_limite: v }))}
+                        placeholder="Sin fecha límite"
                         className="mnt-input"
+                        style={{ minHeight: 38 }}
                       />
                     </FieldBlock>
                   </div>

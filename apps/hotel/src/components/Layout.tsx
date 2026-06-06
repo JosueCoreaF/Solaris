@@ -4,7 +4,7 @@ import { Sidebar } from './Sidebar';
 import { getSocket, fetchChannels } from '../api/chatService';
 import { useToast } from './Toast';
 import { useAuth } from '../context/AuthContext';
-import { AsistenteAI } from './AsistenteAI';
+import { RightSidebarChat } from './RightSidebarChat';
 
 export const Layout: React.FC = () => {
   const location = useLocation();
@@ -193,7 +193,7 @@ export const Layout: React.FC = () => {
           <Outlet />
         </div>
       </div>
-      <AsistenteAI />
+      <RightSidebarChat />
     </div>
   );
 };

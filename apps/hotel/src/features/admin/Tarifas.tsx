@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   TrendingUp,
   Plus,
@@ -15,6 +16,7 @@ import {
   Info
 } from 'lucide-react';
 import { supabase } from '../../api/supabase';
+import { DatePicker } from '../../components/DatePicker';
 
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
@@ -476,9 +478,12 @@ export const Tarifas: React.FC = () => {
       </div>
 
       {/* ── Modal: Gestionar Categorías ──────────────────── */}
-      {showCatModal && (
-        <div className="modal-backdrop-premium" onClick={() => setShowCatModal(false)}>
-          <div className="modal-content-premium" style={{ width: '100%', maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+      {showCatModal && createPortal(
+        <div className="modal-backdrop-premium"
+          style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}
+          onClick={() => setShowCatModal(false)}
+        >
+          <div className="modal-content-premium" style={{ width: '100%', maxWidth: 500, margin: 'auto 0', maxHeight: 'none' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '20px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--shell-border-subtle)' }}>
               <div>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text-h)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -530,13 +535,16 @@ export const Tarifas: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* ── Modal: Editar Tarifa ──────────────────────────── */}
-      {editModal && (
-        <div className="modal-backdrop-premium" onClick={() => setEditModal(null)}>
-          <div className="modal-content-premium" style={{ width: '100%', maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+      {editModal && createPortal(
+        <div className="modal-backdrop-premium"
+          style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}
+          onClick={() => setEditModal(null)}
+        >
+          <div className="modal-content-premium" style={{ width: '100%', maxWidth: 480, margin: 'auto 0', maxHeight: 'none' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '20px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--shell-border-subtle)' }}>
               <div>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text-h)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -563,11 +571,11 @@ export const Tarifas: React.FC = () => {
               <div style={{ borderTop: '1px solid var(--shell-border-subtle)', paddingTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Vigente Desde</label>
-                  <input type="date" value={editForm.vigente_desde} onChange={e => setEditForm(f => ({ ...f, vigente_desde: e.target.value }))} className="input-premium" />
+                  <DatePicker value={editForm.vigente_desde} onChange={v => setEditForm(f => ({ ...f, vigente_desde: v }))} placeholder="Sin fecha inicio" className="input-premium" />
                 </div>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Vigente Hasta (Opcional)</label>
-                  <input type="date" value={editForm.vigente_hasta} onChange={e => setEditForm(f => ({ ...f, vigente_hasta: e.target.value }))} className="input-premium" />
+                  <DatePicker value={editForm.vigente_hasta} onChange={v => setEditForm(f => ({ ...f, vigente_hasta: v }))} placeholder="Sin fecha fin" className="input-premium" />
                 </div>
               </div>
             </div>
@@ -579,13 +587,16 @@ export const Tarifas: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* ── Modal: Crear Tarifa ───────────────────────────── */}
-      {createModal && (
-        <div className="modal-backdrop-premium" onClick={() => setCreateModal(false)}>
-          <div className="modal-content-premium" style={{ width: '100%', maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+      {createModal && createPortal(
+        <div className="modal-backdrop-premium"
+          style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}
+          onClick={() => setCreateModal(false)}
+        >
+          <div className="modal-content-premium" style={{ width: '100%', maxWidth: 480, margin: 'auto 0', maxHeight: 'none' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '20px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--shell-border-subtle)' }}>
               <div>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text-h)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -625,11 +636,11 @@ export const Tarifas: React.FC = () => {
               <div style={{ borderTop: '1px solid var(--shell-border-subtle)', paddingTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Vigente Desde</label>
-                  <input type="date" value={createForm.vigente_desde} onChange={e => setCreateForm(f => ({ ...f, vigente_desde: e.target.value }))} className="input-premium" />
+                  <DatePicker value={createForm.vigente_desde} onChange={v => setCreateForm(f => ({ ...f, vigente_desde: v }))} placeholder="Sin fecha inicio" className="input-premium" />
                 </div>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Vigente Hasta (Opcional)</label>
-                  <input type="date" value={createForm.vigente_hasta} onChange={e => setCreateForm(f => ({ ...f, vigente_hasta: e.target.value }))} className="input-premium" />
+                  <DatePicker value={createForm.vigente_hasta} onChange={v => setCreateForm(f => ({ ...f, vigente_hasta: v }))} placeholder="Sin fecha fin" className="input-premium" />
                 </div>
               </div>
             </div>
@@ -641,7 +652,8 @@ export const Tarifas: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

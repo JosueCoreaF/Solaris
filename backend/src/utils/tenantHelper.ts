@@ -28,13 +28,23 @@ export async function getOwnerHotelIdsForUser(user: any) {
     .maybeSingle();
 
   if (ownerRow?.id_owner) {
-    // Es propietario — obtener todos sus hoteles via business_modules
-    const { data: hoteles } = await supabaseAdmin!
-      .from('hoteles')
-      .select('id_hotel, business_modules!inner(owner_id)')
-      .eq('business_modules.owner_id', ownerRow.id_owner);
+    // Dos queries simples en vez de join embebido (más fiable en PostgREST)
+    const { data: modules } = await supabaseAdmin!
+      .from('business_modules')
+      .select('id_module')
+      .eq('owner_id', ownerRow.id_owner);
 
-    const hotelIds = (hoteles || []).map((h: any) => h.id_hotel).filter(Boolean);
+    const moduleIds = (modules || []).map((m: any) => m.id_module).filter(Boolean);
+
+    let hotelIds: string[] = [];
+    if (moduleIds.length > 0) {
+      const { data: hoteles } = await supabaseAdmin!
+        .from('hoteles')
+        .select('id_hotel')
+        .in('id_module', moduleIds);
+      hotelIds = (hoteles || []).map((h: any) => h.id_hotel).filter(Boolean);
+    }
+
     return { ownerIds: [ownerRow.id_owner], hotelIds, error: null };
   }
 

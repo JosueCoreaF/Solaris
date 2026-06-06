@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Search, X, CheckCircle, AlertCircle, RefreshCw, Download, AlertTriangle, DollarSign, CreditCard, Clock } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
+import { DatePicker, DateRangePicker } from '../../components/DatePicker';
 import {
   fetchPagos,
   fetchReservas,
@@ -641,13 +642,12 @@ export const Pagos: React.FC = () => {
             </h1>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--shell-border-subtle)', borderRadius: 10, padding: '4px 10px', border: '1px solid var(--shell-border)' }}>
-              <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
-                style={{ border: 'none', background: 'transparent', fontSize: 12, color: 'var(--text-h)', outline: 'none', fontFamily: 'var(--sans)' }} />
-              <span style={{ color: 'var(--muted)', fontSize: 11 }}>—</span>
-              <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
-                style={{ border: 'none', background: 'transparent', fontSize: 12, color: 'var(--text-h)', outline: 'none', fontFamily: 'var(--sans)' }} />
-            </div>
+            <DateRangePicker
+              from={desde} to={hasta}
+              onFromChange={setDesde} onToChange={setHasta}
+              placeholderFrom="Desde" placeholderTo="Hasta"
+              gap={6}
+            />
             <button onClick={load}
               title="Actualizar"
               style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--shell-border-strong)', background: 'var(--card-bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', transition: 'all .18s ease' }}
@@ -1293,8 +1293,7 @@ export const Pagos: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Fecha de pago</label>
-                  <input type="date" value={form.fecha_pago} onChange={e => setForm(f => ({ ...f, fecha_pago: e.target.value }))}
-                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 10px', fontSize: 13 }} />
+                  <DatePicker value={form.fecha_pago} onChange={v => setForm(f => ({ ...f, fecha_pago: v }))} placeholder="Seleccionar fecha" />
                 </div>
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Moneda</label>
@@ -1577,8 +1576,7 @@ export const Pagos: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Fecha</label>
-                  <input type="date" value={form.fecha_pago} onChange={e => setForm(f => ({ ...f, fecha_pago: e.target.value }))}
-                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, boxSizing: 'border-box' }} />
+                  <DatePicker value={form.fecha_pago} onChange={v => setForm(f => ({ ...f, fecha_pago: v }))} placeholder="Seleccionar fecha" />
                 </div>
               </div>
               {METODOS.find(m => m.value === form.metodo_pago)?.requireRef && (

@@ -20,6 +20,7 @@ import { ExportadorDatos } from './features/admin/ExportadorDatos';
 import { PerfilUsuario } from './features/profile/PerfilUsuario';
 import { EstadoCuenta } from './features/bookings/EstadoCuenta';
 import { Clients } from './features/clients/Clients';
+import { EmpresasPanel } from './features/bookings/EmpresasPanel';
 import { ClienteDetalle } from './features/clients/ClienteDetalle';
 import { AuditPanel } from './features/admin/AuditPanel';
 import { ImportadorReservasPage } from './features/bookings/ImportadorReservasPage';
@@ -29,6 +30,14 @@ import { ToastProvider } from './components/Toast';
 import ChatOperativo from './components/ChatOperativo';
 import { FinanceAIProvider, FloatingAIProgressWidget } from './context/FinanceAIContext';
 import apiClient from './services/api';
+import { ROUTE_ROLES } from './config/rbac';
+
+// Shorthand para no repetir <RoleGuard requiredRoles={ROUTE_ROLES[path]}>
+const Guarded: React.FC<{ path: string; children: React.ReactNode }> = ({ path, children }) => (
+  <RoleGuard requiredRoles={ROUTE_ROLES[path] ?? ['PROPIETARIO']}>
+    {children}
+  </RoleGuard>
+);
 
 export const App: React.FC = () => {
   useEffect(() => {
@@ -43,130 +52,81 @@ export const App: React.FC = () => {
         <FinanceAIProvider>
           <ToastProvider>
             <Router>
-            <Routes>
-              {/* Rutas públicas (solo accesibles sin sesión) */}
-              <Route
-                path="/login"
-                element={
-                  <GuestGuard>
-                    <Login />
-                  </GuestGuard>
-                }
-              />
-              <Route
-                path="/register"
-                element={
-                  <GuestGuard>
-                    <Register />
-                  </GuestGuard>
-                }
-              />
+              <Routes>
+                {/* Rutas públicas */}
+                <Route path="/login"    element={<GuestGuard><Login /></GuestGuard>} />
+                <Route path="/register" element={<GuestGuard><Register /></GuestGuard>} />
 
-              {/* Portal público para clientes (sin auth requerida) */}
+                {/* Rutas protegidas */}
+                <Route element={<AuthGuard><Layout /></AuthGuard>}>
 
-              {/* Rutas protegidas */}
-              <Route
-                element={
-                  <AuthGuard>
-                    <Layout />
-                  </AuthGuard>
-                }
-              >
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/perfil" element={<PerfilUsuario />} />
-                <Route path="/reservas" element={<Bookings />} />
-                <Route path="/habitaciones" element={<HabitacionesPanel />} />
-                <Route path="/pagos" element={<Pagos />} />
-                <Route path="/estado-cuenta" element={<EstadoCuenta />} />
-                <Route path="/clientes" element={<Clients />} />
-                <Route path="/clientes/:id" element={<ClienteDetalle />} />
-                <Route path="/chat" element={<ChatOperativo />} />
-                <Route
-                  path="/finanzas"
-                  element={
-                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR']}>
-                      <Finance />
-                    </RoleGuard>
-                  }
-                />
-                <Route
-                  path="/tarifas"
-                  element={
-                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN']}>
-                      <Tarifas />
-                    </RoleGuard>
-                  }
-                />
-                <Route
-                  path="/gestionar-roles"
-                  element={
-                    <RoleGuard requiredRoles="PROPIETARIO">
-                      <RoleManagement />
-                    </RoleGuard>
-                  }
-                />
-                <Route
-                  path="/config"
-                  element={
-                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN']}>
-                      <Config />
-                    </RoleGuard>
-                  }
-                />
-                <Route
-                  path="/reportes"
-                  element={
-                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN', 'CONTADOR']}>
-                      <Reportes />
-                    </RoleGuard>
-                  }
-                />
-                <Route
-                  path="/exportar"
-                  element={
-                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN', 'CONTADOR']}>
-                      <ExportadorDatos />
-                    </RoleGuard>
-                  }
-                />
-                <Route
-                  path="/auditoria"
-                  element={
-                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN']}>
-                      <AuditPanel />
-                    </RoleGuard>
-                  }
-                />
-                <Route
-                  path="/importar-reservas"
-                  element={
-                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN']}>
-                      <ImportadorReservasPage />
-                    </RoleGuard>
-                  }
-                />
-                <Route
-                  path="/mantenimiento"
-                  element={
-                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO']}>
-                      <MantenimientoPanel />
-                    </RoleGuard>
-                  }
-                />
-                <Route
-                  path="/housekeeping"
-                  element={
-                    <RoleGuard requiredRoles={['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO']}>
-                      <Housekeeping />
-                    </RoleGuard>
-                  }
-                />
-              </Route>
-            </Routes>
-            <FloatingAIProgressWidget />
-          </Router>
-        </ToastProvider>
-      </FinanceAIProvider>
+                  <Route path="/" element={
+                    <Guarded path="/"><Dashboard /></Guarded>
+                  } />
+                  <Route path="/perfil" element={
+                    <Guarded path="/perfil"><PerfilUsuario /></Guarded>
+                  } />
+                  <Route path="/habitaciones" element={
+                    <Guarded path="/habitaciones"><HabitacionesPanel /></Guarded>
+                  } />
+                  <Route path="/housekeeping" element={
+                    <Guarded path="/housekeeping"><Housekeeping /></Guarded>
+                  } />
+                  <Route path="/mantenimiento" element={
+                    <Guarded path="/mantenimiento"><MantenimientoPanel /></Guarded>
+                  } />
+                  <Route path="/reservas" element={
+                    <Guarded path="/reservas"><Bookings /></Guarded>
+                  } />
+                  <Route path="/pagos" element={
+                    <Guarded path="/pagos"><Pagos /></Guarded>
+                  } />
+                  <Route path="/clientes" element={
+                    <Guarded path="/clientes"><Clients /></Guarded>
+                  } />
+                  <Route path="/empresas" element={
+                    <Guarded path="/empresas"><EmpresasPanel /></Guarded>
+                  } />
+                  <Route path="/clientes/:id" element={
+                    <Guarded path="/clientes"><ClienteDetalle /></Guarded>
+                  } />
+                  <Route path="/estado-cuenta" element={
+                    <Guarded path="/estado-cuenta"><EstadoCuenta /></Guarded>
+                  } />
+                  <Route path="/chat" element={
+                    <Guarded path="/chat"><ChatOperativo /></Guarded>
+                  } />
+                  <Route path="/finanzas" element={
+                    <Guarded path="/finanzas"><Finance /></Guarded>
+                  } />
+                  <Route path="/tarifas" element={
+                    <Guarded path="/tarifas"><Tarifas /></Guarded>
+                  } />
+                  <Route path="/exportar" element={
+                    <Guarded path="/exportar"><ExportadorDatos /></Guarded>
+                  } />
+                  <Route path="/importar-reservas" element={
+                    <Guarded path="/importar-reservas"><ImportadorReservasPage /></Guarded>
+                  } />
+                  <Route path="/config" element={
+                    <Guarded path="/config"><Config /></Guarded>
+                  } />
+                  <Route path="/gestionar-roles" element={
+                    <Guarded path="/gestionar-roles"><RoleManagement /></Guarded>
+                  } />
+                  <Route path="/auditoria" element={
+                    <Guarded path="/auditoria"><AuditPanel /></Guarded>
+                  } />
+                  <Route path="/reportes" element={
+                    <Guarded path="/reportes"><Reportes /></Guarded>
+                  } />
+
+                </Route>
+              </Routes>
+              <FloatingAIProgressWidget />
+            </Router>
+          </ToastProvider>
+        </FinanceAIProvider>
       </SyncProvider>
     </AuthProvider>
   );

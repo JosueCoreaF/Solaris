@@ -96,10 +96,13 @@ html, body {
   background: var(--shell-bg);
   overflow-y: auto;
   overflow-x: hidden;
-  transition: margin-left .4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: margin-left .4s cubic-bezier(0.4, 0, 0.2, 1), margin-right .4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .sidebar-cluster:hover + .dashboard-shell {
   margin-left: 310px;
+}
+.dashboard-root.right-sidebar-open .dashboard-shell {
+  margin-right: 480px;
 }
 
 /* ── Sidebar cluster (contenedor) ─────────────────────── */

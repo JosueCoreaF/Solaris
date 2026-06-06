@@ -5,6 +5,7 @@
  */
 
 import React, { useCallback, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Upload, CheckCircle, AlertCircle, FileSpreadsheet, ChevronRight, Loader2 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -253,14 +254,16 @@ export const ImportadorReservas: React.FC<ImportadorReservasProps> = ({
     return !hab;
   }).length ?? 0;
 
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed', inset: 0,
-        background: 'rgba(0,0,0,0.55)',
-        zIndex: 2000,
+        background: 'rgba(15, 23, 42, 0.42)',
+        backdropFilter: 'blur(6px)',
+        WebkitBackdropFilter: 'blur(6px)',
+        zIndex: 9999,
         display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-        padding: '20px 12px',
+        padding: '40px 16px',
         overflowY: 'auto',
       }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
@@ -268,15 +271,16 @@ export const ImportadorReservas: React.FC<ImportadorReservasProps> = ({
       <div
         style={{
           background: '#fff',
-          borderRadius: 16,
+          borderRadius: 20,
           width: '100%',
           maxWidth: step === 2 ? 1100 : 560,
-          boxShadow: '0 25px 60px rgba(0,0,0,0.25)',
+          boxShadow: '0 24px 52px -10px rgba(15,23,42,.22)',
           display: 'flex',
           flexDirection: 'column',
           minHeight: 400,
-          maxHeight: step === 2 ? 'calc(100vh - 40px)' : undefined,
+          maxHeight: step === 2 ? 'calc(100vh - 80px)' : undefined,
           overflow: 'hidden',
+          margin: 'auto 0',
         }}
         onClick={e => e.stopPropagation()}
       >
@@ -674,7 +678,8 @@ export const ImportadorReservas: React.FC<ImportadorReservasProps> = ({
 
       {/* Spinner keyframe */}
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-    </div>
+    </div>,
+    document.body
   );
 };
 

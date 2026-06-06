@@ -10,6 +10,7 @@ interface CrearUsuarioRequest {
   nombre: string;
   rol: string;
   estado: string;
+  id_hotel?: string;
 }
 
 /**
@@ -18,7 +19,7 @@ interface CrearUsuarioRequest {
  */
 router.post('/crear', async (req, res) => {
   try {
-    const { email, password, nombre, rol, estado }: CrearUsuarioRequest = req.body;
+    const { email, password, nombre, rol, estado, id_hotel }: CrearUsuarioRequest = req.body;
 
     // Validar campos
     if (!email || !password || !nombre || !rol) {
@@ -69,12 +70,22 @@ router.post('/crear', async (req, res) => {
       return res.status(400).json({ error: 'No se pudo resolver el owner_id del propietario autenticado' });
     }
 
-    // Insert en usuarios_roles (supabaseAdmin bypassa RLS)
-    // Las columnas created_at y updated_at tienen DEFAULT en el schema
+    // Resolver id_module desde el hotel si se proporcionó id_hotel
+    let id_module: string | null = null;
+    if (id_hotel) {
+      const { data: hotelRow } = await supabaseAdmin!
+        .from('hoteles')
+        .select('id_module')
+        .eq('id_hotel', id_hotel)
+        .maybeSingle();
+      id_module = (hotelRow as any)?.id_module || null;
+    }
+
     const insertPayload: Record<string, any> = {
-      user_id: userId,
+      user_id:   userId,
       owner_id,
-      id_hotel: null,
+      id_hotel:  id_hotel  || null,
+      id_module: id_module || null,
       rol,
       estado,
     };
@@ -177,22 +188,12 @@ router.delete('/por-email', async (req, res) => {
 
     const uid = target.id;
 
-    // 1. Limpiar audit_log — NO tiene ON DELETE CASCADE en ninguna de sus FKs.
-    //    Hay que borrar tanto las filas donde es owner_id como donde es usuario_id.
-    await supabaseAdmin.from('audit_log').delete().eq('owner_id', uid);
-    await supabaseAdmin.from('audit_log').delete().eq('usuario_id', uid);
-
-    // 2. Eliminar de auth.users — Supabase propaga CASCADE a:
-    //    auth.users → owners (CASCADE) → business_modules (CASCADE)
-    //                                  → suscripciones_owner (CASCADE)
-    //                                  → owner_metodos_pago (CASCADE)
-    //                                  → historial_pagos (CASCADE)
-    //                                  → usuarios_roles [owner_id] (CASCADE)
-    //                                  → invitaciones (CASCADE)
-    //                  → business_modules → hoteles (CASCADE) → toda la data hotelera
-    //    auth.users → usuarios_roles [user_id] (CASCADE)
-    //    auth.users → preferencias_usuario (CASCADE)
-    //    auth.users → bitacora_actividad (CASCADE)
+    // Eliminar via admin API — Supabase limpia auth.identities y auth.users,
+    // luego el cascade propaga a owners → business_modules → hoteles → data hotelera,
+    // usuarios_roles, invitaciones, etc.
+    // audit_log.owner_id y audit_log.usuario_id tienen ON DELETE SET NULL
+    // (schema_05_patch_audit.sql) así que no bloquean el cascade.
+    // fn_audit_trigger tiene EXCEPTION handler para ser resiliente en cascades.
     const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(uid);
     if (delErr) return res.status(400).json({ error: delErr.message });
 

@@ -17,15 +17,20 @@ router.post('/crear', async (req, res) => {
       return res.status(400).json({ error: 'Faltan campos requeridos: user_id, rol, estado' });
     }
 
-    // Resolver owner_id: puede venir en el body, o se busca via id_hotel
-    let owner_id = bodyOwnerId || null;
-    if (!owner_id && id_hotel) {
+    // Resolver owner_id e id_module desde el hotel si se provee id_hotel
+    let owner_id  = bodyOwnerId || null;
+    let id_module: string | null = null;
+
+    if (id_hotel) {
       const { data: hotelData } = await supabaseAdmin!
         .from('hoteles')
-        .select('business_modules!inner(owner_id)')
+        .select('id_module, business_modules!inner(owner_id)')
         .eq('id_hotel', id_hotel)
         .maybeSingle();
-      owner_id = (hotelData as any)?.business_modules?.owner_id || null;
+      if (hotelData) {
+        id_module = (hotelData as any).id_module || null;
+        if (!owner_id) owner_id = (hotelData as any).business_modules?.owner_id || null;
+      }
     }
 
     if (!owner_id) {
@@ -37,29 +42,100 @@ router.post('/crear', async (req, res) => {
     }
 
     if (!owner_id) {
-      return res.status(400).json({ error: 'No se pudo resolver el owner_id. Proporciona owner_id o id_hotel válido.' });
+      return res.status(400).json({ error: 'No se pudo resolver el owner_id.' });
     }
 
-    const { data, error } = await supabaseAdmin!
+    // Select explícito en vez de upsert — PostgreSQL trata NULL != NULL en UNIQUE,
+    // así que el upsert con onConflict:'user_id,owner_id,id_module' crea duplicados
+    // cuando id_module es NULL. Usamos .is() / .eq() para manejar null correctamente.
+    const existingQuery = supabaseAdmin!
       .from('usuarios_roles')
-      .upsert({
-        user_id,
-        owner_id,
-        id_hotel: id_hotel || null,
-        rol,
-        estado,
-      }, { onConflict: 'user_id,owner_id,id_module' })
-      .select()
-      .maybeSingle();
+      .select('id')
+      .eq('user_id', user_id)
+      .eq('owner_id', owner_id);
 
-    if (error) {
-      console.error('Error creando rol:', error);
-      return res.status(400).json({ error: error.message });
+    const { data: existing } = id_module
+      ? await existingQuery.eq('id_module', id_module).maybeSingle()
+      : await existingQuery.is('id_module', null).maybeSingle();
+
+    let result: any;
+
+    if (existing) {
+      const updateQuery = supabaseAdmin!
+        .from('usuarios_roles')
+        .update({
+          rol,
+          estado,
+          id_hotel:  id_hotel  || null,
+          id_module: id_module || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', user_id)
+        .eq('owner_id', owner_id);
+
+      const { data, error } = id_module
+        ? await updateQuery.eq('id_module', id_module).select().single()
+        : await updateQuery.is('id_module', null).select().single();
+
+      if (error) return res.status(400).json({ error: error.message });
+      result = data;
+    } else {
+      const { data, error } = await supabaseAdmin!
+        .from('usuarios_roles')
+        .insert({ user_id, owner_id, id_hotel: id_hotel || null, id_module: id_module || null, rol, estado })
+        .select()
+        .single();
+      if (error) return res.status(400).json({ error: error.message });
+      result = data;
     }
 
-    return res.json({ success: true, data });
+    return res.json({ success: true, data: result });
   } catch (err) {
     console.error('Error en /roles/crear:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+/**
+ * GET /api/roles/mi-rol
+ * Devuelve el rol real del usuario autenticado leyendo usuarios_roles y owners.
+ * Prioridad: staff (owner_id != user.id) > propietario (tiene business_modules) > INVITADO
+ */
+router.get('/mi-rol', async (req, res) => {
+  try {
+    const caller = await getAuthUser(req);
+    if (!caller) return res.json({ rol: 'INVITADO', owner_id: null });
+
+    // 1. Buscar rol de staff — fila donde user_id = uid pero owner_id ≠ uid
+    //    (owner_id === uid son filas auto-generadas por el trigger antiguo, las ignoramos)
+    const { data: staffRow } = await supabaseAdmin!
+      .from('usuarios_roles')
+      .select('rol, owner_id')
+      .eq('user_id', caller.id)
+      .neq('owner_id', caller.id)
+      .eq('estado', 'activo')
+      .limit(1)
+      .maybeSingle();
+
+    if (staffRow) {
+      return res.json({ rol: staffRow.rol, owner_id: staffRow.owner_id });
+    }
+
+    // 2. Verificar si es propietario real (tiene módulos de negocio registrados)
+    const { data: moduloRow } = await supabaseAdmin!
+      .from('business_modules')
+      .select('owner_id')
+      .eq('owner_id', caller.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (moduloRow) {
+      return res.json({ rol: 'PROPIETARIO', owner_id: caller.id });
+    }
+
+    return res.json({ rol: 'INVITADO', owner_id: null });
+  } catch (err) {
+    console.error('Error en /roles/mi-rol:', err);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

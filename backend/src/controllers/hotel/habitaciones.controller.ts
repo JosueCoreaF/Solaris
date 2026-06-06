@@ -33,6 +33,8 @@ export const listarHabitaciones = async (req: Request, res: Response) => {
     const { data, error } = await query;
     if (error) return res.status(400).json({ error: error.message });
 
+    // tarifa_noche viene de habitaciones directamente (este endpoint usa la tabla base, no la vista)
+    // para housekeeping no se necesita la tarifa base de periodos
     const mapped = (data || []).map((h: any) => ({
       id_habitacion: h.id_habitacion,
       nombre_habitacion: h.nombre_habitacion,

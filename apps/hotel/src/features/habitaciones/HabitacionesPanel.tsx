@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../api/supabase';
 import apiClient from '../../services/api';
+import { DatePicker, DateRangePicker } from '../../components/DatePicker';
 import {
   obtenerTiposHabitacion, crearTipoHabitacion, actualizarTipoHabitacion, eliminarTipoHabitacion,
   obtenerServicios, crearServicio, actualizarServicio, eliminarServicio,
@@ -31,6 +32,7 @@ interface Habitacion {
   tipo?: string;
   capacidad?: number;
   tarifa_noche?: number;
+  id_tarifa_default?: string | null;
   estado?: 'disponible' | 'ocupada' | 'mantenimiento' | 'bloqueada' | 'limpieza';
   piso?: number;
   numero_camas?: number;
@@ -39,9 +41,19 @@ interface Habitacion {
   comodidades?: string[];
 }
 
+interface TarifaOpcion {
+  id_tarifa: string;
+  tarifa_noche: number;
+  tarifa_hora?: number;
+  tarifa_pasadia?: number;
+  categorias_tarifa?: { nombre: string };
+  tipos_habitacion?: { nombre_tipo: string };
+}
+
 type HabForm = Omit<Habitacion, 'id_habitacion' | 'hotel'> & {
   imagen_360: string;
   comodidades: string[];
+  id_tarifa_default: string;
 };
 
 const ESTADOS: Habitacion['estado'][] = ['disponible', 'ocupada', 'mantenimiento', 'bloqueada', 'limpieza'];
@@ -66,6 +78,7 @@ function emptyForm(hotelId: string, primerTipo = ''): HabForm {
     tipo: primerTipo, capacidad: 2, tarifa_noche: 0,
     estado: 'disponible', piso: 1, id_hotel: hotelId,
     numero_camas: 1, imagenes: [], imagen_360: '', comodidades: [],
+    id_tarifa_default: '',
   };
 }
 
@@ -322,6 +335,23 @@ export const HabitacionesPanel: React.FC = () => {
 
   const [bloqueos, setBloqueos]         = useState<any[]>([]);
   const [selectedRoomForCalendar, setSelectedRoomForCalendar] = useState<Habitacion | null>(null);
+  // Tarifas del tipo (para el selector de referencia)
+  const [tarifasDisponibles, setTarifasDisponibles] = useState<TarifaOpcion[]>([]);
+  const [loadingTarifas,    setLoadingTarifas]     = useState(false);
+  // Períodos de esta habitación individual
+  const [periodosHab,       setPeriodosHab]        = useState<any[]>([]);
+  const [loadingPeriodos,   setLoadingPeriodos]    = useState(false);
+  // Form para agregar/editar un período
+  const [formPeriodo,       setFormPeriodo]        = useState<null | {
+    id?: string;
+    es_base: boolean;
+    nombre_periodo: string;
+    id_tarifa: string;
+    tarifa_noche: string;
+    fecha_desde: string;
+    fecha_hasta: string;
+  }>(null);
+  const [guardandoPeriodo,  setGuardandoPeriodo]   = useState(false);
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -401,6 +431,73 @@ export const HabitacionesPanel: React.FC = () => {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Cargar tarifas de referencia (del tipo) cuando cambia el tipo en el modal
+  useEffect(() => {
+    if (!modalOpen || !form.tipo) { setTarifasDisponibles([]); return; }
+    const tipoObj = tiposHabitacion.find(t => t.nombre.toLowerCase() === form.tipo!.toLowerCase());
+    if (!tipoObj?.id) { setTarifasDisponibles([]); return; }
+    setLoadingTarifas(true);
+    (apiClient.get(`/tarifas?id_tipo_habitacion=${tipoObj.id}&vigentes_solo=false`) as Promise<any>)
+      .then(d => setTarifasDisponibles(Array.isArray(d) ? d : []))
+      .catch(() => setTarifasDisponibles([]))
+      .finally(() => setLoadingTarifas(false));
+  }, [modalOpen, form.tipo, tiposHabitacion]);
+
+  // Cargar períodos de la habitación específica al abrir el modal de edición
+  function cargarPeriodos(idHab: string) {
+    if (!idHab) { setPeriodosHab([]); return; }
+    setLoadingPeriodos(true);
+    (apiClient.get(`/bookings/habitaciones/${idHab}/tarifas-periodo`) as Promise<any>)
+      .then(d => setPeriodosHab(Array.isArray(d) ? d : []))
+      .catch(() => setPeriodosHab([]))
+      .finally(() => setLoadingPeriodos(false));
+  }
+
+  async function guardarPeriodo() {
+    if (!formPeriodo || !editando) return;
+    if (!formPeriodo.tarifa_noche || Number(formPeriodo.tarifa_noche) <= 0) {
+      showToast('Ingresa un monto mayor a 0.', 'err'); return;
+    }
+    if (!formPeriodo.es_base && !formPeriodo.fecha_desde) {
+      showToast('La fecha de inicio es requerida.', 'err'); return;
+    }
+    setGuardandoPeriodo(true);
+    try {
+      const body = {
+        nombre_periodo: formPeriodo.nombre_periodo || null,
+        id_tarifa:      formPeriodo.id_tarifa || null,
+        tarifa_noche:   Number(formPeriodo.tarifa_noche),
+        fecha_desde:    formPeriodo.es_base ? null : formPeriodo.fecha_desde,
+        fecha_hasta:    formPeriodo.fecha_hasta || null,
+        es_base:        formPeriodo.es_base,
+      };
+      if (formPeriodo.id) {
+        await apiClient.put(`/bookings/habitaciones/${editando.id_habitacion}/tarifas-periodo/${formPeriodo.id}`, body);
+        showToast('Período actualizado.');
+      } else {
+        await apiClient.post(`/bookings/habitaciones/${editando.id_habitacion}/tarifas-periodo`, body);
+        showToast('Período creado.');
+      }
+      setFormPeriodo(null);
+      cargarPeriodos(editando.id_habitacion);
+    } catch (e: any) {
+      showToast(e?.message ?? 'Error al guardar.', 'err');
+    } finally {
+      setGuardandoPeriodo(false);
+    }
+  }
+
+  async function eliminarPeriodo(pid: string) {
+    if (!editando || !window.confirm('¿Eliminar este período?')) return;
+    try {
+      await apiClient.delete(`/bookings/habitaciones/${editando.id_habitacion}/tarifas-periodo/${pid}`);
+      showToast('Período eliminado.');
+      cargarPeriodos(editando.id_habitacion);
+    } catch (e: any) {
+      showToast(e?.message ?? 'Error al eliminar.', 'err');
+    }
+  }
+
   const lista = habitaciones.filter(h => {
     if (filtroHotel !== 'todos' && h.id_hotel !== filtroHotel) return false;
     if (filtroEstado !== 'todos' && h.estado !== filtroEstado) return false;
@@ -421,6 +518,8 @@ export const HabitacionesPanel: React.FC = () => {
 
   function abrirNueva() {
     setEditando(null);
+    setPeriodosHab([]);
+    setFormPeriodo(null);
     const active = localStorage.getItem('active_hotel_id');
     const defaultHotelId = active && active !== 'all' ? active : (hoteles[0]?.id_hotel ?? '');
     setForm(emptyForm(defaultHotelId, tiposHabitacion[0]?.nombre ?? ''));
@@ -429,20 +528,23 @@ export const HabitacionesPanel: React.FC = () => {
 
   function abrirEditar(h: Habitacion) {
     setEditando(h);
+    setFormPeriodo(null);
+    cargarPeriodos(h.id_habitacion);
     setForm({
       nombre_habitacion: h.nombre_habitacion,
       nombre_alias:      h.nombre_alias ?? '',
       codigo_habitacion: h.codigo_habitacion ?? '',
       tipo:   tiposHabitacion.find(t => t.nombre.toLowerCase() === (h.tipo ?? '').toLowerCase())?.nombre ?? h.tipo ?? '',
-      capacidad:     h.capacidad ?? 2,
-      tarifa_noche:  h.tarifa_noche ?? 0,
-      estado:        h.estado ?? 'disponible',
-      piso:          h.piso ?? 1,
-      id_hotel:      h.id_hotel,
-      numero_camas:  h.numero_camas ?? 1,
-      imagenes:      h.imagenes ?? [],
-      imagen_360:    h.imagen_360 ?? '',
-      comodidades:   h.comodidades ?? [],
+      capacidad:        h.capacidad ?? 2,
+      tarifa_noche:     h.tarifa_noche ?? 0,
+      id_tarifa_default:h.id_tarifa_default ?? '',
+      estado:           h.estado ?? 'disponible',
+      piso:             h.piso ?? 1,
+      id_hotel:         h.id_hotel,
+      numero_camas:     h.numero_camas ?? 1,
+      imagenes:         h.imagenes ?? [],
+      imagen_360:       h.imagen_360 ?? '',
+      comodidades:      h.comodidades ?? [],
     });
     setModalOpen(true);
   }
@@ -530,14 +632,14 @@ export const HabitacionesPanel: React.FC = () => {
   async function handleSave() {
     if (!form.nombre_habitacion.trim()) { showToast('El nombre es obligatorio.', 'err'); return; }
     if (!form.id_hotel) { showToast('Selecciona un hotel.', 'err'); return; }
-    if (form.tarifa_noche <= 0) { showToast('La tarifa debe ser mayor a 0.', 'err'); return; }
     setSaving(true);
     try {
       const payload = {
         ...form,
-        tarifa_noche:  Number(form.tarifa_noche),
-        capacidad:     Number(form.capacidad),
-        piso:          Number(form.piso),
+        tarifa_noche:      Number(form.tarifa_noche),
+        capacidad:         Number(form.capacidad),
+        piso:              Number(form.piso),
+        id_tarifa_default: form.id_tarifa_default || null,
         numero_camas:  Number(form.numero_camas),
         imagen_360:    form.imagen_360?.trim() || null,
       };
@@ -993,16 +1095,21 @@ export const HabitacionesPanel: React.FC = () => {
               animate={{ opacity: 1, scale: 1,    y: 0 }}
               exit={{   opacity: 0, scale: 0.95, y: 24 }}
               transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-              className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl"
+              className="bg-white rounded-2xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl"
               onClick={e => e.stopPropagation()}
             >
               {/* Modal header */}
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                <div>
-                  <h3 className="text-base font-semibold text-slate-900">
-                    {editando ? 'Editar habitación' : 'Nueva habitación'}
-                  </h3>
-                  {editando && <p className="text-xs text-slate-400 mt-0.5">{editando.nombre_habitacion}</p>}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-slate-900 flex items-center justify-center flex-shrink-0">
+                    <BedDouble size={15} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900 leading-tight">
+                      {editando ? 'Editar habitación' : 'Nueva habitación'}
+                    </h3>
+                    {editando && <p className="text-xs text-slate-400 mt-0.5">{editando.nombre_habitacion}</p>}
+                  </div>
                 </div>
                 <motion.button whileTap={{ scale: 0.9 }} onClick={() => setModalOpen(false)}
                   className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors">
@@ -1011,171 +1118,340 @@ export const HabitacionesPanel: React.FC = () => {
               </div>
 
               {/* Form */}
-              <div className="overflow-y-auto px-6 py-5 grid grid-cols-2 gap-4">
+              <div className="overflow-y-auto px-6 py-5 flex flex-col gap-5">
 
-                {/* Nombre */}
-                <label className="col-span-2">
-                  <span style={lbl}>Nombre interno *</span>
-                  <input className={inp} placeholder="Ej. Suite 101" value={form.nombre_habitacion}
-                    onChange={e => setForm(f => ({ ...f, nombre_habitacion: e.target.value }))} />
-                </label>
-
-                {/* Alias */}
-                <label className="col-span-2">
-                  <span style={lbl}>Alias público <span className="text-slate-400 font-normal">(visible para el cliente)</span></span>
-                  <input className={inp} placeholder="Ej. La Cabaña del Río" value={form.nombre_alias ?? ''}
-                    onChange={e => setForm(f => ({ ...f, nombre_alias: e.target.value }))} />
-                </label>
-
-                {/* Hotel */}
-                <label className="col-span-2">
-                  <span style={lbl}>Hotel *</span>
-                  {hoteles.length === 0 ? (
-                    <div className="text-xs text-amber-600 p-3 bg-amber-50 rounded-xl border border-amber-200">
-                      No hay hoteles registrados. Crea uno en Configuración.
-                    </div>
-                  ) : (
-                    <select className={inp} value={form.id_hotel}
-                      onChange={e => setForm(f => ({ ...f, id_hotel: e.target.value }))}
-                      disabled={localStorage.getItem('active_hotel_id') !== 'all'}>
-                      <option value="">Selecciona hotel</option>
-                      {hoteles.map(h => <option key={h.id_hotel} value={h.id_hotel}>{h.nombre_hotel}</option>)}
-                    </select>
-                  )}
-                </label>
-
-                {/* Tipo */}
-                <label>
-                  <span style={lbl}>Tipo</span>
-                  {tiposHabitacion.length === 0 ? (
-                    <div className="text-xs text-amber-600 p-3 bg-amber-50 rounded-xl border border-amber-200">Sin tipos. Crea en Configuración.</div>
-                  ) : (
-                    <select className={inp} value={form.tipo}
-                      onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
-                      {tiposHabitacion.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
-                    </select>
-                  )}
-                </label>
-
-                {/* Estado */}
-                <label>
-                  <span style={lbl}>Estado</span>
-                  <select className={inp} value={form.estado}
-                    onChange={e => setForm(f => ({ ...f, estado: e.target.value as Habitacion['estado'] }))}>
-                    {ESTADOS.map(e => <option key={e} value={e}>{ESTADO_META[e].label}</option>)}
-                  </select>
-                </label>
-
-                {/* Tarifa */}
-                <label>
-                  <span style={lbl}>Tarifa / noche (HNL) *</span>
-                  <input type="number" min={0} step={0.01} className={inp} value={form.tarifa_noche || ''}
-                    onChange={e => setForm(f => ({ ...f, tarifa_noche: Math.max(0, Number(e.target.value) || 0) }))} />
-                </label>
-
-                {/* Piso */}
-                <label>
-                  <span style={lbl}>Piso</span>
-                  <input type="number" min={0} className={inp} value={form.piso}
-                    onChange={e => setForm(f => ({ ...f, piso: Math.max(0, parseInt(e.target.value) || 0) }))} />
-                </label>
-
-                {/* Capacidad */}
-                <label>
-                  <span style={lbl}>Capacidad (personas)</span>
-                  <div className="flex items-center gap-3 mt-1">
-                    <button type="button" onClick={() => setForm(f => ({ ...f, capacidad: Math.max(1, f.capacidad! - 1) }))} style={cnt}>−</button>
-                    <span className="font-semibold text-slate-700 w-6 text-center">{form.capacidad}</span>
-                    <button type="button" onClick={() => setForm(f => ({ ...f, capacidad: f.capacidad! + 1 }))} style={cnt}>+</button>
+                {/* ─── Identificación ─── */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Identificación</span>
+                    <div className="flex-1 h-px bg-slate-100" />
                   </div>
-                </label>
-
-                {/* Camas */}
-                <label>
-                  <span style={lbl}>Número de camas</span>
-                  <div className="flex items-center gap-3 mt-1">
-                    <button type="button" onClick={() => setForm(f => ({ ...f, numero_camas: Math.max(1, f.numero_camas! - 1) }))} style={cnt}>−</button>
-                    <span className="font-semibold text-slate-700 w-6 text-center">{form.numero_camas}</span>
-                    <button type="button" onClick={() => setForm(f => ({ ...f, numero_camas: f.numero_camas! + 1 }))} style={cnt}>+</button>
-                  </div>
-                </label>
-
-                {/* Imagen 360 */}
-                <div className="col-span-2">
-                  <span style={lbl}>Imagen Panorámica 360°</span>
-                  <div className="flex gap-2 mt-1">
-                    <input type="text" className={`${inp} flex-1 mt-0`}
-                      placeholder="Pega una URL o sube un archivo"
-                      value={form.imagen_360 || ''}
-                      onChange={e => setForm(f => ({ ...f, imagen_360: e.target.value }))} />
-                    <div className="relative flex-shrink-0">
-                      <input type="file" accept="image/*" onChange={handleUpload360} disabled={uploading360}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
-                      <button type="button" disabled={uploading360}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white transition-colors"
-                        style={{ background: uploading360 ? '#94a3b8' : '#10b981' }}>
-                        {uploading360 ? <><Loader2 size={13} className="animate-spin" />Subiendo</> : <><Upload size={13} />Subir</>}
-                      </button>
-                    </div>
-                  </div>
-                  {form.imagen_360 && (
-                    <a href={form.imagen_360} target="_blank" rel="noopener noreferrer"
-                      className="text-[11px] text-blue-500 hover:underline mt-1 block truncate">
-                      {form.imagen_360}
-                    </a>
-                  )}
-                </div>
-
-                {/* Imágenes normales */}
-                <div className="col-span-2">
-                  <span style={lbl}>Imágenes de la habitación</span>
-                  {/* Botón subir múltiples archivos */}
-                  <div className="relative mt-1 mb-2">
-                    <input type="file" accept="image/*" multiple onChange={handleUploadImagenes}
-                      disabled={uploadingImagen}
-                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
-                    <button type="button" disabled={uploadingImagen}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed text-sm font-medium transition-colors"
-                      style={{ borderColor: uploadingImagen ? '#cbd5e1' : '#94a3b8', color: uploadingImagen ? '#94a3b8' : '#64748b' }}>
-                      {uploadingImagen
-                        ? <><Loader2 size={14} className="animate-spin" /> Subiendo imágenes...</>
-                        : <><ImagePlus size={14} /> Subir fotos desde el dispositivo</>}
-                    </button>
-                  </div>
-                  {/* Lista de URLs subidas */}
-                  {(form.imagenes || []).length > 0 && (
-                    <div className="space-y-1 mb-2">
-                      {(form.imagenes || []).map((url, i) => (
-                        <div key={i} className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1.5">
-                          <img src={url} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0 bg-slate-200" onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
-                          <span className="text-xs text-slate-500 truncate flex-1">{url.split('/').pop()}</span>
-                          <button type="button" onClick={() => setForm(f => ({ ...f, imagenes: (f.imagenes||[]).filter((_,j)=>j!==i) }))}
-                            className="text-slate-400 hover:text-red-500 flex-shrink-0"><X size={12} /></button>
+                  <div className="grid grid-cols-2 gap-4">
+                    <label>
+                      <span style={lbl}>Nombre interno *</span>
+                      <input className={inp} placeholder="Ej. Suite 101" value={form.nombre_habitacion}
+                        onChange={e => setForm(f => ({ ...f, nombre_habitacion: e.target.value }))} />
+                    </label>
+                    <label>
+                      <span style={lbl}>Código de habitación</span>
+                      <input className={inp} placeholder="Ej. HAB-101" value={form.codigo_habitacion ?? ''}
+                        onChange={e => setForm(f => ({ ...f, codigo_habitacion: e.target.value }))} />
+                    </label>
+                    <label>
+                      <span style={lbl}>Alias público <span className="text-slate-400 font-normal normal-case">(visible al cliente)</span></span>
+                      <input className={inp} placeholder="Ej. La Cabaña del Río" value={form.nombre_alias ?? ''}
+                        onChange={e => setForm(f => ({ ...f, nombre_alias: e.target.value }))} />
+                    </label>
+                    <label>
+                      <span style={lbl}>Hotel *</span>
+                      {hoteles.length === 0 ? (
+                        <div className="text-xs text-amber-600 p-3 bg-amber-50 rounded-xl border border-amber-200 mt-1">
+                          No hay hoteles. Crea uno en Configuración.
                         </div>
-                      ))}
-                    </div>
-                  )}
-                  {/* Textarea para pegar URLs manualmente */}
-                  <textarea className={`${inp} resize-none text-xs`} rows={2}
-                    placeholder="O pega URLs manualmente, una por línea"
-                    value={(form.imagenes || []).join('\n')}
-                    onChange={e => setForm(f => ({ ...f, imagenes: e.target.value.split('\n').map(u => u.trim()).filter(Boolean) }))} />
+                      ) : (
+                        <select className={inp} value={form.id_hotel}
+                          onChange={e => setForm(f => ({ ...f, id_hotel: e.target.value }))}
+                          disabled={localStorage.getItem('active_hotel_id') !== 'all'}>
+                          <option value="">Selecciona hotel</option>
+                          {hoteles.map(h => <option key={h.id_hotel} value={h.id_hotel}>{h.nombre_hotel}</option>)}
+                        </select>
+                      )}
+                    </label>
+                  </div>
                 </div>
 
-                {/* Servicios */}
-                <div className="col-span-2">
-                  <span style={lbl}>Servicios de la habitación</span>
+                {/* ─── Configuración ─── */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Configuración</span>
+                    <div className="flex-1 h-px bg-slate-100" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <label>
+                      <span style={lbl}>Tipo</span>
+                      {tiposHabitacion.length === 0 ? (
+                        <div className="text-xs text-amber-600 p-3 bg-amber-50 rounded-xl border border-amber-200 mt-1">Sin tipos. Crea en la pestaña Tipos.</div>
+                      ) : (
+                        <select className={inp} value={form.tipo}
+                          onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
+                          {tiposHabitacion.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
+                        </select>
+                      )}
+                    </label>
+                    <label>
+                      <span style={lbl}>Estado</span>
+                      <select className={inp} value={form.estado}
+                        onChange={e => setForm(f => ({ ...f, estado: e.target.value as Habitacion['estado'] }))}>
+                        {ESTADOS.map(e => <option key={e} value={e}>{ESTADO_META[e].label}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <label>
+                      <span style={lbl}>Piso</span>
+                      <input type="number" min={0} className={inp} value={form.piso}
+                        onChange={e => setForm(f => ({ ...f, piso: Math.max(0, parseInt(e.target.value) || 0) }))} />
+                    </label>
+                    <label>
+                      <span style={lbl}>Capacidad (pers.)</span>
+                      <div className="flex items-center gap-2 mt-1">
+                        <button type="button" onClick={() => setForm(f => ({ ...f, capacidad: Math.max(1, f.capacidad! - 1) }))} style={cnt}>−</button>
+                        <span className="font-semibold text-slate-700 w-6 text-center text-sm">{form.capacidad}</span>
+                        <button type="button" onClick={() => setForm(f => ({ ...f, capacidad: f.capacidad! + 1 }))} style={cnt}>+</button>
+                      </div>
+                    </label>
+                    <label>
+                      <span style={lbl}>Núm. de camas</span>
+                      <div className="flex items-center gap-2 mt-1">
+                        <button type="button" onClick={() => setForm(f => ({ ...f, numero_camas: Math.max(1, f.numero_camas! - 1) }))} style={cnt}>−</button>
+                        <span className="font-semibold text-slate-700 w-6 text-center text-sm">{form.numero_camas}</span>
+                        <button type="button" onClick={() => setForm(f => ({ ...f, numero_camas: f.numero_camas! + 1 }))} style={cnt}>+</button>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* ─── Tarifas ─── */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tarifas</span>
+                    <div className="flex-1 h-px bg-slate-100" />
+                  </div>
+
+                  {/* Tarifas por período (solo edición) */}
+                  {editando && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2.5">
+                        <span style={{ ...lbl, marginBottom: 0 }}>Tarifas por período</span>
+                        {!formPeriodo && (
+                          <div className="flex gap-1.5">
+                            {!periodosHab.some((p: any) => p.es_base) && (
+                              <button type="button"
+                                onClick={() => setFormPeriodo({ es_base: true, nombre_periodo: 'Base', id_tarifa: '', tarifa_noche: '', fecha_desde: '', fecha_hasta: '' })}
+                                className="text-[11px] font-bold px-2.5 py-1 rounded-lg cursor-pointer transition-colors"
+                                style={{ color: '#059669', background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.25)' }}>
+                                + Tarifa base
+                              </button>
+                            )}
+                            <button type="button"
+                              onClick={() => setFormPeriodo({ es_base: false, nombre_periodo: '', id_tarifa: '', tarifa_noche: '', fecha_desde: '', fecha_hasta: '' })}
+                              className="text-[11px] font-bold px-2.5 py-1 rounded-lg cursor-pointer transition-colors"
+                              style={{ color: '#2563eb', background: 'rgba(37,99,235,.07)', border: '1px solid rgba(37,99,235,.2)' }}>
+                              + Período
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {formPeriodo && (
+                        <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4 mb-3 flex flex-col gap-3">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <span style={lbl}>{formPeriodo.es_base ? 'Nombre' : 'Nombre del período'}</span>
+                              <input className={inp} value={formPeriodo.nombre_periodo}
+                                placeholder={formPeriodo.es_base ? 'Tarifa normal' : 'ej. Navidad 2024'}
+                                onChange={e => setFormPeriodo(f => f ? { ...f, nombre_periodo: e.target.value } : f)} />
+                            </div>
+                            <div>
+                              <span style={lbl}>L / noche *</span>
+                              <input type="number" min={0} step={0.01} className={inp} value={formPeriodo.tarifa_noche}
+                                placeholder="0.00"
+                                onChange={e => setFormPeriodo(f => f ? { ...f, tarifa_noche: e.target.value } : f)} />
+                            </div>
+                          </div>
+                          {tarifasDisponibles.length > 0 && (
+                            <div>
+                              <span style={lbl}>Referencia (opcional)</span>
+                              <select className={inp}
+                                value={formPeriodo.id_tarifa}
+                                onChange={e => {
+                                  const t = tarifasDisponibles.find((x: any) => x.id_tarifa === e.target.value);
+                                  setFormPeriodo(f => f ? { ...f, id_tarifa: e.target.value, tarifa_noche: t ? String(t.tarifa_noche) : f.tarifa_noche } : f);
+                                }}>
+                                <option value="">— Sin referencia (monto manual) —</option>
+                                {tarifasDisponibles.map((t: any) => (
+                                  <option key={t.id_tarifa} value={t.id_tarifa}>
+                                    {t.categoria || 'Sin categoría'} — L {Number(t.tarifa_noche).toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          {!formPeriodo.es_base && (
+                            <div>
+                              <span style={lbl}>Rango de fechas *</span>
+                              <DateRangePicker
+                                from={formPeriodo.fecha_desde} to={formPeriodo.fecha_hasta}
+                                onFromChange={v => setFormPeriodo(f => f ? { ...f, fecha_desde: v } : f)}
+                                onToChange={v => setFormPeriodo(f => f ? { ...f, fecha_hasta: v } : f)}
+                                placeholderFrom="Fecha inicio *" placeholderTo="Fecha fin (opcional)"
+                                gap={8}
+                              />
+                              <p className="text-[10px] text-slate-400 mt-1">Sin fecha fin → aplica indefinidamente.</p>
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => setFormPeriodo(null)}
+                              className="flex-1 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-500 cursor-pointer hover:bg-slate-50 transition-colors">
+                              Cancelar
+                            </button>
+                            <button type="button" onClick={guardarPeriodo} disabled={guardandoPeriodo}
+                              className="flex-[2] py-2 rounded-xl text-sm font-bold text-white cursor-pointer transition-opacity"
+                              style={{ background: 'linear-gradient(135deg,#2563eb,#1d4ed8)', opacity: guardandoPeriodo ? .6 : 1 }}>
+                              {guardandoPeriodo ? 'Guardando...' : formPeriodo.id ? 'Actualizar' : 'Guardar'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {loadingPeriodos ? (
+                        <p className="text-xs text-slate-400 py-2">Cargando períodos...</p>
+                      ) : periodosHab.length === 0 && !formPeriodo ? (
+                        <p className="text-xs text-slate-400 text-center py-3">
+                          Sin tarifas asignadas. Usa "Tarifa base" para el precio permanente y "Período" para fechas especiales.
+                        </p>
+                      ) : (
+                        <div className="flex flex-col gap-1.5">
+                          {periodosHab.map((p: any) => {
+                            const hoy     = new Date().toLocaleDateString('en-CA');
+                            const desde   = p.fecha_desde ?? '';
+                            const hasta   = p.fecha_hasta ?? '';
+                            const activa  = p.es_base || ((!desde || desde <= hoy) && (!hasta || hasta >= hoy));
+                            const proxima = !p.es_base && desde > hoy;
+                            const vencida = !p.es_base && hasta && hasta < hoy;
+                            const badge   = p.es_base ? { label: 'Base',    bg: 'rgba(37,99,235,.08)',  color: '#2563eb' }
+                                          : activa    ? { label: 'Activa',  bg: 'rgba(16,185,129,.1)',  color: '#059669' }
+                                          : proxima   ? { label: 'Próxima', bg: 'rgba(245,158,11,.1)',  color: '#d97706' }
+                                          :             { label: 'Vencida', bg: 'rgba(100,116,139,.1)', color: '#64748b' };
+                            const editandoPeriodo = formPeriodo?.id === p.id;
+                            return (
+                              <div key={p.id} className="flex items-start justify-between gap-2 px-3 py-2.5 rounded-xl"
+                                style={{
+                                  background: editandoPeriodo ? 'rgba(37,99,235,.05)' : vencida ? 'rgba(100,116,139,.04)' : '#f8fafc',
+                                  border: `1.5px solid ${editandoPeriodo ? '#2563eb' : vencida ? '#e2e8f0' : '#e2e8f0'}`,
+                                  opacity: vencida ? .7 : 1,
+                                }}>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[13px] font-bold text-slate-800">
+                                      L {Number(p.tarifa_noche).toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                                    </span>
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                                      style={{ background: badge.bg, color: badge.color }}>
+                                      {badge.label}
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 mt-0.5">
+                                    {p.nombre_periodo && <span className="font-semibold text-slate-600">{p.nombre_periodo}</span>}
+                                    {!p.es_base && desde && <span> · {desde}{hasta ? ` → ${hasta}` : ' → sin vencimiento'}</span>}
+                                    {p.es_base && <span> · Tarifa permanente</span>}
+                                  </div>
+                                </div>
+                                <div className="flex gap-1 flex-shrink-0">
+                                  <button type="button" title="Editar"
+                                    onClick={() => setFormPeriodo({ id: p.id, es_base: p.es_base, nombre_periodo: p.nombre_periodo ?? '', id_tarifa: p.id_tarifa ?? '', tarifa_noche: String(p.tarifa_noche), fecha_desde: p.fecha_desde ?? '', fecha_hasta: p.fecha_hasta ?? '' })}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 transition-all">
+                                    <Pencil size={11} />
+                                  </button>
+                                  <button type="button" title="Eliminar"
+                                    onClick={() => eliminarPeriodo(p.id)}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 border border-red-100 transition-all">
+                                    <X size={11} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* ─── Multimedia ─── */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Multimedia</span>
+                    <div className="flex-1 h-px bg-slate-100" />
+                  </div>
+                  <div className="flex flex-col gap-4">
+                    {/* Imagen 360 */}
+                    <div>
+                      <span style={lbl}>Imagen Panorámica 360°</span>
+                      <div className="flex gap-2 mt-1">
+                        <input type="text" className={`${inp} flex-1 mt-0`}
+                          placeholder="Pega una URL o sube un archivo"
+                          value={form.imagen_360 || ''}
+                          onChange={e => setForm(f => ({ ...f, imagen_360: e.target.value }))} />
+                        <div className="relative flex-shrink-0">
+                          <input type="file" accept="image/*" onChange={handleUpload360} disabled={uploading360}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                          <button type="button" disabled={uploading360}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white transition-colors"
+                            style={{ background: uploading360 ? '#94a3b8' : '#10b981' }}>
+                            {uploading360 ? <><Loader2 size={13} className="animate-spin" />Subiendo</> : <><Upload size={13} />Subir</>}
+                          </button>
+                        </div>
+                      </div>
+                      {form.imagen_360 && (
+                        <a href={form.imagen_360} target="_blank" rel="noopener noreferrer"
+                          className="text-[11px] text-blue-500 hover:underline mt-1 block truncate">
+                          {form.imagen_360}
+                        </a>
+                      )}
+                    </div>
+                    {/* Imágenes normales */}
+                    <div>
+                      <span style={lbl}>Fotos de la habitación</span>
+                      <div className="relative mt-1 mb-2">
+                        <input type="file" accept="image/*" multiple onChange={handleUploadImagenes}
+                          disabled={uploadingImagen}
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                        <button type="button" disabled={uploadingImagen}
+                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed text-sm font-medium transition-colors"
+                          style={{ borderColor: uploadingImagen ? '#cbd5e1' : '#94a3b8', color: uploadingImagen ? '#94a3b8' : '#64748b' }}>
+                          {uploadingImagen
+                            ? <><Loader2 size={14} className="animate-spin" /> Subiendo imágenes...</>
+                            : <><ImagePlus size={14} /> Subir fotos desde el dispositivo</>}
+                        </button>
+                      </div>
+                      {(form.imagenes || []).length > 0 && (
+                        <div className="grid grid-cols-2 gap-1.5 mb-2">
+                          {(form.imagenes || []).map((url, i) => (
+                            <div key={i} className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1.5">
+                              <img src={url} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0 bg-slate-200" onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
+                              <span className="text-xs text-slate-500 truncate flex-1">{url.split('/').pop()}</span>
+                              <button type="button" onClick={() => setForm(f => ({ ...f, imagenes: (f.imagenes||[]).filter((_,j)=>j!==i) }))}
+                                className="text-slate-400 hover:text-red-500 flex-shrink-0"><X size={12} /></button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <textarea className={`${inp} resize-none text-xs`} rows={2}
+                        placeholder="O pega URLs manualmente, una por línea"
+                        value={(form.imagenes || []).join('\n')}
+                        onChange={e => setForm(f => ({ ...f, imagenes: e.target.value.split('\n').map(u => u.trim()).filter(Boolean) }))} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ─── Servicios ─── */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Servicios</span>
+                    <div className="flex-1 h-px bg-slate-100" />
+                  </div>
                   {amenidades.length === 0 ? (
-                    <div className="mt-1 text-xs text-amber-600 p-3 bg-amber-50 rounded-xl border border-amber-200">
-                      Sin servicios configurados. Agrégalos en Configuración &gt; Servicios.
+                    <div className="text-xs text-amber-600 p-3 bg-amber-50 rounded-xl border border-amber-200">
+                      Sin servicios configurados. Agrégalos en la pestaña Servicios.
                     </div>
                   ) : (
-                    <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       {amenidades.map(a => {
                         const checked = (form.comodidades || []).includes(a.nombre);
                         return (
                           <motion.label key={a.id} whileTap={{ scale: 0.97 }}
-                            className="flex items-center gap-2.5 cursor-pointer px-3 py-2.5 rounded-xl border transition-all text-sm select-none"
+                            className="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-xl border transition-all text-sm select-none"
                             style={{
                               background: checked ? '#ecfdf5' : '#f8fafc',
                               borderColor: checked ? '#10b981' : '#e2e8f0',
@@ -1187,18 +1463,19 @@ export const HabitacionesPanel: React.FC = () => {
                                 if (e.target.checked) setForm(f => ({ ...f, comodidades: [...(f.comodidades || []), a.nombre] }));
                                 else setForm(f => ({ ...f, comodidades: (f.comodidades || []).filter(x => x !== a.nombre) }));
                               }}
-                              className="accent-emerald-500 w-3.5 h-3.5 cursor-pointer" />
-                            <span>{a.nombre}</span>
+                              className="accent-emerald-500 w-3.5 h-3.5 cursor-pointer flex-shrink-0" />
+                            <span className="truncate">{a.nombre}</span>
                           </motion.label>
                         );
                       })}
                     </div>
                   )}
                 </div>
+
               </div>
 
               {/* Footer */}
-              <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2.5 bg-slate-50/60 rounded-b-2xl">
+              <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2.5 bg-slate-50/60 rounded-b-2xl flex-shrink-0">
                 <motion.button whileTap={{ scale: 0.96 }} onClick={() => setModalOpen(false)}
                   className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-100 transition-colors">
                   Cancelar

@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Eye, EyeOff, RefreshCw, Trash2, Check, X, UserPlus, Users, Mail, Search, AlertTriangle } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { obtenerTodosLosUsuarios, asignarRol, cambiarEstadoUsuario, UsuarioRol } from '../../api/usuariosRolesService';
 import { crearInvitacion, obtenerInvitacionesActivas, resendInvitacion, eliminarInvitacion, Invitacion } from '../../api/invitacionesService';
 import { crearUsuarioManual, eliminarUsuario, buscarUsuarioPorEmail, eliminarUsuarioPorEmail, BusquedaUsuario } from '../../api/usuariosService';
+import apiClient from '../../services/api';
+
+interface HotelItem { id_hotel: string; nombre_hotel: string; ciudad?: string; }
 
 const ROL_COLOR: Record<string, string> = {
   PROPIETARIO: '#2563eb',
@@ -37,16 +41,19 @@ const Chip = ({ label, color }: { label: string; color: string }) => (
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export const RoleManagement: React.FC = () => {
+  const { user, refreshRole } = useAuth();
   const [usuarios,    setUsuarios]    = useState<UsuarioRol[]>([]);
   const [invitaciones,setInvitaciones]= useState<Invitacion[]>([]);
+  const [hoteles,     setHoteles]     = useState<HotelItem[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [toast,       setToast]       = useState<{ msg: string; type: 'ok' | 'err' } | null>(null);
 
   // Editing row
-  const [editingId,    setEditingId]    = useState<string | null>(null);
-  const [editingRol,   setEditingRol]   = useState('RECEPCIONISTA');
-  const [editingEstado,setEditingEstado]= useState('activo');
-  const [saving,       setSaving]       = useState(false);
+  const [editingId,     setEditingId]     = useState<string | null>(null);
+  const [editingRol,    setEditingRol]    = useState('RECEPCIONISTA');
+  const [editingEstado, setEditingEstado] = useState('activo');
+  const [editingHotel,  setEditingHotel]  = useState('');
+  const [saving,        setSaving]        = useState(false);
 
   // Invite form
   const [inviteEmail,  setInviteEmail]  = useState('');
@@ -60,6 +67,7 @@ export const RoleManagement: React.FC = () => {
   const [showPassword,  setShowPassword]  = useState(false);
   const [manualRol,     setManualRol]     = useState<typeof ROLES[number]>('RECEPCIONISTA');
   const [manualEstado,  setManualEstado]  = useState<'activo'|'inactivo'|'suspendido'>('activo');
+  const [manualHotel,   setManualHotel]   = useState('');
   const [manualLoading, setManualLoading] = useState(false);
 
   // Buscar / eliminar cuenta por email
@@ -77,12 +85,14 @@ export const RoleManagement: React.FC = () => {
 
   const cargarDatos = async () => {
     setLoading(true);
-    const [usrs, invs] = await Promise.all([
+    const [usrs, invs, hots] = await Promise.all([
       obtenerTodosLosUsuarios(),
       obtenerInvitacionesActivas(),
+      apiClient.get('/hotel/config/hoteles').catch(() => []),
     ]);
     setUsuarios(usrs);
     setInvitaciones(invs);
+    setHoteles(Array.isArray(hots) ? hots : []);
     setLoading(false);
   };
 
@@ -129,11 +139,13 @@ export const RoleManagement: React.FC = () => {
   // ── Rol / Estado ──
   const handleGuardarRol = async (u: UsuarioRol) => {
     setSaving(true);
-    const res = await asignarRol({ user_id: u.user_id, id_hotel: u.id_hotel, rol: editingRol, estado: editingEstado });
+    const res = await asignarRol({ user_id: u.user_id, id_hotel: editingHotel || u.id_hotel, rol: editingRol, estado: editingEstado });
     if (res.ok) {
       setUsuarios(p => p.map(x => x.user_id === u.user_id ? { ...x, rol: editingRol as any, estado: editingEstado as any } : x));
       setEditingId(null);
       showToast('Cambios guardados.');
+      // Si el admin editó su propio rol, refrescar el contexto de permisos
+      if (u.user_id === user?.id) await refreshRole();
     } else {
       showToast(res.error ?? 'Error al guardar.', 'err');
     }
@@ -211,9 +223,9 @@ export const RoleManagement: React.FC = () => {
     if (!manualPassword || manualPassword.length < 8) { showToast('Contraseña mín. 8 caracteres.', 'err'); return; }
     setManualLoading(true);
     try {
-      const nuevo = await crearUsuarioManual({ email: manualEmail, password: manualPassword, nombre: manualNombre, rol: manualRol, estado: manualEstado });
+      const nuevo = await crearUsuarioManual({ email: manualEmail, password: manualPassword, nombre: manualNombre, rol: manualRol, estado: manualEstado, id_hotel: manualHotel || undefined });
       setUsuarios(p => [nuevo, ...p]);
-      setManualEmail(''); setManualNombre(''); setManualPassword('');
+      setManualEmail(''); setManualNombre(''); setManualPassword(''); setManualHotel('');
       showToast('Usuario creado exitosamente.');
     } catch (err: any) {
       showToast(err.message ?? 'Error al crear usuario.', 'err');
@@ -322,6 +334,16 @@ export const RoleManagement: React.FC = () => {
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none">
                   <option value="activo">Activo</option>
                   <option value="inactivo">Inactivo</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">Hotel</label>
+                <select value={manualHotel} onChange={e => setManualHotel(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none">
+                  <option value="">— Sin hotel específico —</option>
+                  {hoteles.map(h => (
+                    <option key={h.id_hotel} value={h.id_hotel}>{h.nombre_hotel}</option>
+                  ))}
                 </select>
               </div>
               <button type="submit" disabled={manualLoading}
@@ -498,10 +520,19 @@ export const RoleManagement: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         {editingId === u.user_id ? (
-                          <select value={editingEstado} onChange={e => setEditingEstado(e.target.value)}
-                            className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold focus:outline-none">
-                            {ESTADOS_EDIT.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
-                          </select>
+                          <div className="flex flex-col gap-1.5">
+                            <select value={editingEstado} onChange={e => setEditingEstado(e.target.value)}
+                              className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold focus:outline-none">
+                              {ESTADOS_EDIT.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+                            </select>
+                            <select value={editingHotel} onChange={e => setEditingHotel(e.target.value)}
+                              className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none">
+                              <option value="">— Sin hotel —</option>
+                              {hoteles.map(h => (
+                                <option key={h.id_hotel} value={h.id_hotel}>{h.nombre_hotel}</option>
+                              ))}
+                            </select>
+                          </div>
                         ) : (
                           <Chip label={u.estado} color={ESTADO_COLOR[u.estado] ?? '#64748b'}/>
                         )}
@@ -520,7 +551,7 @@ export const RoleManagement: React.FC = () => {
                           </div>
                         ) : (
                           <div className="flex gap-2">
-                            <button onClick={() => { setEditingId(u.user_id); setEditingRol(u.rol); setEditingEstado(u.estado); }}
+                            <button onClick={() => { setEditingId(u.user_id); setEditingRol(u.rol); setEditingEstado(u.estado); setEditingHotel(u.id_hotel || ''); }}
                               className="px-3 py-1.5 border border-slate-200 bg-slate-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-50 transition-colors">
                               Editar
                             </button>

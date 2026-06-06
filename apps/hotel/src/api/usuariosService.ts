@@ -7,6 +7,7 @@ export interface CrearUsuarioParams {
   nombre: string;
   rol: string;
   estado: string;
+  id_hotel?: string;
 }
 
 /**

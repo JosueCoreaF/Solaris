@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Upload, Scan, CheckCircle, AlertCircle, X, FileText, RotateCcw, Plus, Trash2, Loader2, Sparkles, ChevronRight } from 'lucide-react';
 import { useFinanceAI } from '../../context/FinanceAIContext';
+import { DatePicker } from '../../components/DatePicker';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
@@ -1034,11 +1035,10 @@ export const RegistrarFactura: React.FC<Props> = ({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Fecha</label>
-                <input
-                  type="date"
+                <DatePicker
                   value={form.fecha}
-                  onChange={e => set('fecha', e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-400"
+                  onChange={v => set('fecha', v)}
+                  placeholder="Fecha del documento"
                 />
               </div>
               <div>
