@@ -1,529 +1,635 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  Plus,
-  DollarSign,
-  Users,
-  Calendar,
-  TrendingUp,
-  Settings,
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  BarChart3,
-  ArrowUp,
-  ArrowDown,
+  TrendingUp, DollarSign, Users, Calendar, BarChart3,
+  Plus, Settings, Clock, ArrowUp, ArrowDown, Wrench,
+  BedDouble, Sparkles, CreditCard, FileText, ShieldCheck,
+  Upload, UserCheck, AlertTriangle, CheckCircle2,
 } from 'lucide-react';
 import { useRole } from '../hooks/useRole';
-import { fetchReservas, fetchHabitaciones, fetchHoteles } from '../api/bookingsService';
+import { useAuth } from '../context/AuthContext';
 import {
-  obtenerKPIsDashboard,
-  calcularTendenciasOcupacion,
-  obtenerSolicitudesPendientes,
-  type DashboardKPI,
-  type TendenciaOcupacion,
+  obtenerKPIsDashboard, calcularTendenciasOcupacion,
+  obtenerSolicitudesPendientes, type DashboardKPI, type TendenciaOcupacion,
 } from '../api/dashboardService';
-import type { Reserva } from '../api/bookingsService';
+import { fetchHoteles } from '../api/bookingsService';
+import { auditService } from '../api/auditService';
 
-interface StatCard {
-  label: string;
-  value: string | number;
-  subtext: string;
+const GREETINGS: Record<string, string> = {
+  PROPIETARIO: 'Panel Ejecutivo',
+  ADMIN: 'Panel de Administración',
+  RECEPCIONISTA: 'Panel de Recepción',
+  CONTADOR: 'Panel Financiero',
+  MANTENIMIENTO: 'Panel de Mantenimiento',
+};
+
+const GREETING_SUB: Record<string, string> = {
+  PROPIETARIO: 'Vista consolidada de operaciones',
+  ADMIN: 'Gestión operativa del hotel',
+  RECEPCIONISTA: 'Reservas, pagos y atención al huésped',
+  CONTADOR: 'Finanzas, facturas y reportes',
+  MANTENIMIENTO: 'Tareas e incidencias asignadas',
+};
+
+function formatLps(n: number) {
+  return `L. ${n.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export const Dashboard: React.FC = () => {
-  const { role } = useRole();
-  const [kpis, setKpis] = useState<DashboardKPI>({
-    ocupacion: 0,
-    ingresosHoy: 0,
-    reservasPendientes: 0,
-    scoreClientes: 75,
-    ingresosMes: 0,
-    gastosMes: 0,
-  });
-  const [tendencias, setTendencias] = useState<TendenciaOcupacion[]>([]);
-  const [usuariosPendientes, setUsuariosPendientes] = useState(0);
-  const [hoteles, setHoteles] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+function hora() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Buenos días';
+  if (h < 19) return 'Buenas tardes';
+  return 'Buenas noches';
+}
 
-  const activeHotelId = localStorage.getItem('active_hotel_id') || 'all';
+/* ── Bezier smooth path helper ───────────────────────── */
+const makeBezier = (pts: Array<{ x: number; y: number }>) => {
+  if (pts.length === 0) return '';
+  if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const cpx = (pts[i].x + pts[i + 1].x) / 2;
+    d += ` C ${cpx},${pts[i].y} ${cpx},${pts[i + 1].y} ${pts[i + 1].x},${pts[i + 1].y}`;
+  }
+  return d;
+};
 
-  useEffect(() => {
-    const cargarDatos = async () => {
-      setLoading(true);
-      try {
-        // Cargar hoteles
-        const hotelesData = await fetchHoteles().catch(() => []);
-        setHoteles(hotelesData);
+/* ── SVG Area Chart ──────────────────────────────── */
+const TendenciaChart: React.FC<{ data: TendenciaOcupacion[] }> = ({ data }) => {
+  const width = 500;
+  const height = 150;
+  const paddingLeft = 32;
+  const paddingRight = 16;
+  const paddingTop = 24;
+  const paddingBottom = 20;
+  const chartWidth = width - paddingLeft - paddingRight;
+  const chartHeight = height - paddingTop - paddingBottom;
 
-        // Cargar KPIs reales
-        const kpisData = await obtenerKPIsDashboard();
-        setKpis(kpisData);
+  const points = data.map((d, i) => ({
+    x: paddingLeft + (i / Math.max(data.length - 1, 1)) * chartWidth,
+    y: height - paddingBottom - (d.ocupacion / 100) * chartHeight,
+    val: d.ocupacion,
+    dia: d.dia,
+  }));
 
-        // Cargar tendencias
-        const tendenciasData = await calcularTendenciasOcupacion();
-        setTendencias(tendenciasData);
+  const linePath = makeBezier(points);
+  const areaPath = linePath
+    ? `${linePath} L ${points[points.length - 1].x} ${height - paddingBottom} L ${points[0].x} ${height - paddingBottom} Z`
+    : '';
 
-        // Cargar usuarios pendientes si es PROPIETARIO
-        if (role === 'PROPIETARIO') {
-          const pendientes = await obtenerSolicitudesPendientes();
-          setUsuariosPendientes(pendientes);
-        }
-      } catch (err) {
-        console.error('Error cargando datos del dashboard:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
+  return (
+    <div style={{ width: '100%', position: 'relative', marginTop: 10 }}>
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="100%" style={{ overflow: 'visible' }}>
+        <defs>
+          <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.18" />
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.00" />
+          </linearGradient>
+          <filter id="chartGlow">
+            <feGaussianBlur stdDeviation="2" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
 
-    cargarDatos();
-  }, [role]);
+        {[0, 50, 100].map((grid, idx) => {
+          const y = height - paddingBottom - (grid / 100) * chartHeight;
+          return (
+            <g key={idx}>
+              <line x1={paddingLeft} y1={y} x2={width - paddingRight} y2={y}
+                stroke="var(--shell-border)" strokeWidth="1" strokeDasharray="4 4" />
+              <text x={paddingLeft - 8} y={y + 4} textAnchor="end"
+                style={{ fontSize: 9, fill: 'var(--muted)', fontWeight: 500, fontFamily: 'var(--sans)' }}>
+                {grid}%
+              </text>
+            </g>
+          );
+        })}
 
-  // Vista Ejecutiva para PROPIETARIO
-  if (role === 'PROPIETARIO') {
-    const isTendenciasEmpty = tendencias.length === 0 || tendencias.every(item => item.ocupacion === 0);
-    const tendenciasFinales = tendencias;
+        {areaPath && <path d={areaPath} fill="url(#chartGradient)" />}
 
-    // Alertas
-    const alertas = [
-      ...(usuariosPendientes > 0
-        ? [
-          {
-            id: 'users',
-            tipo: 'solicitud',
-            titulo: 'Solicitudes de Aprobación',
-            descripcion: `${usuariosPendientes} usuario(s) esperando aprobación`,
-            icono: <Clock className="text-orange-500" size={20} />,
-            color: 'orange',
-          },
-        ]
-        : []),
-      ...(kpis.reservasPendientes > 0
-        ? [
-          {
-            id: 'reservas',
-            tipo: 'info',
-            titulo: 'Huéspedes Por Ingresar',
-            descripcion: `${kpis.reservasPendientes} check-in en próximos 3 días`,
-            icono: <Calendar className="text-blue-500" size={20} />,
-            color: 'blue',
-          },
-        ]
-        : []),
-    ];
-
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
-        {/* Header Ejecutivo */}
-        <div className="mb-8">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
-            Panel Ejecutivo
-          </p>
-          <div className="flex justify-between items-start mb-6">
-            <div>
-              <h1 className="text-5xl font-light text-slate-900 mb-2">Dirección Operativa</h1>
-              <p className="text-sm text-slate-600">
-                Resumen ejecutivo del hotel • {new Date().toLocaleDateString('es-HN')}
-              </p>
-            </div>
-            <div className="flex items-center gap-3 px-4 py-2 bg-white rounded-lg border border-emerald-200 shadow-sm">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-              <span className="text-sm font-medium text-slate-700">Sistema Activo</span>
-            </div>
-          </div>
-        </div>
-
-        {/* KPIs Principales (4 columnas) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-          {/* KPI 1: Ocupación */}
-          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm hover:shadow-lg transition-shadow">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Ocupación Actual
-                </p>
-                <p className="text-3xl font-bold text-slate-900 mt-2">{kpis.ocupacion}%</p>
-              </div>
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <TrendingUp size={24} className="text-blue-600" />
-              </div>
-            </div>
-            <div className="w-full bg-slate-200 rounded-full h-2">
-              <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${kpis.ocupacion}%` }}></div>
-            </div>
-            <p className="text-xs text-slate-500 mt-3">{kpis.ocupacion >= 75 ? '✓ Meta alcanzada' : '↑ Potencial de mejora'}</p>
-          </div>
-
-          {/* KPI 2: Ingresos Hoy */}
-          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm hover:shadow-lg transition-shadow">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Ingresos Hoy
-                </p>
-                <p className="text-3xl font-bold text-slate-900 mt-2">
-                  L. {kpis.ingresosHoy.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center">
-                <DollarSign size={24} className="text-emerald-600" />
-              </div>
-            </div>
-            <p className="text-xs text-emerald-600 font-medium">
-              {kpis.ingresosHoy > 0 ? '✓ Ingresos registrados' : 'Sin ingresos aún'}
-            </p>
-            <p className="text-xs text-slate-500 mt-2">Mes: L. {kpis.ingresosMes.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</p>
-          </div>
-
-          {/* KPI 3: Reservas Pendientes */}
-          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm hover:shadow-lg transition-shadow">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Por Ingresar
-                </p>
-                <p className="text-3xl font-bold text-slate-900 mt-2">{kpis.reservasPendientes}</p>
-              </div>
-              <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
-                <Calendar size={24} className="text-amber-600" />
-              </div>
-            </div>
-            <p className="text-xs text-amber-600 font-medium">Check-in próximos 3 días</p>
-            <p className="text-xs text-slate-500 mt-2">
-              {kpis.reservasPendientes === 0 ? 'Sin ingresos pendientes' : 'Requieren preparación'}
-            </p>
-          </div>
-
-          {/* KPI 4: Score Satisfacción */}
-          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm hover:shadow-lg transition-shadow">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Score Operativo
-                </p>
-                <p className="text-3xl font-bold text-slate-900 mt-2">{kpis.scoreClientes}%</p>
-              </div>
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Users size={24} className="text-purple-600" />
-              </div>
-            </div>
-            <div className="flex gap-1">
-              {[...Array(5)].map((_, i) => (
-                <span key={i} className="text-lg" style={{ color: i < Math.round(kpis.scoreClientes / 20) ? '#f59e0b' : '#d1d5db' }}>★</span>
-              ))}
-            </div>
-            <p className="text-xs text-slate-500 mt-2">Basado en operaciones</p>
-          </div>
-        </div>
-
-        {/* Alertas Críticas */}
-        {alertas.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8">
-            {alertas.map((alerta) => (
-              <div
-                key={alerta.id}
-                className={`bg-white rounded-xl p-5 border-l-4 border-${alerta.color}-500 shadow-sm hover:shadow-lg transition-shadow`}
-              >
-                <div className="flex gap-4">
-                  <div className="mt-1">{alerta.icono}</div>
-                  <div className="flex-1">
-                    <h4 className="font-semibold text-slate-900">{alerta.titulo}</h4>
-                    <p className="text-sm text-slate-600 mt-1">{alerta.descripcion}</p>
-                    {alerta.id === 'users' && (
-                      <button className="text-xs font-medium text-${alerta.color}-600 hover:text-${alerta.color}-700 mt-3">
-                        Revisar solicitudes →
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+        {linePath && (
+          <>
+            <path d={linePath} fill="none" stroke="var(--accent)" strokeWidth="3.5"
+              strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.18" />
+            <path d={linePath} fill="none" stroke="var(--accent)" strokeWidth="2.5"
+              strokeLinecap="round" strokeLinejoin="round" filter="url(#chartGlow)" />
+          </>
         )}
 
-        {/* Gráfico de Tendencias + Financiero */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          {/* Ocupación 7 días */}
-          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-            <h3 className="text-lg font-semibold text-slate-900 mb-6 flex items-center gap-2">
-              <BarChart3 size={20} className="text-slate-600" />
-              Ocupación Última Semana
-            </h3>
-            {isTendenciasEmpty ? (
-              <div className="flex flex-col items-center justify-center h-40 bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4">
-                <BarChart3 className="text-slate-300 mb-2 animate-bounce" size={32} />
-                <p className="text-sm font-semibold text-slate-700">Sin ocupación registrada esta semana</p>
-                <p className="text-xs text-slate-400 mt-1 text-center">No hay reservaciones confirmadas o activas en los últimos 7 días.</p>
-              </div>
-            ) : (
-              <div className="flex items-end justify-between h-40 gap-2">
-                {tendenciasFinales.map((item, idx) => (
-                  <div key={idx} className="flex flex-col items-center flex-1">
-                    <div className="w-full bg-slate-100 rounded-t-lg relative group hover:shadow-lg transition-all" style={{ height: `${(item.ocupacion / 100) * 140}px` }}>
-                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                        {item.ocupacion}%
-                      </div>
-                      <div
-                        className="w-full h-full bg-gradient-to-t from-blue-500 to-blue-300 rounded-t-lg transition-all"
-                        style={{ height: `100%` }}
-                      ></div>
-                    </div>
-                    <p className="text-xs text-slate-600 mt-2 font-medium">{item.dia}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        {points.map((p, idx) => (
+          <g key={idx}>
+            <circle cx={p.x} cy={p.y} r="6" fill="var(--accent)" fillOpacity="0.12" />
+            <circle cx={p.x} cy={p.y} r="3.5" fill="#fff" stroke="var(--accent)" strokeWidth="2" />
+            <text x={p.x} y={p.y - 9} textAnchor="middle"
+              style={{ fontSize: 9.5, fill: 'var(--text-h)', fontWeight: 700, fontFamily: 'var(--display)' }}>
+              {p.val}%
+            </text>
+            <text x={p.x} y={height - 4} textAnchor="middle"
+              style={{ fontSize: 9, fill: 'var(--muted)', fontWeight: 600, fontFamily: 'var(--sans)' }}>
+              {p.dia}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+};
 
-          {/* Resumen Financiero */}
-          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-            <h3 className="text-lg font-semibold text-slate-900 mb-6 flex items-center gap-2">
-              <DollarSign size={20} className="text-slate-600" />
-              Resumen Financiero Mes
-            </h3>
-            <div className="space-y-4">
-              {[
-                {
-                  label: 'Ingresos',
-                  valor: `L. ${kpis.ingresosMes.toLocaleString('es-HN', { minimumFractionDigits: 2 })}`,
-                  trend: 'up',
-                  color: 'emerald',
-                },
-                {
-                  label: 'Gastos',
-                  valor: `L. ${kpis.gastosMes.toLocaleString('es-HN', { minimumFractionDigits: 2 })}`,
-                  trend: 'down',
-                  color: 'slate',
-                },
-                {
-                  label: 'Neto',
-                  valor: `L. ${(kpis.ingresosMes - kpis.gastosMes).toLocaleString('es-HN', { minimumFractionDigits: 2 })}`,
-                  trend: 'up',
-                  color: 'blue',
-                },
-              ].map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                  <span className="text-sm font-medium text-slate-700">{item.label}</span>
-                  <div className="flex items-center gap-2">
-                    {item.trend === 'up' ? (
-                      <ArrowUp size={16} className="text-emerald-600" />
-                    ) : (
-                      <ArrowDown size={16} className="text-slate-400" />
-                    )}
-                    <span className="font-semibold text-slate-900">{item.valor}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {/* Desglose por hotel si es consolidado */}
-            {activeHotelId === 'all' && kpis.desglose && Object.keys(kpis.desglose).length > 0 && (
-              <div className="mt-5 pt-5 border-t border-slate-100">
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-                  Desglose de Ingresos por Sede
-                </h4>
-                <div className="space-y-2">
-                  {Object.entries(kpis.desglose).map(([hId, monto]) => {
-                    const hotelName = hoteles.find((h) => h.id_hotel === hId)?.nombre_hotel || 'Hotel Verona';
-                    return (
-                      <div key={hId} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-lg border border-slate-100 hover:shadow-sm transition-shadow">
-                        <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-                          {hotelName}
-                        </span>
-                        <span className="text-xs font-semibold text-slate-900">
-                          L. {monto.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Acciones Rápidas */}
-        <div className="bg-white rounded-xl p-8 border border-slate-200 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-900 mb-6">Acciones Rápidas</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              { icon: <Plus size={24} />, label: 'Nueva Reserva', color: 'blue' },
-              { icon: <Users size={24} />, label: 'Gestionar Roles', color: 'purple' },
-              { icon: <BarChart3 size={24} />, label: 'Reportes', color: 'slate' },
-              { icon: <Settings size={24} />, label: 'Configuración', color: 'gray' },
-            ].map((action, idx) => (
-              <button
-                key={idx}
-                className={`p-4 rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all group text-center`}
-              >
-                <div className={`flex justify-center mb-3 text-${action.color}-600 group-hover:scale-110 transition-transform`}>
-                  {action.icon}
-                </div>
-                <p className="text-xs font-medium text-slate-700">{action.label}</p>
-              </button>
-            ))}
-          </div>
-        </div>
+/* ── Recent Activity Component ────────────────────── */
+const RecentActivity: React.FC<{ logs: any[] }> = ({ logs }) => {
+  if (logs.length === 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 160, gap: 8 }}>
+        <Clock size={24} color="var(--shell-border-strong)" />
+        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500 }}>Sin actividad registrada recientemente</span>
       </div>
     );
   }
 
-  // Vista estándar para otros roles
-  const stats: StatCard[] = [
-    {
-      label: 'RESERVAS',
-      value: '0',
-      subtext: 'Registradas hoy',
-    },
-    {
-      label: 'OCUPACIÓN',
-      value: '0%',
-      subtext: 'Promedio periodo',
-    },
-    {
-      label: 'ASIGNACIONES',
-      value: '0',
-      subtext: 'Efectuadas',
-    },
-    {
-      label: 'PRESUPUESTO',
-      value: 'L.0.00',
-      subtext: 'Estimado',
-    },
-  ];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      {/* Timeline vertical line */}
+      <div style={{
+        position: 'absolute', left: 13, top: 14, bottom: 14,
+        width: 1.5,
+        background: 'linear-gradient(to bottom, rgba(37,99,235,.3), rgba(37,99,235,.04))',
+        borderRadius: 99,
+        pointerEvents: 'none',
+      }} />
 
-  const quickAccess = [
-    {
-      icon: <Plus size={22} />,
-      label: 'Nueva\nReserva',
-      color: 'text-blue-600',
-    },
-    {
-      icon: <Users size={22} />,
-      label: 'Gestión\nHabitaciones',
-      color: 'text-orange-600',
-    },
-    {
-      icon: <DollarSign size={22} />,
-      label: 'Corte\nCaja',
-      color: 'text-amber-600',
-    },
-    {
-      icon: <Settings size={22} />,
-      label: 'Configuración',
-      color: 'text-gray-600',
-    },
-  ];
+      {logs.map((log, index) => {
+        const timeAgo = log.segundos_atras < 60
+          ? 'Ahora'
+          : log.segundos_atras < 3600
+          ? `${Math.floor(log.segundos_atras / 60)}m`
+          : `${Math.floor(log.segundos_atras / 3600)}h`;
+
+        const actionLabel = auditService.obtenerEtiquetaAccion(log.accion);
+        const actionIcon = auditService.obtenerIconoAccion(log.accion);
+
+        return (
+          <div key={log.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', paddingBottom: index < logs.length - 1 ? 16 : 0 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: '50%',
+              backgroundColor: 'var(--accent-bg)',
+              border: '1.5px solid var(--accent-border)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12, flexShrink: 0, position: 'relative', zIndex: 1,
+              boxShadow: '0 0 0 3px var(--shell-bg)',
+            }}>
+              {actionIcon}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1, paddingTop: 3 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-h)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                  {actionLabel}
+                </span>
+                <span style={{
+                  fontSize: 10, color: 'var(--muted)', flexShrink: 0, fontWeight: 600,
+                  background: 'var(--shell-border-subtle)', padding: '2px 7px', borderRadius: 99,
+                }}>
+                  {timeAgo}
+                </span>
+              </div>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', marginTop: 1 }}>
+                {log.cambios_resumidos || `${log.entidad} modificada`}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/* ── KPI Card ──────────────────────────────────────── */
+interface KpiProps {
+  label: string; value: string; sub: string;
+  color: string; icon: React.ReactNode;
+  progress?: number; delay?: number;
+  trend?: 'up' | 'down' | null;
+}
+const KpiCard: React.FC<KpiProps> = ({ label, value, sub, color, icon, progress, delay = 0, trend }) => (
+  <div className={`kpi-card kpi-card-${color}`} style={{ animationDelay: `${delay}ms` }}>
+    <div className="kpi-icon-wrap">{icon}</div>
+    <div className="kpi-label">{label}</div>
+    <div className="kpi-value">{value}</div>
+    {progress !== undefined && (
+      <div className="kpi-progress" style={{ marginTop: 2 }}>
+        <div className="kpi-progress-fill" style={{ width: `${Math.min(progress, 100)}%` }} />
+      </div>
+    )}
+    <div className="kpi-sub">
+      {trend === 'up' && (
+        <span className="kpi-trend-badge kpi-trend-up">
+          <ArrowUp size={9} strokeWidth={2.5} /> Alza
+        </span>
+      )}
+      {trend === 'down' && (
+        <span className="kpi-trend-badge kpi-trend-down">
+          <ArrowDown size={9} strokeWidth={2.5} /> Baja
+        </span>
+      )}
+      <span className="kpi-sub-text">{sub}</span>
+    </div>
+  </div>
+);
+
+/* ── Quick action chip ─────────────────────────────── */
+interface ActionProps { to: string; icon: React.ReactNode; label: string; delay?: number; }
+const ActionChip: React.FC<{ to: string; icon: React.ReactNode; label: string; delay?: number }> = ({ to, icon, label, delay = 0 }) => (
+  <Link to={to} className="action-chip animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
+    <div className="action-chip-icon">{icon}</div>
+    <span className="action-chip-label">{label}</span>
+  </Link>
+);
+
+/* ── VISTA PROPIETARIO ──────────────────────────────── */
+const DashboardPropietario: React.FC<{
+  kpis: DashboardKPI;
+  tendencias: TendenciaOcupacion[];
+  usuariosPendientes: number;
+  hoteles: any[];
+  loading: boolean;
+  recentLogs: any[];
+}> = ({ kpis, tendencias, usuariosPendientes, hoteles, loading, recentLogs }) => {
+  const neto = kpis.ingresosMes - kpis.gastosMes;
+  const isTendenciasEmpty = tendencias.every(d => d.ocupacion === 0);
 
   return (
-    <div className="min-h-screen bg-white p-8">
-      {/* Header */}
-      <div className="mb-12">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-          HOTEL VERONA DIRECCIÓN
-        </p>
-        <div className="flex justify-between items-start">
-          <div>
-            <h1 className="text-4xl font-light text-gray-900 mb-1">Panel</h1>
-            <p className="text-sm text-gray-500">Resumen operativo del hotel</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-2 text-sm">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-              <span className="text-gray-600">En línea</span>
-            </span>
-          </div>
+    <div style={{ padding: '28px clamp(20px, 3vw, 52px)', width: '100%' }}>
+      {/* Cabecera */}
+      <div className="page-header" style={{ marginBottom: 32 }}>
+        <div className="page-header-left" style={{ position: 'relative', paddingLeft: 18 }}>
+          <div style={{
+            position: 'absolute', left: 0, top: 2, bottom: 4,
+            width: 4, borderRadius: 99,
+            background: 'linear-gradient(to bottom, var(--accent), #8b5cf6)',
+          }} />
+          <span className="page-kicker">{hora()} · {new Date().toLocaleDateString('es-HN', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+          <h1 className="page-title" style={{ background: 'linear-gradient(135deg, var(--text-h) 0%, var(--accent) 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+            Panel Ejecutivo
+          </h1>
+          <p className="page-sub">Resumen consolidado de operaciones del hotel</p>
+        </div>
+        <div className="status-online">
+          <div className="status-dot" />
+          Sistema activo
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
-        {stats.map((stat, idx) => (
-          <div
-            key={idx}
-            className="bg-gray-50 rounded-lg p-6 border border-gray-100 hover:border-gray-200 hover:shadow-sm transition-all duration-200"
-          >
-            <p className="text-xs font-semibold text-gray-400 mb-3">{stat.label}</p>
-            <p className="text-3xl font-light text-gray-900 mb-2">{stat.value}</p>
-            <p className="text-xs text-gray-500">{stat.subtext}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column */}
-        <div className="lg:col-span-2 space-y-8">
-          {/* Reservas por día */}
-          <div>
-            <div className="flex justify-between items-center mb-6">
+      {/* Alertas */}
+      {(usuariosPendientes > 0 || kpis.reservasPendientes > 0) && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
+          {usuariosPendientes > 0 && (
+            <div className="alert-banner alert-banner-orange">
+              <div className="alert-banner-icon"><AlertTriangle size={17} /></div>
               <div>
-                <h2 className="text-xl font-light text-gray-900">Reservas por día</h2>
-                <p className="text-sm text-gray-500 mt-1">01 may - 31 may</p>
-              </div>
-              <select className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-600 hover:border-gray-300 transition-colors cursor-pointer">
-                <option>Todos</option>
-                <option>Esta semana</option>
-                <option>Este mes</option>
-              </select>
-            </div>
-            <div className="h-48 bg-gray-50 rounded-lg border border-gray-100 flex items-center justify-center">
-              <div className="text-center">
-                <Calendar size={40} className="text-gray-300 mx-auto mb-2" />
-                <p className="text-sm text-gray-400">Sin datos disponibles</p>
+                <p className="alert-banner-title">Solicitudes pendientes de aprobación</p>
+                <p className="alert-banner-desc">{usuariosPendientes} usuario(s) esperando acceso al sistema</p>
               </div>
             </div>
-          </div>
+          )}
+          {kpis.reservasPendientes > 0 && (
+            <div className="alert-banner alert-banner-blue">
+              <div className="alert-banner-icon"><Calendar size={17} /></div>
+              <div>
+                <p className="alert-banner-title">Check-ins próximos</p>
+                <p className="alert-banner-desc">{kpis.reservasPendientes} reserva(s) ingresan en los próximos 3 días</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
-          {/* Quick Actions */}
-          <div>
-            <h3 className="text-xl font-light text-gray-900 mb-6">Accesos Rápidos</h3>
-            <div className="grid grid-cols-2 gap-4">
-              {quickAccess.map((action, idx) => (
-                <button
-                  key={idx}
-                  className={`p-6 rounded-lg border border-gray-100 hover:border-gray-200 hover:bg-gray-50 transition-all duration-200 group text-center`}
-                >
-                  <div className={`flex justify-center mb-3 ${action.color}`}>
-                    {action.icon}
-                  </div>
-                  <p className="text-xs font-medium text-gray-700 whitespace-pre-line leading-relaxed">
-                    {action.label}
-                  </p>
-                </button>
-              ))}
-            </div>
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 18, marginBottom: 28 }}>
+        <KpiCard label="Ocupación Actual" value={`${kpis.ocupacion}%`}
+          sub={kpis.ocupacion >= 75 ? 'Meta alcanzada ✓' : 'Potencial de mejora'}
+          color="blue" icon={<TrendingUp size={18} />} progress={kpis.ocupacion} delay={0} />
+        <KpiCard label="Ingresos Hoy" value={formatLps(kpis.ingresosHoy)}
+          sub={`Mes: ${formatLps(kpis.ingresosMes)}`}
+          color="emerald" icon={<DollarSign size={18} />} delay={60} trend="up" />
+        <KpiCard label="Por Ingresar" value={String(kpis.reservasPendientes)}
+          sub="Check-ins próximos 3 días"
+          color="amber" icon={<Calendar size={18} />} delay={120} />
+        <KpiCard label="Score Operativo" value={`${kpis.scoreClientes}%`}
+          sub="Basado en operaciones"
+          color="violet" icon={<Users size={18} />} progress={kpis.scoreClientes} delay={180} />
+      </div>
+
+      {/* Fila inferior: tendencias + financiero + auditoria + acciones */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1.1fr minmax(260px, 1fr)', gap: 20, alignItems: 'stretch' }}>
+
+        {/* Gráfico ocupación 7 días */}
+        <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 270 }}>
+          <p className="panel-card-title"><BarChart3 size={16} color="var(--accent)" /> Ocupación últimos 7 días</p>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+            {isTendenciasEmpty ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '100%', gap: 8 }}>
+                <BarChart3 size={28} color="var(--shell-border-strong)" />
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Sin reservas activas esta semana</span>
+              </div>
+            ) : (
+              <TendenciaChart data={tendencias} />
+            )}
           </div>
         </div>
 
-        {/* Right Column */}
-        <div className="space-y-8">
-          {/* Estado del Periodo */}
-          <div>
-            <h3 className="text-lg font-light text-gray-900 mb-6">Estado del Período</h3>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                <span className="text-sm text-gray-600">Hoteles</span>
-                <span className="text-lg font-light text-gray-900">1</span>
-              </div>
-              <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                <span className="text-sm text-gray-600">Reservas</span>
-                <span className="text-lg font-light text-gray-900">0</span>
-              </div>
-              <div className="flex justify-between items-center py-3">
-                <span className="text-sm text-gray-600">Ocupación</span>
-                <span className="text-lg font-light text-gray-900">0%</span>
-              </div>
+        {/* Resumen financiero */}
+        <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <p className="panel-card-title"><DollarSign size={16} color="var(--accent)" /> Finanzas del mes</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+            <div className="stat-row">
+              <span className="stat-row-label">Ingresos</span>
+              <span className="stat-row-value" style={{ color: 'var(--success)' }}>{formatLps(kpis.ingresosMes)}</span>
             </div>
+            <div className="stat-row">
+              <span className="stat-row-label">Gastos</span>
+              <span className="stat-row-value" style={{ color: 'var(--danger)' }}>{formatLps(kpis.gastosMes)}</span>
+            </div>
+            <div className="stat-row" style={{ marginTop: 4, borderBottom: 'none' }}>
+              <span className="stat-row-label" style={{ fontWeight: 700 }}>Neto</span>
+              <span className="stat-row-value" style={{ fontSize: 16, color: neto >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                {formatLps(neto)}
+              </span>
+            </div>
+            
+            {hoteles.length > 1 && kpis.desglose && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--shell-border-subtle)' }}>
+                <div className="section-divider" style={{ marginBottom: 6, paddingBottom: 4 }}>Por sede</div>
+                <div style={{ maxHeight: 110, overflowY: 'auto', paddingRight: 2 }}>
+                  {Object.entries(kpis.desglose).slice(0, 3).map(([hId, monto]) => (
+                    <div key={hId} className="stat-row" style={{ padding: '5px 0', borderBottom: 'none' }}>
+                      <span className="stat-row-label" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {hoteles.find(h => h.id_hotel === hId)?.nombre_hotel || 'Hotel'}
+                      </span>
+                      <span className="stat-row-value" style={{ fontSize: 12.5 }}>{formatLps(monto as number)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+        </div>
 
-          {/* Info Card */}
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
-            <h4 className="text-sm font-medium text-blue-900 mb-2">Tip</h4>
-            <p className="text-xs text-blue-700 leading-relaxed">
-              Sincroniza tus reservas regularmente para mantener todas las métricas actualizadas.
-            </p>
+        {/* Actividad Reciente */}
+        <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <p className="panel-card-title"><Clock size={16} color="var(--accent)" /> Actividad reciente</p>
+          <div style={{ flex: 1, overflowY: 'auto', maxHeight: 220, paddingRight: 2 }}>
+            <RecentActivity logs={recentLogs} />
+          </div>
+        </div>
+
+        {/* Acciones rápidas */}
+        <div className="panel-card" style={{ padding: '22px 14px', display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <p className="panel-card-title" style={{ marginBottom: 12 }}>Accesos rápidos</p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, flex: 1 }}>
+            <ActionChip to="/reservas" icon={<Plus size={18} />} label="Nueva Reserva" delay={0} />
+            <ActionChip to="/reportes" icon={<BarChart3 size={18} />} label="Reportes" delay={30} />
+            <ActionChip to="/gestionar-roles" icon={<Users size={18} />} label="Roles" delay={60} />
+            <ActionChip to="/auditoria" icon={<ShieldCheck size={18} />} label="Auditoría" delay={90} />
+            <ActionChip to="/exportar" icon={<Upload size={18} />} label="Exportar" delay={120} />
+            <ActionChip to="/config" icon={<Settings size={18} />} label="Config" delay={150} />
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+};
+
+/* ── VISTA RECEPCIONISTA ────────────────────────────── */
+const DashboardRecepcionista: React.FC<{ kpis: DashboardKPI }> = ({ kpis }) => (
+  <div style={{ padding: '28px clamp(20px, 3vw, 52px)', width: '100%' }}>
+    <div className="page-header">
+      <div className="page-header-left">
+        <span className="page-kicker">{hora()}</span>
+        <h1 className="page-title">Recepción</h1>
+        <p className="page-sub">Reservas, pagos y atención al huésped</p>
+      </div>
+      <div className="status-online"><div className="status-dot" />En línea</div>
+    </div>
+
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 28 }}>
+      <KpiCard label="Ocupación" value={`${kpis.ocupacion}%`} sub="Habitaciones activas"
+        color="blue" icon={<BedDouble size={18} />} progress={kpis.ocupacion} delay={0} />
+      <KpiCard label="Check-ins Próximos" value={String(kpis.reservasPendientes)} sub="Próximos 3 días"
+        color="amber" icon={<UserCheck size={18} />} delay={60} />
+      <KpiCard label="Ingresos Hoy" value={`L. ${kpis.ingresosHoy.toLocaleString('es-HN', { minimumFractionDigits: 0 })}`}
+        sub="Pagos recibidos" color="emerald" icon={<CreditCard size={18} />} delay={120} trend="up" />
+    </div>
+
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      <ActionChip to="/reservas"    icon={<Plus size={20} />}      label="Nueva Reserva" delay={0} />
+      <ActionChip to="/pagos"       icon={<CreditCard size={20} />} label="Registrar Pago" delay={50} />
+      <ActionChip to="/habitaciones" icon={<BedDouble size={20} />} label="Habitaciones" delay={100} />
+      <ActionChip to="/housekeeping" icon={<Sparkles size={20} />}  label="Housekeeping" delay={150} />
+      <ActionChip to="/clientes"    icon={<Users size={20} />}      label="Clientes" delay={200} />
+      <ActionChip to="/mantenimiento" icon={<Wrench size={20} />}   label="Reportar Incidencia" delay={250} />
+      <ActionChip to="/finanzas"    icon={<FileText size={20} />}   label="Ingresos" delay={300} />
+      <ActionChip to="/chat"        icon={<Calendar size={20} />}   label="Chat Equipo" delay={350} />
+    </div>
+  </div>
+);
+
+/* ── VISTA MANTENIMIENTO ────────────────────────────── */
+const DashboardMantenimiento: React.FC = () => (
+  <div style={{ padding: '28px clamp(20px, 3vw, 52px)', width: '100%' }}>
+    <div className="page-header">
+      <div className="page-header-left">
+        <span className="page-kicker">{hora()}</span>
+        <h1 className="page-title">Mantenimiento</h1>
+        <p className="page-sub">Tareas asignadas e incidencias activas</p>
+      </div>
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 28 }}>
+      <ActionChip to="/mantenimiento" icon={<Wrench size={22} />}    label="Mis Tareas" delay={0} />
+      <ActionChip to="/housekeeping"  icon={<Sparkles size={22} />}  label="Housekeeping" delay={60} />
+      <ActionChip to="/habitaciones"  icon={<BedDouble size={22} />} label="Estado Habitaciones" delay={120} />
+      <ActionChip to="/reservas"      icon={<Calendar size={22} />}  label="Ver Reservas" delay={180} />
+      <ActionChip to="/chat"          icon={<Users size={22} />}     label="Chat Equipo" delay={240} />
+    </div>
+    <div className="panel-card" style={{ background: 'rgba(245,158,11,.04)', borderColor: 'rgba(245,158,11,.2)' }}>
+      <p className="panel-card-title"><Wrench size={15} color="#f59e0b" /> Acceso directo</p>
+      <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6 }}>
+        Usa el menú <strong style={{ color: 'var(--text-h)' }}>Mantenimiento</strong> para ver tus tareas pendientes,
+        actualizar el progreso y agregar notas. En <strong style={{ color: 'var(--text-h)' }}>Housekeeping</strong> puedes
+        cambiar el estado de limpieza de cada habitación.
+      </p>
+    </div>
+  </div>
+);
+
+/* ── VISTA CONTADOR ─────────────────────────────────── */
+const DashboardContador: React.FC<{ kpis: DashboardKPI }> = ({ kpis }) => {
+  const neto = kpis.ingresosMes - kpis.gastosMes;
+  return (
+    <div style={{ padding: '28px clamp(20px, 3vw, 52px)', width: '100%' }}>
+      <div className="page-header">
+        <div className="page-header-left">
+          <span className="page-kicker">{hora()}</span>
+          <h1 className="page-title">Panel Financiero</h1>
+          <p className="page-sub">Ingresos, egresos y reportes contables</p>
+        </div>
+        <div className="status-online"><div className="status-dot" />En línea</div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 28 }}>
+        <KpiCard label="Ingresos del Mes" value={formatLps(kpis.ingresosMes)} sub="Total facturado"
+          color="emerald" icon={<ArrowUp size={18} />} delay={0} trend="up" />
+        <KpiCard label="Gastos del Mes" value={formatLps(kpis.gastosMes)} sub="Total registrado"
+          color="rose" icon={<ArrowDown size={18} />} delay={60} />
+        <KpiCard label="Neto del Mes" value={formatLps(neto)} sub={neto >= 0 ? 'Balance positivo ✓' : 'Balance negativo'}
+          color={neto >= 0 ? 'blue' : 'rose'} icon={<DollarSign size={18} />} delay={120} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        <ActionChip to="/finanzas"      icon={<FileText size={20} />}  label="Registrar Factura" delay={0} />
+        <ActionChip to="/estado-cuenta" icon={<DollarSign size={20} />} label="Estado de Cuenta" delay={50} />
+        <ActionChip to="/reportes"      icon={<BarChart3 size={20} />} label="Reportes" delay={100} />
+        <ActionChip to="/exportar"      icon={<Upload size={20} />}    label="Exportar Datos" delay={150} />
+        <ActionChip to="/pagos"         icon={<CreditCard size={20} />} label="Pagos" delay={200} />
+        <ActionChip to="/clientes"      icon={<Users size={20} />}     label="Clientes" delay={250} />
+      </div>
+    </div>
+  );
+};
+
+/* ── VISTA ADMIN ────────────────────────────────────── */
+const DashboardAdmin: React.FC<{ kpis: DashboardKPI; tendencias: TendenciaOcupacion[]; recentLogs: any[] }> = ({ kpis, tendencias, recentLogs }) => {
+  const isTendenciasEmpty = tendencias.every(d => d.ocupacion === 0);
+  return (
+    <div style={{ padding: '28px clamp(20px, 3vw, 52px)', width: '100%' }}>
+      <div className="page-header">
+        <div className="page-header-left" style={{ position: 'relative', paddingLeft: 18 }}>
+          <div style={{
+            position: 'absolute', left: 0, top: 2, bottom: 4,
+            width: 4, borderRadius: 99,
+            background: 'linear-gradient(to bottom, var(--accent), #8b5cf6)',
+          }} />
+          <span className="page-kicker">{hora()}</span>
+          <h1 className="page-title" style={{ background: 'linear-gradient(135deg, var(--text-h) 0%, var(--accent) 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+            Administración
+          </h1>
+          <p className="page-sub">Gestión operativa del hotel</p>
+        </div>
+        <div className="status-online"><div className="status-dot" />En línea</div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
+        <KpiCard label="Ocupación" value={`${kpis.ocupacion}%`} sub="Habitaciones activas"
+          color="blue" icon={<TrendingUp size={18} />} progress={kpis.ocupacion} delay={0} />
+        <KpiCard label="Ingresos Hoy" value={formatLps(kpis.ingresosHoy)} sub={`Mes: ${formatLps(kpis.ingresosMes)}`} color="emerald"
+          icon={<DollarSign size={18} />} delay={60} trend="up" />
+        <KpiCard label="Por Ingresar" value={String(kpis.reservasPendientes)} sub="Check-ins 3 días"
+          color="amber" icon={<Calendar size={18} />} delay={120} />
+        <KpiCard label="Score" value={`${kpis.scoreClientes}%`} sub="Score operativo"
+          color="violet" icon={<Users size={18} />} progress={kpis.scoreClientes} delay={180} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr minmax(240px, 1fr)', gap: 20 }}>
+        <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 270 }}>
+          <p className="panel-card-title"><BarChart3 size={16} color="var(--accent)" /> Ocupación últimos 7 días</p>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+            {isTendenciasEmpty
+              ? <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--muted)', fontSize: 13, width: '100%' }}>Sin datos esta semana</div>
+              : <TendenciaChart data={tendencias} />}
+          </div>
+        </div>
+
+        {/* Actividad Reciente */}
+        <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <p className="panel-card-title"><Clock size={16} color="var(--accent)" /> Actividad reciente</p>
+          <div style={{ flex: 1, overflowY: 'auto', maxHeight: 220, paddingRight: 2 }}>
+            <RecentActivity logs={recentLogs} />
+          </div>
+        </div>
+
+        <div className="panel-card" style={{ padding: '22px 14px', display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <p className="panel-card-title" style={{ marginBottom: 12 }}>Accesos rápidos</p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, flex: 1 }}>
+            <ActionChip to="/reservas"    icon={<Plus size={18} />}       label="Reservas" delay={0} />
+            <ActionChip to="/habitaciones" icon={<BedDouble size={18} />} label="Habitaciones" delay={40} />
+            <ActionChip to="/housekeeping" icon={<Sparkles size={18} />}  label="Housekeeping" delay={80} />
+            <ActionChip to="/tarifas"     icon={<DollarSign size={18} />} label="Tarifas" delay={120} />
+            <ActionChip to="/auditoria"   icon={<ShieldCheck size={18} />} label="Auditoría" delay={160} />
+            <ActionChip to="/config"      icon={<Settings size={18} />}   label="Config" delay={200} />
           </div>
         </div>
       </div>
     </div>
   );
+};
+
+/* ── LOADING SKELETON ───────────────────────────────── */
+const DashboardSkeleton: React.FC = () => (
+  <div style={{ padding: '28px clamp(20px, 3vw, 52px)', width: '100%' }}>
+    <div style={{ height: 24, width: 180, borderRadius: 8, marginBottom: 8 }} className="skeleton" />
+    <div style={{ height: 36, width: 280, borderRadius: 10, marginBottom: 32 }} className="skeleton" />
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
+      {[0,1,2,3].map(i => (
+        <div key={i} className="kpi-card" style={{ animationDelay: `${i * 60}ms` }}>
+          <div style={{ height: 12, width: 80, borderRadius: 6 }} className="skeleton" />
+          <div style={{ height: 34, width: 120, borderRadius: 8, marginTop: 4 }} className="skeleton" />
+          <div style={{ height: 5, borderRadius: 99 }} className="skeleton" />
+          <div style={{ height: 12, width: 100, borderRadius: 6 }} className="skeleton" />
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+/* ── MAIN EXPORT ────────────────────────────────────── */
+export const Dashboard: React.FC = () => {
+  const { role } = useRole();
+  const { user } = useAuth();
+  const [kpis, setKpis] = useState<DashboardKPI>({
+    ocupacion: 0, ingresosHoy: 0, reservasPendientes: 0,
+    scoreClientes: 75, ingresosMes: 0, gastosMes: 0,
+  });
+  const [tendencias, setTendencias] = useState<TendenciaOcupacion[]>([]);
+  const [usuariosPendientes, setUsuariosPendientes] = useState(0);
+  const [hoteles, setHoteles] = useState<any[]>([]);
+  const [recentLogs, setRecentLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [hotelesData, kpisData, tendenciasData] = await Promise.all([
+          fetchHoteles().catch(() => []),
+          obtenerKPIsDashboard().catch(() => ({ ocupacion: 0, ingresosHoy: 0, reservasPendientes: 0, scoreClientes: 75, ingresosMes: 0, gastosMes: 0 })),
+          calcularTendenciasOcupacion().catch(() => []),
+        ]);
+        setHoteles(hotelesData);
+        setKpis(kpisData);
+        setTendencias(tendenciasData);
+        if (role === 'PROPIETARIO' || role === 'ADMIN') {
+          const p = await obtenerSolicitudesPendientes().catch(() => 0);
+          setUsuariosPendientes(p);
+        }
+        if (role === 'PROPIETARIO' || role === 'ADMIN' || role === 'CONTADOR') {
+          const logsData = await auditService.obtenerLogs(5).catch(() => ({ data: [] }));
+          setRecentLogs(logsData.data || []);
+        }
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [role]);
+
+  if (loading) return <DashboardSkeleton />;
+
+  switch (role) {
+    case 'PROPIETARIO':
+      return <DashboardPropietario kpis={kpis} tendencias={tendencias} usuariosPendientes={usuariosPendientes} hoteles={hoteles} loading={loading} recentLogs={recentLogs} />;
+    case 'ADMIN':
+      return <DashboardAdmin kpis={kpis} tendencias={tendencias} recentLogs={recentLogs} />;
+    case 'RECEPCIONISTA':
+      return <DashboardRecepcionista kpis={kpis} />;
+    case 'CONTADOR':
+      return <DashboardContador kpis={kpis} />;
+    case 'MANTENIMIENTO':
+      return <DashboardMantenimiento />;
+    default:
+      return <DashboardRecepcionista kpis={kpis} />;
+  }
 };

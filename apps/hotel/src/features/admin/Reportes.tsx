@@ -1,60 +1,105 @@
 import React, { useState, useEffect } from 'react';
 import {
-  BarChart3,
-  Download,
-  TrendingUp,
-  Users,
-  Calendar,
-  DollarSign,
-  AlertCircle,
-  RefreshCw,
-  Info,
-  Percent,
-  Sparkles
+  BarChart3, Download, Users, Calendar,
+  DollarSign, AlertCircle, RefreshCw, Info, Percent, TrendingUp,
 } from 'lucide-react';
+import { AreaChart, BarChart, DonutChart, Legend } from '@tremor/react';
 import {
-  Grid,
-  Col,
-  Text,
-  Title,
-  AreaChart,
-  BarChart,
-  DonutChart,
-  Legend,
-  Badge,
-  TabGroup,
-  TabList,
-  Tab,
-  TabPanels,
-  TabPanel,
-  Flex,
-  Table,
-  TableHead,
-  TableHeaderCell,
-  TableBody,
-  TableRow,
-  TableCell,
-  List,
-  ListItem
-} from '@tremor/react';
-import {
-  obtenerEstadisticas,
-  obtenerOcupacion,
-  obtenerIngresos,
-  obtenerClientes,
-  ReportStats,
-  OcupacionData,
-  IngresosData,
-  ClientesData
+  obtenerEstadisticas, obtenerOcupacion, obtenerIngresos, obtenerClientes,
+  ReportStats, OcupacionData, IngresosData, ClientesData,
 } from '../../api/reportesService';
 
-export const Reportes: React.FC = () => {
-  const [periodo, setPeriodo] = useState('mes');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+const TABS = ['Resumen Ejecutivo', 'Ocupación', 'Finanzas', 'Clientes'];
+const PERIODS: { key: string; label: string }[] = [
+  { key: 'semana', label: '7 días' },
+  { key: 'mes',    label: '30 días' },
+  { key: 'trimestre', label: '90 días' },
+  { key: 'año',   label: '1 año' },
+];
 
-  // States para los distintos reportes
-  const [statsData, setStatsData] = useState<ReportStats | null>(null);
+/* ── Small reusable pieces ─────────────────────────────── */
+const EmptyChart: React.FC<{ msg?: string }> = ({ msg = 'Sin datos en este período' }) => (
+  <div style={{ height: 280, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+    <BarChart3 size={28} color="var(--shell-border-strong)" />
+    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500 }}>{msg}</span>
+  </div>
+);
+
+const PanelTitle: React.FC<{ icon?: React.ReactNode; children: React.ReactNode; badge?: string; badgeColor?: string }> =
+  ({ icon, children, badge, badgeColor = 'var(--accent)' }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+      <p className="panel-card-title" style={{ marginBottom: 0 }}>
+        {icon && <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: 8 }}>{icon}</span>}
+        {children}
+      </p>
+      {badge && (
+        <span style={{
+          fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase',
+          padding: '3px 10px', borderRadius: 99,
+          background: `color-mix(in srgb, ${badgeColor} 10%, transparent)`,
+          border: `1px solid color-mix(in srgb, ${badgeColor} 22%, transparent)`,
+          color: badgeColor,
+        }}>
+          {badge}
+        </span>
+      )}
+    </div>
+  );
+
+/* ── Loading skeleton ───────────────────────────────────── */
+const LoadingState: React.FC = () => (
+  <div style={{ padding: '28px clamp(20px, 3vw, 52px)', width: '100%' }}>
+    <div style={{ height: 14, width: 160, borderRadius: 8, marginBottom: 10 }} className="skeleton" />
+    <div style={{ height: 36, width: 260, borderRadius: 10, marginBottom: 10 }} className="skeleton" />
+    <div style={{ height: 16, width: 340, borderRadius: 8, marginBottom: 36 }} className="skeleton" />
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
+      {[0,1,2,3].map(i => (
+        <div key={i} className="kpi-card" style={{ minHeight: 120 }}>
+          <div style={{ height: 10, width: 80, borderRadius: 6 }} className="skeleton" />
+          <div style={{ height: 34, width: 110, borderRadius: 8, marginTop: 8 }} className="skeleton" />
+          <div style={{ height: 5, borderRadius: 99, marginTop: 8 }} className="skeleton" />
+        </div>
+      ))}
+    </div>
+    <div style={{ height: 320, borderRadius: 20 }} className="skeleton" />
+  </div>
+);
+
+/* ── Error state ────────────────────────────────────────── */
+const ErrorState: React.FC<{ error: string | null; onRetry: () => void }> = ({ error, onRetry }) => (
+  <div style={{ padding: '28px clamp(20px, 3vw, 52px)', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+    <div className="panel-card" style={{ maxWidth: 440, textAlign: 'center', padding: '40px 32px' }}>
+      <div style={{
+        width: 56, height: 56, borderRadius: 18,
+        background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        margin: '0 auto 18px', color: '#ef4444',
+      }}>
+        <AlertCircle size={26} />
+      </div>
+      <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-h)', margin: '0 0 8px' }}>Error al cargar reportes</p>
+      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>
+        {error || 'No se pudieron recuperar los datos desde el servidor.'}
+      </p>
+      <button
+        onClick={onRetry}
+        className="btn-premium btn-premium-primary"
+        style={{ margin: '0 auto', display: 'inline-flex', gap: 8 }}
+      >
+        <RefreshCw size={14} /> Reintentar
+      </button>
+    </div>
+  </div>
+);
+
+/* ── Main component ─────────────────────────────────────── */
+export const Reportes: React.FC = () => {
+  const [periodo, setPeriodo]       = useState('mes');
+  const [activeTab, setActiveTab]   = useState(0);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<string | null>(null);
+
+  const [statsData,    setStatsData]    = useState<ReportStats | null>(null);
   const [ocupacionData, setOcupacionData] = useState<OcupacionData | null>(null);
   const [ingresosData, setIngresosData] = useState<IngresosData | null>(null);
   const [clientesData, setClientesData] = useState<ClientesData | null>(null);
@@ -63,12 +108,10 @@ export const Reportes: React.FC = () => {
     const ahora = new Date();
     const hasta = ahora.toLocaleDateString('en-CA');
     const desde = new Date(ahora);
-
-    if (p === 'semana') desde.setDate(ahora.getDate() - 7);
+    if (p === 'semana')    desde.setDate(ahora.getDate() - 7);
     else if (p === 'trimestre') desde.setDate(ahora.getDate() - 90);
     else if (p === 'año') desde.setFullYear(ahora.getFullYear() - 1);
-    else desde.setDate(ahora.getDate() - 30); // mes por defecto
-
+    else                   desde.setDate(ahora.getDate() - 30);
     return { desde: desde.toLocaleDateString('en-CA'), hasta };
   };
 
@@ -77,78 +120,33 @@ export const Reportes: React.FC = () => {
       setLoading(true);
       setError(null);
       const { desde, hasta } = getPeriodDates(periodo);
-
       const [stats, ocupacion, ingresos, clientes] = await Promise.all([
         obtenerEstadisticas(periodo),
         obtenerOcupacion(desde, hasta),
         obtenerIngresos(periodo),
         obtenerClientes(),
       ]);
-
       setStatsData(stats);
       setOcupacionData(ocupacion);
       setIngresosData(ingresos);
       setClientesData(clientes);
     } catch (err: any) {
-      console.error('Error cargando reportes:', err);
       setError(err?.message || 'Error al cargar los reportes');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    cargarDatos();
-  }, [periodo]);
+  useEffect(() => { cargarDatos(); }, [periodo]);
 
-  const handleExportPDF = () => {
-    window.print();
-  };
+  const handleExportPDF = () => window.print();
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50/50 flex flex-col items-center justify-center gap-6 relative overflow-hidden">
-        {/* Glow Effects */}
-        <div className="absolute -left-1/4 -top-1/4 w-[600px] h-[600px] bg-blue-500/5 rounded-full blur-[120px] animate-pulse"></div>
-        <div className="absolute -right-1/4 -bottom-1/4 w-[600px] h-[600px] bg-indigo-500/5 rounded-full blur-[120px] animate-pulse delay-700"></div>
-
-        <div className="relative w-20 h-20 flex items-center justify-center">
-          <div className="absolute inset-0 rounded-full border-4 border-slate-200"></div>
-          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-600 border-r-indigo-500 animate-spin"></div>
-          <BarChart3 size={24} className="text-blue-600 animate-bounce" />
-        </div>
-        <div className="text-center relative z-10">
-          <p className="font-light text-lg text-slate-800 tracking-wide animate-pulse">Sincronizando con base de datos...</p>
-          <p className="text-xs text-blue-600 mt-2 font-mono uppercase tracking-widest font-semibold">Supabase Live Connection</p>
-        </div>
-      </div>
-    );
-  }
-
+  if (loading) return <LoadingState />;
   if (error || !statsData || !ocupacionData || !ingresosData || !clientesData) {
-    return (
-      <div className="min-h-screen bg-slate-50/50 p-8 flex flex-col items-center justify-center relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(239,68,68,0.02),transparent_60%)]"></div>
-        <div className="w-full max-w-md bg-white border border-slate-200 text-center p-8 rounded-3xl relative z-10 shadow-xl shadow-slate-100/50">
-          <div className="w-14 h-14 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto mb-5 border border-red-100">
-            <AlertCircle size={26} />
-          </div>
-          <h2 className="text-slate-800 font-medium text-lg tracking-tight">Fallo en la Sincronización</h2>
-          <p className="text-slate-500 mt-3 text-sm leading-relaxed">
-            {error || 'No se pudieron recuperar los datos analíticos desde Supabase.'}
-          </p>
-          <button
-            onClick={cargarDatos}
-            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold cursor-pointer transition-all active:scale-95 shadow-lg shadow-blue-600/10"
-          >
-            <RefreshCw size={14} /> Reintentar Conexión
-          </button>
-        </div>
-      </div>
-    );
+    return <ErrorState error={error} onRetry={cargarDatos} />;
   }
 
-  // Preparar tendencias para gráficos
+  /* ── Chart data ────────────────────────────────────────── */
   const ocupacionTendencia = statsData.tasaOcupacion.map((pct, idx) => ({
     dia: `Día ${idx + 1}`,
     'Tasa Ocupación': pct,
@@ -162,497 +160,466 @@ export const Reportes: React.FC = () => {
   const ingresosDiariosChart = ingresosData.detalles.map(d => ({
     dia: d.periodo,
     'Monto HNL': d.cantidad,
-    'Reservas': d.reservas,
   }));
 
   const clientesNuevosRecurrentes = [
     { name: 'Recurrentes', value: clientesData.recurrentes },
-    { name: 'Nuevos', value: clientesData.nuevos },
+    { name: 'Nuevos',      value: clientesData.nuevos },
   ];
 
-  return (
-    <div className="min-h-screen bg-gradient-to-tr from-slate-50 via-slate-50/50 to-blue-50/20 text-slate-700 p-8 relative overflow-hidden font-sans">
-      {/* Ambient Lighting Background Glows */}
-      <div className="absolute top-[-300px] right-[-100px] w-[800px] h-[800px] bg-[radial-gradient(circle,rgba(59,130,246,0.04),transparent_60%)] pointer-events-none"></div>
-      <div className="absolute bottom-[-200px] left-[-200px] w-[800px] h-[800px] bg-[radial-gradient(circle,rgba(99,102,241,0.03),transparent_60%)] pointer-events-none"></div>
+  const picoPorcentaje = ocupacionData.dias.length > 0
+    ? Math.max(...ocupacionData.dias.map(d => d.ocupacion))
+    : 0;
 
-      {/* Header Premium */}
-      <div className="mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 relative z-10 border-b border-slate-200/60 pb-6">
-        <div>
-          <div className="inline-flex items-center gap-2 bg-blue-50 border border-blue-100 text-blue-600 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-3 shadow-sm">
-            <Sparkles size={11} className="animate-pulse" /> Inteligencia de Negocio
-          </div>
-          <h1 className="text-3xl font-light tracking-tight text-slate-900 flex items-center gap-3">
-            <BarChart3 size={32} className="text-blue-600 stroke-[1.5]" />
+  const totalCobros = ingresosData.detalles.reduce((acc, curr) => acc + curr.reservas, 0);
+
+  /* ── Render ────────────────────────────────────────────── */
+  return (
+    <div style={{ padding: '28px clamp(20px, 3vw, 52px)', width: '100%' }}>
+
+      {/* ── Header ────────────────────────────────────────── */}
+      <div className="page-header" style={{ marginBottom: 28 }}>
+        <div className="page-header-left" style={{ position: 'relative', paddingLeft: 18 }}>
+          <div style={{
+            position: 'absolute', left: 0, top: 2, bottom: 4,
+            width: 4, borderRadius: 99,
+            background: 'linear-gradient(to bottom, var(--accent), #8b5cf6)',
+          }} />
+          <span className="page-kicker">Inteligencia de negocio</span>
+          <h1 className="page-title" style={{
+            background: 'linear-gradient(135deg, var(--text-h) 0%, var(--accent) 100%)',
+            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+          }}>
             Análisis e Informes
           </h1>
-          <p className="text-slate-400 text-xs mt-1.5 font-normal flex items-center gap-1.5">
-            <Info size={14} className="text-blue-400" />
-            Métricas consolidadas a partir de la base de datos de habitaciones y cobros registrados.
-          </p>
+          <p className="page-sub">Métricas consolidadas de reservas y finanzas del hotel</p>
         </div>
 
-        <div className="flex items-center gap-3 self-end lg:self-auto w-full lg:w-auto justify-end">
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
             onClick={cargarDatos}
-            className="flex items-center justify-center p-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-slate-500 hover:text-slate-800 transition-all shadow-sm active:scale-95 cursor-pointer"
-            title="Sincronizar Datos"
+            title="Sincronizar datos"
+            style={{
+              width: 38, height: 38, borderRadius: 10,
+              border: '1px solid var(--shell-border-strong)',
+              background: 'var(--card-bg)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--muted)', transition: 'all .18s ease',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-h)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--shell-border-strong)'; }}
           >
-            <RefreshCw size={16} />
+            <RefreshCw size={15} />
           </button>
           <button
             onClick={handleExportPDF}
-            className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white border-none rounded-xl text-xs font-semibold cursor-pointer transition-all shadow-md active:scale-98"
+            className="btn-premium btn-premium-primary"
+            style={{ height: 38, gap: 7 }}
           >
-            <Download size={14} /> Exportar Reporte
+            <Download size={14} /> Exportar PDF
           </button>
         </div>
       </div>
 
-      {/* Grid de KPIs - Bespoke Premium Glassmorphic Cards */}
-      <Grid numItemsColSpanLg={4} className="gap-6 mb-8 relative z-10">
-        {/* KPI 1: Ocupación Promedio */}
-        <Col numItemsColSpanLg={1}>
-          <div className="relative group bg-white/70 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/5 hover:border-blue-500/20 overflow-hidden shadow-sm">
-            <div className="absolute -right-8 -top-8 w-24 h-24 bg-gradient-to-br from-blue-500/5 to-indigo-500/5 rounded-full blur-xl group-hover:scale-150 transition-all duration-500"></div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ocupación Promedio</span>
-              <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-all duration-300 border border-blue-100/50">
-                <Percent size={14} />
-              </div>
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-extrabold tracking-tight text-slate-800">{statsData.ocupacionPromedio}%</span>
-              <span className="text-emerald-600 text-xxs font-bold bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">↑ 4.2%</span>
-            </div>
-            <p className="text-slate-400 text-xs mt-3 font-normal">Capacidad operativa activa</p>
+      {/* ── KPI Cards ─────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 18, marginBottom: 28 }}>
+
+        <div className="kpi-card kpi-card-blue" style={{ animationDelay: '0ms' }}>
+          <div className="kpi-icon-wrap"><Percent size={18} /></div>
+          <div className="kpi-label">Ocupación Promedio</div>
+          <div className="kpi-value">{statsData.ocupacionPromedio}%</div>
+          <div className="kpi-progress">
+            <div className="kpi-progress-fill" style={{ width: `${statsData.ocupacionPromedio}%` }} />
           </div>
-        </Col>
+          <div className="kpi-sub"><span className="kpi-sub-text">Capacidad operativa activa</span></div>
+        </div>
 
-        {/* KPI 2: Ingresos Período */}
-        <Col numItemsColSpanLg={1}>
-          <div className="relative group bg-white/70 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:-translate-y-1 hover:shadow-xl hover:shadow-emerald-500/5 hover:border-emerald-500/20 overflow-hidden shadow-sm">
-            <div className="absolute -right-8 -top-8 w-24 h-24 bg-gradient-to-br from-emerald-500/5 to-teal-500/5 rounded-full blur-xl group-hover:scale-150 transition-all duration-500"></div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ingresos Período</span>
-              <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-all duration-300 border border-emerald-100/50">
-                <DollarSign size={14} />
-              </div>
-            </div>
-            <div className="flex items-baseline gap-1">
-              <span className="text-3xl font-extrabold tracking-tight text-slate-800">L {statsData.totalIngresos.toLocaleString()}</span>
-            </div>
-            <p className="text-slate-400 text-xs mt-4 font-normal">Equivale a ≈ ${ingresosData.totalUSD.toLocaleString()} USD</p>
-          </div>
-        </Col>
-
-        {/* KPI 3: Total Reservaciones */}
-        <Col numItemsColSpanLg={1}>
-          <div className="relative group bg-white/70 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/5 hover:border-indigo-500/20 overflow-hidden shadow-sm">
-            <div className="absolute -right-8 -top-8 w-24 h-24 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 rounded-full blur-xl group-hover:scale-150 transition-all duration-500"></div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Reservas</span>
-              <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300 border border-indigo-100/50">
-                <Calendar size={14} />
-              </div>
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-extrabold tracking-tight text-slate-800">{statsData.totalReservas}</span>
-              <span className="text-indigo-600 text-xxs font-semibold uppercase tracking-wider bg-indigo-50 border border-indigo-100/30 px-1.5 py-0.5 rounded-md">Reservas</span>
-            </div>
-            <p className="text-slate-400 text-xs mt-3 font-normal">Estadías en el período</p>
-          </div>
-        </Col>
-
-        {/* KPI 4: Huéspedes Activos */}
-        <Col numItemsColSpanLg={1}>
-          <div className="relative group bg-white/70 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl transition-all duration-300 hover:scale-[1.02] hover:-translate-y-1 hover:shadow-xl hover:shadow-amber-500/5 hover:border-amber-500/20 overflow-hidden shadow-sm">
-            <div className="absolute -right-8 -top-8 w-24 h-24 bg-gradient-to-br from-amber-500/5 to-orange-500/5 rounded-full blur-xl group-hover:scale-150 transition-all duration-500"></div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Huéspedes Activos</span>
-              <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600 group-hover:bg-amber-600 group-hover:text-white transition-all duration-300 border border-amber-100/50">
-                <Users size={14} />
-              </div>
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-extrabold tracking-tight text-slate-800">{clientesData.activos}</span>
-              <span className="text-slate-400 text-xs font-semibold">de {clientesData.total}</span>
-            </div>
-            <p className="text-slate-400 text-xs mt-3 font-normal">Registrados en la plataforma</p>
-          </div>
-        </Col>
-      </Grid>
-
-      {/* Navegación y Período con diseño Premium Táctil */}
-      <TabGroup className="relative z-10">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-slate-200 pb-4 mb-6">
-          <TabList className="flex gap-1.5 p-1 bg-slate-100 border border-slate-200/50 rounded-xl max-w-full overflow-x-auto scrollbar-none">
-            <Tab className="text-xs font-bold tracking-wide uppercase px-4 py-2 border-none rounded-lg text-slate-500 transition-all focus:outline-none hover:text-slate-800 ui-selected:bg-white ui-selected:text-blue-600 ui-selected:shadow-sm cursor-pointer">
-              Resumen Ejecutivo
-            </Tab>
-            <Tab className="text-xs font-bold tracking-wide uppercase px-4 py-2 border-none rounded-lg text-slate-500 transition-all focus:outline-none hover:text-slate-800 ui-selected:bg-white ui-selected:text-blue-600 ui-selected:shadow-sm cursor-pointer">
-              Ocupación
-            </Tab>
-            <Tab className="text-xs font-bold tracking-wide uppercase px-4 py-2 border-none rounded-lg text-slate-500 transition-all focus:outline-none hover:text-slate-800 ui-selected:bg-white ui-selected:text-blue-600 ui-selected:shadow-sm cursor-pointer">
-              Finanzas
-            </Tab>
-            <Tab className="text-xs font-bold tracking-wide uppercase px-4 py-2 border-none rounded-lg text-slate-500 transition-all focus:outline-none hover:text-slate-800 ui-selected:bg-white ui-selected:text-blue-600 ui-selected:shadow-sm cursor-pointer">
-              Clientes
-            </Tab>
-          </TabList>
-
-          {/* Selector de Períodos Tactil */}
-          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/50 shadow-sm">
-            {['semana', 'mes', 'trimestre', 'año'].map(p => (
-              <button
-                key={p}
-                onClick={() => setPeriodo(p)}
-                className={`px-4 py-2 border-none text-[11px] font-bold uppercase tracking-wider rounded-lg cursor-pointer transition-all duration-350 ${
-                  periodo === p
-                    ? 'bg-white text-slate-800 shadow-sm border border-slate-200/30'
-                    : 'bg-transparent text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
+        <div className="kpi-card kpi-card-emerald" style={{ animationDelay: '60ms' }}>
+          <div className="kpi-icon-wrap"><DollarSign size={18} /></div>
+          <div className="kpi-label">Ingresos del Período</div>
+          <div className="kpi-value" style={{ fontSize: 22 }}>L {statsData.totalIngresos.toLocaleString('es-HN')}</div>
+          <div className="kpi-sub">
+            <span className="kpi-trend-badge kpi-trend-up" style={{ fontSize: 10 }}>Activo</span>
+            <span className="kpi-sub-text">≈ ${ingresosData.totalUSD.toLocaleString()} USD</span>
           </div>
         </div>
 
-        <TabPanels>
-          {/* TAB 1: RESUMEN EJECUTIVO */}
-          <TabPanel className="focus:outline-none">
-            <Grid numItemsColSpanLg={3} className="gap-6 animate-fade-in">
-              {/* Ocupación General */}
-              <Col numItemsColSpanLg={2}>
-                <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl shadow-sm">
-                  <div className="mb-4 flex justify-between items-start">
-                    <div>
-                      <h3 className="text-base font-semibold text-slate-800 tracking-tight">Tendencia de Ocupación</h3>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Porcentaje de habitaciones vendidas en la propiedad activa</p>
-                    </div>
-                    <Badge color="blue" className="bg-blue-50 border border-blue-100 text-blue-600 text-[10px] font-bold">
-                      Historial
-                    </Badge>
-                  </div>
-                  {ocupacionTendencia.length > 0 ? (
-                    <AreaChart
-                      className="h-80 mt-4 custom-tremor-chart"
-                      data={ocupacionTendencia}
-                      index="dia"
-                      categories={['Tasa Ocupación']}
-                      colors={['blue']}
-                      valueFormatter={(v) => `${v}%`}
-                      yAxisWidth={40}
-                      showGridLines={false}
-                    />
-                  ) : (
-                    <div className="h-80 flex items-center justify-center text-slate-400 text-xs">
-                      Sin datos suficientes en este período
-                    </div>
-                  )}
-                </div>
-              </Col>
-
-              {/* Rosca de Reservas por Estado */}
-              <Col numItemsColSpanLg={1}>
-                <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl shadow-sm h-full flex flex-col justify-between">
-                  <div>
-                    <div className="mb-4">
-                      <h3 className="text-base font-semibold text-slate-800 tracking-tight">Distribución de Reservas</h3>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Comportamiento por estados en el período</p>
-                    </div>
-                    {reservasEstadoData.length > 0 ? (
-                      <>
-                        <DonutChart
-                          className="h-56 mt-4"
-                          data={reservasEstadoData}
-                          category="value"
-                          index="name"
-                          colors={['emerald', 'blue', 'amber', 'rose', 'violet']}
-                          valueFormatter={(v) => `${v} reservas`}
-                          variant="donut"
-                        />
-                        <Legend
-                          className="mt-6 flex-wrap justify-center gap-x-4 gap-y-2 text-slate-400"
-                          categories={reservasEstadoData.map(r => r.name)}
-                          colors={['emerald', 'blue', 'amber', 'rose', 'violet']}
-                        />
-                      </>
-                    ) : (
-                      <div className="h-56 flex items-center justify-center text-slate-455 text-xs mt-6">
-                        No se registraron reservaciones
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </Col>
-            </Grid>
-          </TabPanel>
-
-          {/* TAB 2: DETALLE DE OCUPACIÓN */}
-          <TabPanel className="focus:outline-none">
-            <Grid numItemsColSpanLg={3} className="gap-6 animate-fade-in">
-              {/* Ocupación Diaria */}
-              <Col numItemsColSpanLg={2}>
-                <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl shadow-sm">
-                  <div className="mb-4 flex justify-between items-start">
-                    <div>
-                      <h3 className="text-base font-semibold text-slate-800 tracking-tight">Detalle de Ocupación Diaria</h3>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Sincronización detallada con la capacidad física</p>
-                    </div>
-                    <Badge color="indigo" className="bg-indigo-50 border border-indigo-100 text-indigo-600 text-[10px] font-bold">
-                      Día por Día
-                    </Badge>
-                  </div>
-                  {ocupacionData.dias.length > 0 ? (
-                    <AreaChart
-                      className="h-80 mt-4"
-                      data={ocupacionData.dias.map(d => ({
-                        Fecha: d.fecha.substring(5),
-                        'Ocupación %': d.ocupacion,
-                        'Habitaciones': d.habitacionesOcupadas,
-                      }))}
-                      index="Fecha"
-                      categories={['Ocupación %']}
-                      colors={['indigo']}
-                      valueFormatter={(v) => `${v}%`}
-                      yAxisWidth={40}
-                      showGridLines={false}
-                    />
-                  ) : (
-                    <div className="h-80 flex items-center justify-center text-slate-400 text-xs">
-                      No hay registros disponibles para el rango indicado.
-                    </div>
-                  )}
-                </div>
-              </Col>
-
-              {/* Estadísticas de habitaciones */}
-              <Col numItemsColSpanLg={1}>
-                <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl shadow-sm h-full flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-800 tracking-tight mb-1">Métricas de Ocupación</h3>
-                    <p className="text-[11px] text-slate-400 mb-6">Eficiencia de inventario físico</p>
-
-                    <div className="space-y-6">
-                      <div className="bg-slate-50 border border-slate-200/80 p-5 rounded-2xl">
-                        <Flex>
-                          <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Ocupación Promedio</Text>
-                          <Badge color="indigo" className="bg-indigo-50 border border-indigo-100 text-indigo-600 text-[10px] font-bold py-0.5">
-                            {ocupacionData.promedio}%
-                          </Badge>
-                        </Flex>
-                        <div className="w-full bg-slate-200/60 rounded-full h-1.5 mt-3 overflow-hidden">
-                          <div
-                            className="bg-gradient-to-r from-indigo-500 to-blue-500 h-1.5 rounded-full"
-                            style={{ width: `${ocupacionData.promedio}%` }}
-                          ></div>
-                        </div>
-                      </div>
-
-                      <List className="divide-y divide-slate-100 border-t border-slate-100 pt-2 text-slate-600">
-                        <ListItem className="py-3">
-                          <span className="text-slate-500 text-xs font-normal">Días Analizados</span>
-                          <span className="font-semibold text-slate-800 font-mono">{ocupacionData.dias.length}</span>
-                        </ListItem>
-                        <ListItem className="py-3">
-                          <span className="text-slate-500 text-xs font-normal">Total Habitaciones</span>
-                          <span className="font-semibold text-slate-800 font-mono">
-                            {ocupacionData.dias[0]?.habitacionesTotales || 0}
-                          </span>
-                        </ListItem>
-                        <ListItem className="py-3">
-                          <span className="text-slate-500 text-xs font-normal">Pico Máximo</span>
-                          <span className="font-bold text-emerald-600 font-mono">
-                            {ocupacionData.dias.length > 0
-                              ? Math.max(...ocupacionData.dias.map(d => d.ocupacion))
-                              : 0}
-                            %
-                          </span>
-                        </ListItem>
-                      </List>
-                    </div>
-                  </div>
-                </div>
-              </Col>
-            </Grid>
-          </TabPanel>
-
-          {/* TAB 3: DESGLOSE FINANCIERO */}
-          <TabPanel className="focus:outline-none">
-            <Grid numItemsColSpanLg={3} className="gap-6 animate-fade-in">
-              {/* Gráfico ingresos */}
-              <Col numItemsColSpanLg={2}>
-                <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl shadow-sm">
-                  <div className="mb-4 flex justify-between items-start">
-                    <div>
-                      <h3 className="text-base font-semibold text-slate-800 tracking-tight">Ingresos por Día</h3>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Efectivo cobrado expresado en moneda nacional (HNL)</p>
-                    </div>
-                    <Badge color="emerald" className="bg-emerald-50 border border-emerald-100 text-emerald-600 text-[10px] font-bold">
-                      Finanzas
-                    </Badge>
-                  </div>
-                  {ingresosDiariosChart.length > 0 ? (
-                    <BarChart
-                      className="h-80 mt-4"
-                      data={ingresosDiariosChart}
-                      index="dia"
-                      categories={['Monto HNL']}
-                      colors={['emerald']}
-                      valueFormatter={(v) => `L. ${v.toLocaleString()}`}
-                      yAxisWidth={80}
-                      showGridLines={false}
-                    />
-                  ) : (
-                    <div className="h-80 flex items-center justify-center text-slate-500 text-xs">
-                      Sin movimientos financieros en el período
-                    </div>
-                  )}
-                </div>
-              </Col>
-
-              {/* Conversión y caja */}
-              <Col numItemsColSpanLg={1}>
-                <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl shadow-sm h-full flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-800 tracking-tight mb-1">Caja y Equivalencias</h3>
-                    <p className="text-[11px] text-slate-400 mb-6">Conciliación contable consolidada</p>
-
-                    <div className="space-y-4">
-                      {/* Moneda Local */}
-                      <div className="relative group bg-slate-50 border border-slate-200 p-5 rounded-2xl transition-all hover:border-emerald-500/20">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Moneda Local (HNL)</span>
-                          <span className="text-emerald-600 text-xxs font-bold bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">Activo</span>
-                        </div>
-                        <h4 className="text-2xl font-extrabold tracking-tight text-emerald-600">L {ingresosData.total.toLocaleString()}</h4>
-                      </div>
-
-                      {/* Moneda Extranjera */}
-                      <div className="relative group bg-slate-50 border border-slate-200 p-5 rounded-2xl transition-all hover:border-blue-500/20">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Dólares (USD)</span>
-                          <span className="text-slate-400 text-[10px] font-medium">Ref: {ingresosData.tipoCambio}</span>
-                        </div>
-                        <h4 className="text-2xl font-extrabold tracking-tight text-blue-600">$ {ingresosData.totalUSD.toLocaleString()}</h4>
-                      </div>
-                    </div>
-                  </div>
-
-                  <List className="divide-y divide-slate-100 border-t border-slate-100 pt-4 mt-6 text-slate-600">
-                    <ListItem className="py-3">
-                      <span className="text-slate-500 text-xs font-normal">Transacciones Totales</span>
-                      <span className="font-semibold text-slate-800 font-mono">
-                        {ingresosData.detalles.reduce((acc, curr) => acc + curr.reservas, 0)} cobros
-                      </span>
-                    </ListItem>
-                  </List>
-                </div>
-              </Col>
-            </Grid>
-          </TabPanel>
-
-          {/* TAB 4: PERFIL DE CLIENTES */}
-          <TabPanel className="focus:outline-none">
-            <Grid numItemsColSpanLg={3} className="gap-6 animate-fade-in">
-              {/* Top Clientes */}
-              <Col numItemsColSpanLg={2}>
-                <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl shadow-sm">
-                  <div className="mb-4 flex justify-between items-start">
-                    <div>
-                      <h3 className="text-base font-semibold text-slate-800 tracking-tight">Top Clientes de la Propiedad</h3>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Listado premium de huéspedes de mayor volumen operativo</p>
-                    </div>
-                    <Badge color="violet" className="bg-violet-50 border border-violet-100 text-violet-600 text-[10px] font-bold">
-                      Clientes Elite
-                    </Badge>
-                  </div>
-
-                  {clientesData.topClientes.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <Table className="mt-4 w-full">
-                        <TableHead className="border-b border-slate-200">
-                          <TableRow>
-                            <TableHeaderCell className="text-slate-400 font-bold text-[10px] uppercase tracking-wider py-3">Huésped</TableHeaderCell>
-                            <TableHeaderCell className="text-slate-400 font-bold text-[10px] uppercase tracking-wider text-right py-3">Estadías</TableHeaderCell>
-                            <TableHeaderCell className="text-slate-400 font-bold text-[10px] uppercase tracking-wider text-right py-3">Total Facturado</TableHeaderCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody className="divide-y divide-slate-100">
-                          {clientesData.topClientes.map((c, i) => (
-                            <TableRow key={i} className="hover:bg-slate-50 transition-all duration-150">
-                              <TableCell className="font-semibold text-slate-800 py-4 flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-bold text-blue-600 shadow-sm">
-                                  {c.nombre.charAt(0)}
-                                </div>
-                                {c.nombre}
-                              </TableCell>
-                              <TableCell className="text-right text-slate-600 font-mono py-4">{c.reservas}</TableCell>
-                              <TableCell className="text-right font-bold text-emerald-600 font-mono py-4">
-                                L {c.gastado.toLocaleString()}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  ) : (
-                    <div className="h-60 flex items-center justify-center text-slate-500 text-xs">
-                      No hay historial de clientes en el hotel
-                    </div>
-                  )}
-                </div>
-              </Col>
-
-              {/* Distribución de fidelidad */}
-              <Col numItemsColSpanLg={1}>
-                <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 p-6 rounded-2xl shadow-sm h-full flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-800 tracking-tight mb-1">Fidelización de Clientes</h3>
-                    <p className="text-[11px] text-slate-400 mb-6">Fórmula de recurrencia e impacto comercial</p>
-
-                    {clientesNuevosRecurrentes.some(x => x.value > 0) ? (
-                      <>
-                        <DonutChart
-                          className="h-56 mt-4"
-                          data={clientesNuevosRecurrentes}
-                          category="value"
-                          index="name"
-                          colors={['teal', 'violet']}
-                          valueFormatter={(v) => `${v} clientes`}
-                        />
-                        <Legend
-                          className="mt-6 flex-wrap justify-center gap-x-4 gap-y-2 text-slate-400"
-                          categories={clientesNuevosRecurrentes.map(r => r.name)}
-                          colors={['teal', 'violet']}
-                        />
-                      </>
-                    ) : (
-                      <div className="h-56 flex items-center justify-center text-slate-500 text-xs mt-4">
-                        Sin datos suficientes de fidelidad
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </Col>
-            </Grid>
-          </TabPanel>
-        </TabPanels>
-      </TabGroup>
-
-      {/* Footer Premium Info Glassmorphic Block */}
-      <div className="mt-8 p-5 bg-white/75 backdrop-blur-md rounded-2xl border border-slate-200/60 flex items-center gap-4 relative z-10 shadow-sm">
-        <div className="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center shadow-sm flex-shrink-0">
-          <Info size={18} />
+        <div className="kpi-card kpi-card-violet" style={{ animationDelay: '120ms' }}>
+          <div className="kpi-icon-wrap"><Calendar size={18} /></div>
+          <div className="kpi-label">Total Reservas</div>
+          <div className="kpi-value">{statsData.totalReservas}</div>
+          <div className="kpi-sub"><span className="kpi-sub-text">Estadías en el período</span></div>
         </div>
+
+        <div className="kpi-card kpi-card-amber" style={{ animationDelay: '180ms' }}>
+          <div className="kpi-icon-wrap"><Users size={18} /></div>
+          <div className="kpi-label">Huéspedes Activos</div>
+          <div className="kpi-value">{clientesData.activos}</div>
+          <div className="kpi-sub">
+            <span className="kpi-sub-text">de {clientesData.total} registrados</span>
+          </div>
+        </div>
+
+      </div>
+
+      {/* ── Tabs + Período ────────────────────────────────── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+
+        {/* Tab list */}
+        <div style={{
+          display: 'flex', gap: 2, padding: 4,
+          background: 'rgba(15,23,42,.03)',
+          borderRadius: 14, border: '1px solid var(--shell-border)',
+        }}>
+          {TABS.map((tab, i) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(i)}
+              style={{
+                padding: '8px 18px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                fontSize: 12.5, fontWeight: 600, transition: 'all .18s ease',
+                background: activeTab === i ? 'var(--card-bg)' : 'transparent',
+                color: activeTab === i ? 'var(--accent)' : 'var(--muted)',
+                boxShadow: activeTab === i ? '0 1px 4px rgba(15,23,42,.1)' : 'none',
+              }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {/* Period selector */}
+        <div style={{
+          display: 'flex', gap: 2, padding: 4,
+          background: 'rgba(15,23,42,.03)',
+          borderRadius: 12, border: '1px solid var(--shell-border)',
+        }}>
+          {PERIODS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setPeriodo(key)}
+              style={{
+                padding: '7px 14px', borderRadius: 9, border: 'none', cursor: 'pointer',
+                fontSize: 11.5, fontWeight: 700, transition: 'all .18s ease',
+                background: periodo === key ? 'var(--accent)' : 'transparent',
+                color: periodo === key ? '#ffffff' : 'var(--muted)',
+                boxShadow: periodo === key ? '0 2px 8px rgba(37,99,235,.22)' : 'none',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Tab 0: Resumen Ejecutivo ─────────────────────── */}
+      {activeTab === 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 20, animation: 'fadeInUp .35s ease both' }}>
+
+          <div className="panel-card">
+            <PanelTitle icon={<TrendingUp size={15} color="var(--accent)" />} badge="Historial">
+              Tendencia de Ocupación
+            </PanelTitle>
+            <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: -12, marginBottom: 16 }}>
+              Porcentaje de habitaciones vendidas en el período
+            </p>
+            {ocupacionTendencia.length > 0 ? (
+              <AreaChart
+                className="h-72"
+                data={ocupacionTendencia}
+                index="dia"
+                categories={['Tasa Ocupación']}
+                colors={['blue']}
+                valueFormatter={v => `${v}%`}
+                yAxisWidth={40}
+                showGridLines={false}
+              />
+            ) : <EmptyChart />}
+          </div>
+
+          <div className="panel-card" style={{ display: 'flex', flexDirection: 'column' }}>
+            <PanelTitle icon={<Calendar size={15} color="var(--accent)" />} badge="Período">
+              Distribución de Reservas
+            </PanelTitle>
+            <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: -12, marginBottom: 16 }}>
+              Comportamiento por estados
+            </p>
+            {reservasEstadoData.length > 0 ? (
+              <>
+                <DonutChart
+                  className="h-52"
+                  data={reservasEstadoData}
+                  category="value"
+                  index="name"
+                  colors={['emerald', 'blue', 'amber', 'rose', 'violet']}
+                  valueFormatter={v => `${v} reservas`}
+                  variant="donut"
+                />
+                <Legend
+                  className="mt-5 justify-center flex-wrap gap-x-4 gap-y-2"
+                  categories={reservasEstadoData.map(r => r.name)}
+                  colors={['emerald', 'blue', 'amber', 'rose', 'violet']}
+                />
+              </>
+            ) : <EmptyChart msg="No se registraron reservas en este período" />}
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab 1: Ocupación ────────────────────────────── */}
+      {activeTab === 1 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 20, animation: 'fadeInUp .35s ease both' }}>
+
+          <div className="panel-card">
+            <PanelTitle icon={<TrendingUp size={15} color="#6366f1" />} badge="Día por día" badgeColor="#6366f1">
+              Detalle de Ocupación Diaria
+            </PanelTitle>
+            <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: -12, marginBottom: 16 }}>
+              Capacidad física utilizada cada jornada
+            </p>
+            {ocupacionData.dias.length > 0 ? (
+              <AreaChart
+                className="h-72"
+                data={ocupacionData.dias.map(d => ({
+                  Fecha: d.fecha.substring(5),
+                  'Ocupación %': d.ocupacion,
+                }))}
+                index="Fecha"
+                categories={['Ocupación %']}
+                colors={['indigo']}
+                valueFormatter={v => `${v}%`}
+                yAxisWidth={40}
+                showGridLines={false}
+              />
+            ) : <EmptyChart msg="No hay registros para el rango indicado" />}
+          </div>
+
+          <div className="panel-card">
+            <PanelTitle icon={<Percent size={15} color="#6366f1" />}>
+              Métricas de Ocupación
+            </PanelTitle>
+            <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: -12, marginBottom: 20 }}>
+              Eficiencia del inventario físico
+            </p>
+
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                  Ocupación Promedio
+                </span>
+                <span style={{
+                  fontSize: 12, fontWeight: 700, color: '#6366f1',
+                  background: 'rgba(99,102,241,.08)', padding: '2px 10px', borderRadius: 99,
+                  border: '1px solid rgba(99,102,241,.18)',
+                }}>
+                  {ocupacionData.promedio}%
+                </span>
+              </div>
+              <div className="kpi-progress" style={{ height: 7 }}>
+                <div className="kpi-progress-fill" style={{ width: `${ocupacionData.promedio}%`, background: 'linear-gradient(90deg, #6366f1, #3b82f6)' }} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <div className="stat-row">
+                <span className="stat-row-label">Días analizados</span>
+                <span className="stat-row-value">{ocupacionData.dias.length}</span>
+              </div>
+              <div className="stat-row">
+                <span className="stat-row-label">Total habitaciones</span>
+                <span className="stat-row-value">{ocupacionData.dias[0]?.habitacionesTotales || 0}</span>
+              </div>
+              <div className="stat-row" style={{ borderBottom: 'none' }}>
+                <span className="stat-row-label">Pico máximo</span>
+                <span className="stat-row-value" style={{ color: 'var(--success)', fontSize: 17 }}>
+                  {picoPorcentaje}%
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab 2: Finanzas ──────────────────────────────── */}
+      {activeTab === 2 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 20, animation: 'fadeInUp .35s ease both' }}>
+
+          <div className="panel-card">
+            <PanelTitle icon={<DollarSign size={15} color="#10b981" />} badge="Finanzas" badgeColor="#10b981">
+              Ingresos por Período
+            </PanelTitle>
+            <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: -12, marginBottom: 16 }}>
+              Efectivo cobrado expresado en moneda nacional (HNL)
+            </p>
+            {ingresosDiariosChart.length > 0 ? (
+              <BarChart
+                className="h-72"
+                data={ingresosDiariosChart}
+                index="dia"
+                categories={['Monto HNL']}
+                colors={['emerald']}
+                valueFormatter={v => `L. ${v.toLocaleString('es-HN')}`}
+                yAxisWidth={80}
+                showGridLines={false}
+              />
+            ) : <EmptyChart msg="Sin movimientos financieros en el período" />}
+          </div>
+
+          <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <PanelTitle icon={<DollarSign size={15} color="#10b981" />}>
+              Caja y Equivalencias
+            </PanelTitle>
+
+            {/* HNL block */}
+            <div style={{
+              padding: '18px 20px', borderRadius: 14,
+              background: 'linear-gradient(160deg, #ffffff 0%, rgba(236,253,245,.85) 100%)',
+              border: '1px solid rgba(16,185,129,.15)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                  Moneda local (HNL)
+                </span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#059669', background: 'rgba(16,185,129,.1)', padding: '2px 8px', borderRadius: 99, border: '1px solid rgba(16,185,129,.2)' }}>
+                  Activo
+                </span>
+              </div>
+              <p style={{ fontSize: 26, fontWeight: 800, color: '#065f46', letterSpacing: '-.03em', margin: 0 }}>
+                L {ingresosData.total.toLocaleString('es-HN')}
+              </p>
+            </div>
+
+            {/* USD block */}
+            <div style={{
+              padding: '18px 20px', borderRadius: 14,
+              background: 'linear-gradient(160deg, #ffffff 0%, rgba(239,246,255,.85) 100%)',
+              border: '1px solid rgba(59,130,246,.15)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                  Dólares (USD)
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--muted)' }}>
+                  Ref: {ingresosData.tipoCambio}
+                </span>
+              </div>
+              <p style={{ fontSize: 26, fontWeight: 800, color: '#1e40af', letterSpacing: '-.03em', margin: 0 }}>
+                $ {ingresosData.totalUSD.toLocaleString('es-HN')}
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+              <div className="stat-row" style={{ borderBottom: 'none' }}>
+                <span className="stat-row-label">Transacciones totales</span>
+                <span className="stat-row-value">{totalCobros} cobros</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab 3: Clientes ──────────────────────────────── */}
+      {activeTab === 3 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 20, animation: 'fadeInUp .35s ease both' }}>
+
+          <div className="panel-card">
+            <PanelTitle icon={<Users size={15} color="#8b5cf6" />} badge="Clientes Elite" badgeColor="#8b5cf6">
+              Top Huéspedes de la Propiedad
+            </PanelTitle>
+            <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: -12, marginBottom: 16 }}>
+              Huéspedes de mayor volumen operativo
+            </p>
+
+            {clientesData.topClientes.length > 0 ? (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="table-premium" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th>Huésped</th>
+                      <th style={{ textAlign: 'right' }}>Estadías</th>
+                      <th style={{ textAlign: 'right' }}>Total Facturado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clientesData.topClientes.map((c, i) => (
+                      <tr key={i}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{
+                              width: 34, height: 34, borderRadius: 10,
+                              background: 'rgba(37,99,235,.08)', border: '1px solid rgba(37,99,235,.14)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 12, fontWeight: 800, color: 'var(--accent)',
+                            }}>
+                              {c.nombre.charAt(0).toUpperCase()}
+                            </div>
+                            <span style={{ fontWeight: 600, color: 'var(--text-h)' }}>{c.nombre}</span>
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                          {c.reservas}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--success)', fontVariantNumeric: 'tabular-nums' }}>
+                          L {c.gastado.toLocaleString('es-HN')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <EmptyChart msg="No hay historial de clientes en el hotel" />}
+          </div>
+
+          <div className="panel-card" style={{ display: 'flex', flexDirection: 'column' }}>
+            <PanelTitle icon={<Users size={15} color="#8b5cf6" />}>
+              Fidelización de Clientes
+            </PanelTitle>
+            <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: -12, marginBottom: 16 }}>
+              Nuevos vs recurrentes en el período
+            </p>
+
+            {clientesNuevosRecurrentes.some(x => x.value > 0) ? (
+              <>
+                <DonutChart
+                  className="h-52"
+                  data={clientesNuevosRecurrentes}
+                  category="value"
+                  index="name"
+                  colors={['teal', 'violet']}
+                  valueFormatter={v => `${v} clientes`}
+                />
+                <Legend
+                  className="mt-5 justify-center flex-wrap gap-x-4 gap-y-2"
+                  categories={clientesNuevosRecurrentes.map(r => r.name)}
+                  colors={['teal', 'violet']}
+                />
+                <div style={{ marginTop: 'auto', paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  <div className="stat-row">
+                    <span className="stat-row-label">Clientes nuevos</span>
+                    <span className="stat-row-value" style={{ color: 'var(--accent)' }}>{clientesData.nuevos}</span>
+                  </div>
+                  <div className="stat-row" style={{ borderBottom: 'none' }}>
+                    <span className="stat-row-label">Clientes recurrentes</span>
+                    <span className="stat-row-value" style={{ color: 'var(--success)' }}>{clientesData.recurrentes}</span>
+                  </div>
+                </div>
+              </>
+            ) : <EmptyChart msg="Sin datos suficientes de fidelidad" />}
+          </div>
+        </div>
+      )}
+
+      {/* ── Footer info ───────────────────────────────────── */}
+      <div className="alert-banner alert-banner-blue" style={{ marginTop: 24 }}>
+        <div className="alert-banner-icon"><Info size={16} /></div>
         <div>
-          <p className="text-xs text-slate-500 font-medium leading-relaxed">
-            <strong>📊 Auditoría Operativa de Solaris:</strong> Los datos agregados y de rendimiento presentados en este módulo corresponden a la conciliación en tiempo real de reservas y transacciones contables del hotel seleccionado.
+          <p className="alert-banner-title">Auditoría operativa en tiempo real</p>
+          <p className="alert-banner-desc">
+            Los datos presentados corresponden a la conciliación en tiempo real de reservas y transacciones del hotel seleccionado.
           </p>
         </div>
       </div>
+
     </div>
   );
 };

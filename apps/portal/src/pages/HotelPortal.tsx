@@ -14,6 +14,7 @@ import {
   fetchHotelBySlug, fetchDisponibilidad, crearSolicitudReserva,
   buscarHuesped, registrarHuesped,
   initGuestChat, sendGuestMessage, fetchGuestMessages,
+  fetchTarifaHabitacion,
 } from '../services/api';
 import { Hotel as HotelType, Habitacion, ReservaForm } from '../types';
 import { formatearFecha, calcularNoches, formatMoneda } from '../utils/slug';
@@ -264,6 +265,11 @@ const RoomDetailModal = ({ hab, hotel, onReservar, onClose }: {
               <div>
                 <span className="text-2xl font-black text-stone-900">{formatMoneda(hab.tarifaNoche, hotel.moneda)}</span>
                 <span className="text-xs text-stone-400 ml-1">/ noche · impuestos incluidos</span>
+                {hab.esTarifaPeriodo && (
+                  <span className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 align-middle">
+                    {hab.nombrePeriodo || 'Precio especial'}
+                  </span>
+                )}
               </div>
             </div>
             <button onClick={() => { onClose(); onReservar(); }}
@@ -346,7 +352,7 @@ const RoomCard = ({ hab, noches, moneda, hotel, onReservar, onDetalle, index }: 
         {noches > 1 && (
           <div className="flex items-center justify-between bg-amber-50 border border-amber-100 rounded-2xl px-3 py-2 mb-3 text-xs">
             <span className="text-amber-700">{noches} noches</span>
-            <span className="font-black text-amber-900">{formatMoneda(hab.tarifaNoche * noches, moneda)} total</span>
+            <span className="font-black text-amber-900">{formatMoneda(hab.totalTarifas !== undefined ? hab.totalTarifas : hab.tarifaNoche * noches, moneda)} total</span>
           </div>
         )}
 
@@ -393,6 +399,20 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
   const [checkingDisp,setCheckingDisp] = useState(false);
   const [dispOk,     setDispOk]     = useState<boolean | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Tarifa activa para la habitación según las fechas seleccionadas
+  const [tarifaActiva, setTarifaActiva] = useState<{
+    tarifa_noche: number; total_tarifas?: number; es_periodo: boolean; nombre_periodo: string | null;
+  }>({ tarifa_noche: hab.tarifaNoche, total_tarifas: undefined, es_periodo: hab.esTarifaPeriodo ?? false, nombre_periodo: hab.nombrePeriodo ?? null });
+
+  // Re-resolver tarifa cada vez que cambian las fechas en el form
+  useEffect(() => {
+    if (!form.checkIn || !form.checkOut || !hab.id) return;
+    const fecha = form.checkIn.substring(0, 10);
+    fetchTarifaHabitacion(hab.id, fecha, form.checkIn, form.checkOut)
+      .then(r => setTarifaActiva(r))
+      .catch(() => {}); // silencioso — mantiene la tarifa anterior
+  }, [form.checkIn, form.checkOut, hab.id]);
 
   // Chat con recepción
   const [chatStep,      setChatStep]      = useState<ChatStep>('idle');
@@ -446,7 +466,8 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
 
   const noches   = calcularNoches(form.checkIn, form.checkOut);
   const personasExtra = Math.max(0, form.adultos + form.ninos - hab.capacidad);
-  const subtotal = hab.tarifaNoche * noches + personasExtra * hotel.cargoPersonaExtra * noches;
+  const subtotal = (tarifaActiva.total_tarifas !== undefined ? tarifaActiva.total_tarifas : tarifaActiva.tarifa_noche * noches)
+                   + personasExtra * hotel.cargoPersonaExtra * noches;
 
   const inp = 'w-full border border-stone-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-stone-900/10 bg-stone-50 transition-all';
   const lbl = 'block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2';
@@ -630,14 +651,23 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
               <div className="bg-white rounded-2xl p-4 border border-stone-200 shadow-sm">
                 <p className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-2">Resumen</p>
                 <div className="flex justify-between items-end mb-1">
-                  <span className="text-stone-500 text-sm">Tarifa base</span>
-                  <span className="font-bold text-stone-900">{formatMoneda(hab.tarifaNoche, hotel.moneda)} <span className="text-[10px] text-stone-400 font-normal">/ noche</span></span>
+                  <div>
+                    <span className="text-stone-500 text-sm">
+                      {tarifaActiva.es_periodo ? (tarifaActiva.nombre_periodo || 'Tarifa especial') : 'Tarifa por noche'}
+                    </span>
+                    {tarifaActiva.es_periodo && (
+                      <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                        Precio especial
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-bold text-stone-900">{formatMoneda(tarifaActiva.tarifa_noche, hotel.moneda)} <span className="text-[10px] text-stone-400 font-normal">/ noche</span></span>
                 </div>
                 {noches > 0 && form.checkIn && form.checkOut && (
                   <>
                     <div className="flex justify-between items-end text-sm mb-1 mt-2 pt-2 border-t border-stone-100">
                       <span className="text-stone-500">{noches} noche{noches !== 1 ? 's' : ''}</span>
-                      <span className="font-bold text-stone-900">{formatMoneda(hab.tarifaNoche * noches, hotel.moneda)}</span>
+                      <span className="font-bold text-stone-900">{formatMoneda(tarifaActiva.total_tarifas !== undefined ? tarifaActiva.total_tarifas : tarifaActiva.tarifa_noche * noches, hotel.moneda)}</span>
                     </div>
                     {personasExtra > 0 && hotel.cargoPersonaExtra > 0 && (
                       <div className="flex justify-between items-end text-sm mb-1 text-amber-700">
@@ -684,7 +714,7 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
         <div className="mx-5 mt-3 bg-stone-50 border border-stone-100 rounded-2xl px-3 py-2 flex items-center gap-2 md:hidden">
           <BedDouble size={13} className="text-stone-400 flex-shrink-0" />
           <span className="text-xs font-semibold text-stone-600 truncate flex-1">{hab.nombreAlias || hab.nombre}</span>
-          <span className="text-xs font-black text-stone-900 flex-shrink-0">{formatMoneda(hab.tarifaNoche, hotel.moneda)}<span className="font-normal text-stone-400">/noche</span></span>
+          <span className="text-xs font-black text-stone-900 flex-shrink-0">{formatMoneda(tarifaActiva.tarifa_noche, hotel.moneda)}<span className="font-normal text-stone-400">/noche</span></span>
         </div>
 
         <div className="overflow-y-auto flex-1 px-5 md:px-8 py-4 md:py-6">
@@ -850,8 +880,8 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
                 {noches > 0 && form.checkIn && form.checkOut && (
                   <div className="bg-stone-50 rounded-2xl p-4 border border-stone-100 space-y-1.5 text-sm">
                     <div className="flex justify-between text-stone-500">
-                      <span>{formatMoneda(hab.tarifaNoche, hotel.moneda)} × {noches} noche{noches !== 1 ? 's' : ''}</span>
-                      <span>{formatMoneda(hab.tarifaNoche * noches, hotel.moneda)}</span>
+                      <span>{formatMoneda(tarifaActiva.tarifa_noche, hotel.moneda)} × {noches} noche{noches !== 1 ? 's' : ''}</span>
+                      <span>{formatMoneda(tarifaActiva.tarifa_noche * noches, hotel.moneda)}</span>
                     </div>
                     {personasExtra > 0 && hotel.cargoPersonaExtra > 0 && (
                       <div className="flex justify-between text-stone-500">
@@ -1148,7 +1178,12 @@ export default function HotelPortal() {
     setLoadingRooms(true);
     try {
       const ci = checkIn  || new Date().toISOString().split('T')[0];
-      const co = checkOut || new Date(Date.now() + 86_400_000).toISOString().split('T')[0];
+      let co = checkOut;
+      if (!co || co <= ci) {
+        const d = new Date(ci + 'T12:00:00Z');
+        d.setUTCDate(d.getUTCDate() + 1);
+        co = d.toISOString().split('T')[0];
+      }
       const habs = await fetchDisponibilidad(hotel.id, ci, co);
       setHabitaciones(habs.filter((h: Habitacion) => h.capacidad >= personas));
     } catch { setHabitaciones([]); }

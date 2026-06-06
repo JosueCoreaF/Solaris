@@ -9,22 +9,34 @@ const TIPO_CAMBIO_HNL_USD = 24.5;
 
 /**
  * Resuelve el hotel/owner activo desde el JWT + headers.
- * Retorna { ownerId, hotelId } donde hotelId puede ser null (significa "todos los hoteles del owner").
+ * Retorna { ownerId, hotelId, hotelIds } donde:
+ *   hotelId  = hotel específico del header X-Hotel-ID (o null si "all" o vacío)
+ *   hotelIds = todos los hoteles del owner (para queries sin hotel específico)
+ *
+ * IMPORTANTE: facturas, pagos_hotel, etc. no tienen columna owner_id.
+ * Usar siempre hotelId (eq) o hotelIds (in) para filtrar por tenant.
  */
-async function resolveHotelContext(req: Request): Promise<{ ownerId: string | null; hotelId: string | null }> {
+async function resolveHotelContext(req: Request): Promise<{
+  ownerId: string | null;
+  hotelId: string | null;
+  hotelIds: string[];
+}> {
   const headerHotelId = req.headers['x-hotel-id'] as string | undefined;
+  const specificId = (headerHotelId && headerHotelId !== 'all') ? headerHotelId : null;
+
   const user = await getAuthUser(req);
   if (!user) {
-    return {
-      ownerId:  null,
-      hotelId:  (headerHotelId && headerHotelId !== 'all') ? headerHotelId : null,
-    };
+    return { ownerId: null, hotelId: specificId, hotelIds: specificId ? [specificId] : [] };
   }
 
-  const { ownerIds } = await getOwnerHotelIdsForUser(user);
+  const { ownerIds, hotelIds } = await getOwnerHotelIdsForUser(user);
   const ownerId = ownerIds[0] ?? null;
-  const hotelId = (headerHotelId && headerHotelId !== 'all') ? headerHotelId : null;
-  return { ownerId, hotelId };
+
+  // Si viene un hotel específico en el header, usarlo. Si no, usar todos los del owner.
+  const hotelId = specificId;
+  const resolvedHotelIds = specificId ? [specificId] : (hotelIds ?? []);
+
+  return { ownerId, hotelId, hotelIds: resolvedHotelIds };
 }
 
 function rangoPeriodo(periodo: string): { desde: string; hasta: string } {
@@ -45,11 +57,11 @@ router.get('/resumen', async (req: Request, res: Response) => {
   try {
     const { periodo = 'mes' } = req.query;
     const { desde, hasta } = rangoPeriodo(periodo as string);
-    const { ownerId, hotelId } = await resolveHotelContext(req);
-    if (!ownerId && !hotelId) return res.status(401).json({ error: 'No autorizado' });
+    const { ownerId, hotelId, hotelIds } = await resolveHotelContext(req);
+    if (!ownerId && hotelIds.length === 0) return res.status(401).json({ error: 'No autorizado' });
 
     // Ingresos: suma de pagos_hotel activos en el período
-    let queryPagos = db()
+    let queryPagos = db()!
       .from('pagos_hotel')
       .select('monto, moneda, reservas_hotel!inner(id_hotel)')
       .neq('estado', 'anulado')
@@ -58,8 +70,8 @@ router.get('/resumen', async (req: Request, res: Response) => {
 
     if (hotelId) {
       queryPagos = queryPagos.eq('reservas_hotel.id_hotel', hotelId);
-    } else if (ownerId) {
-      queryPagos = queryPagos.eq('owner_id', ownerId);
+    } else if (hotelIds.length > 0) {
+      queryPagos = queryPagos.in('reservas_hotel.id_hotel', hotelIds);
     }
     const { data: pagos, error: pagErr } = await queryPagos;
 
@@ -68,8 +80,8 @@ router.get('/resumen', async (req: Request, res: Response) => {
     const ingresoTotal = (pagos ?? []).reduce((s, p: any) => s + (p.monto ?? 0), 0);
     const ingresoUSD = Math.round(ingresoTotal / TIPO_CAMBIO_HNL_USD);
 
-    // Egresos: suma de facturas en el período
-    let queryFacturas = db()
+    // Egresos: suma de facturas (tabla sin owner_id — filtrar por id_hotel)
+    let queryFacturas = db()!
       .from('facturas')
       .select('monto_total')
       .gte('fecha', desde)
@@ -77,8 +89,8 @@ router.get('/resumen', async (req: Request, res: Response) => {
 
     if (hotelId) {
       queryFacturas = queryFacturas.eq('id_hotel', hotelId);
-    } else if (ownerId) {
-      queryFacturas = queryFacturas.eq('owner_id', ownerId);
+    } else if (hotelIds.length > 0) {
+      queryFacturas = queryFacturas.in('id_hotel', hotelIds);
     }
     const { data: facturas, error: facErr } = await queryFacturas;
 
@@ -110,10 +122,10 @@ router.get('/movimientos', async (req: Request, res: Response) => {
     const { desde, hasta } = startDate
       ? { desde: startDate as string, hasta: (endDate as string) || new Date().toLocaleDateString('en-CA') }
       : rangoPeriodo('mes');
-    const { ownerId, hotelId } = await resolveHotelContext(req);
+    const { hotelId, hotelIds } = await resolveHotelContext(req);
 
     // Obtener pagos con datos de reserva y huésped
-    let query = db()
+    let query = db()!
       .from('pagos_hotel')
       .select(`
         id_pago_hotel,
@@ -138,8 +150,8 @@ router.get('/movimientos', async (req: Request, res: Response) => {
 
     if (hotelId) {
       query = query.eq('reservas_hotel.id_hotel', hotelId);
-    } else if (ownerId) {
-      query = query.eq('owner_id', ownerId);
+    } else if (hotelIds.length > 0) {
+      query = query.in('reservas_hotel.id_hotel', hotelIds);
     }
     const { data: pagos, error } = await query;
 
@@ -166,9 +178,9 @@ router.get('/ingresos', async (req: Request, res: Response) => {
   try {
     const { periodo = 'mes' } = req.query;
     const { desde, hasta } = rangoPeriodo(periodo as string);
-    const { ownerId, hotelId } = await resolveHotelContext(req);
+    const { hotelId, hotelIds } = await resolveHotelContext(req);
 
-    let query = db()
+    let query = db()!
       .from('pagos_hotel')
       .select('monto, fecha_pago, reservas_hotel!inner(id_hotel)')
       .neq('estado', 'anulado')
@@ -178,8 +190,8 @@ router.get('/ingresos', async (req: Request, res: Response) => {
 
     if (hotelId) {
       query = query.eq('reservas_hotel.id_hotel', hotelId);
-    } else if (ownerId) {
-      query = query.eq('owner_id', ownerId);
+    } else if (hotelIds.length > 0) {
+      query = query.in('reservas_hotel.id_hotel', hotelIds);
     }
     const { data: pagos, error } = await query;
 
@@ -225,9 +237,9 @@ router.get('/egresos', async (req: Request, res: Response) => {
     const { desde, hasta } = startDate
       ? { desde: startDate as string, hasta: (endDate as string) || new Date().toLocaleDateString('en-CA') }
       : rangoPeriodo(periodo as string);
-    const { ownerId, hotelId } = await resolveHotelContext(req);
+    const { hotelId, hotelIds } = await resolveHotelContext(req);
 
-    let query = db()
+    let query = db()!
       .from('facturas')
       .select('*')
       .gte('fecha', desde)
@@ -235,8 +247,8 @@ router.get('/egresos', async (req: Request, res: Response) => {
 
     if (hotelId) {
       query = query.eq('id_hotel', hotelId);
-    } else if (ownerId) {
-      query = query.eq('owner_id', ownerId);
+    } else if (hotelIds.length > 0) {
+      query = query.in('id_hotel', hotelIds);
     }
     const { data: facturas, error } = await query;
 
@@ -260,9 +272,9 @@ router.get('/tendencias', async (req: Request, res: Response) => {
   try {
     const { dias = 7 } = req.query;
     const numDias = Math.min(30, parseInt(dias as string) || 7);
-    const { ownerId, hotelId } = await resolveHotelContext(req);
+    const { hotelId, hotelIds } = await resolveHotelContext(req);
 
-    let query = db()
+    let query = db()!
       .from('pagos_hotel')
       .select('monto, fecha_pago, reservas_hotel!inner(id_hotel)')
       .neq('estado', 'anulado')
@@ -271,8 +283,8 @@ router.get('/tendencias', async (req: Request, res: Response) => {
 
     if (hotelId) {
       query = query.eq('reservas_hotel.id_hotel', hotelId);
-    } else if (ownerId) {
-      query = query.eq('owner_id', ownerId);
+    } else if (hotelIds.length > 0) {
+      query = query.in('reservas_hotel.id_hotel', hotelIds);
     }
     const { data: pagos, error } = await query;
 
@@ -574,10 +586,10 @@ router.get('/facturas', async (req: Request, res: Response) => {
   try {
     const { periodo = 'mes' } = req.query;
     const { desde, hasta } = rangoPeriodo(periodo as string);
-    const { ownerId, hotelId } = await resolveHotelContext(req);
-    if (!ownerId && !hotelId) return res.status(401).json({ error: 'No autorizado' });
+    const { hotelId, hotelIds } = await resolveHotelContext(req);
+    if (hotelIds.length === 0) return res.status(401).json({ error: 'No autorizado' });
 
-    let query = db()
+    let query = db()!
       .from('facturas')
       .select('*')
       .gte('fecha', desde)
@@ -586,8 +598,8 @@ router.get('/facturas', async (req: Request, res: Response) => {
 
     if (hotelId) {
       query = query.eq('id_hotel', hotelId);
-    } else if (ownerId) {
-      query = query.eq('owner_id', ownerId);
+    } else {
+      query = query.in('id_hotel', hotelIds);
     }
     const { data, error } = await query;
 

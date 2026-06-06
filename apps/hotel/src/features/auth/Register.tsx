@@ -50,7 +50,8 @@ export const Register: React.FC = () => {
   const [email, setEmail] = useState('');
   const [codigo, setCodigo] = useState('');
   const [rolSugerido, setRolSugerido] = useState<string | null>(null);
-  const [idHotel, setIdHotel] = useState<string | null>(null);
+  const [idHotel, setIdHotel]         = useState<string | null>(null);
+  const [ownerIdInv, setOwnerIdInv]   = useState<string | null>(null);
 
   // Paso 1: Datos de registro
   const [nombre, setNombre] = useState('');
@@ -68,13 +69,14 @@ export const Register: React.FC = () => {
     const resultado = await validarInvitacion(email, codigo);
     
     if (!resultado.valida) {
-      setError('Código inválido o ya fue usado. Verifica con el propietario.');
+      setError(resultado.razon || 'Código inválido o ya fue usado. Verifica con el propietario.');
       setLoading(false);
       return;
     }
 
     setRolSugerido(resultado.rol_sugerido || 'RECEPCIONISTA');
     setIdHotel(resultado.id_hotel || null);
+    setOwnerIdInv(resultado.owner_id || null);
     setStep(1);
     setLoading(false);
   };
@@ -90,7 +92,7 @@ export const Register: React.FC = () => {
     
     setLoading(true);
     
-    const { error: err, user_id } = await signUp(email, password);
+    const { error: err, user_id } = await signUp(email, password, { tipo_registro: 'staff' });
     if (err) {
       setLoading(false);
       setError(translateError(err));
@@ -106,13 +108,13 @@ export const Register: React.FC = () => {
         return;
       }
 
-      // Crear entrada en usuarios_roles con rol activo (automático via invitación)
+      // Crear entrada en usuarios_roles bajo el owner_id correcto de la invitación
       const roleSuccess = await asignarRol({
-        user_id: user_id,
+        user_id:  user_id,
         id_hotel: idHotel || null,
-        rol: rolSugerido || 'RECEPCIONISTA',
-        estado: 'activo', // Automáticamente activo (invitación verificada)
-        email: email, // Guardar el email en la tabla
+        rol:      rolSugerido || 'RECEPCIONISTA',
+        estado:   'activo',
+        owner_id: ownerIdInv || undefined,
       });
 
       if (!roleSuccess) {

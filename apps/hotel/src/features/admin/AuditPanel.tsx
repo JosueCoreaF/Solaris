@@ -29,8 +29,8 @@ export const AuditPanel: React.FC = () => {
         fechaDesde.setDate(fechaDesde.getDate() - daysFilter);
 
         response = await auditService.obtenerLogs(limit, nuevoOffset, {
-          entidad: entityFilter || undefined,
-          accion: actionFilter || undefined,
+          entidad:     entityFilter || undefined,
+          accion:      actionFilter || undefined,
           fecha_desde: fechaDesde.toISOString().split('T')[0],
           fecha_hasta: new Date().toISOString().split('T')[0],
         });
@@ -494,7 +494,8 @@ export const AuditPanel: React.FC = () => {
           <div className="flex gap-2 items-end">
             <button
               onClick={() => {
-                cargarLogs(true);
+                setOffset(0);
+                cargarLogs(0);
                 cargarEstadisticas();
               }}
               disabled={loading}

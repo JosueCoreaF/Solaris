@@ -8,8 +8,7 @@ export interface Invitacion {
   rol_sugerido: string;
   usado: boolean;
   user_id: string | null;
-  creado_en: string;
-  actualizado_en: string;
+  created_at: string;
 }
 
 // Generar código único aleatorio (6 caracteres)
@@ -67,7 +66,7 @@ export const obtenerInvitacionesPorHotel = async (id_hotel: string): Promise<Inv
     .from('invitaciones')
     .select('*')
     .eq('id_hotel', id_hotel)
-    .order('creado_en', { ascending: false });
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error al obtener invitaciones:', error);
@@ -82,7 +81,7 @@ export const obtenerTodasInvitaciones = async (): Promise<Invitacion[]> => {
   const { data, error } = await supabase
     .from('invitaciones')
     .select('*')
-    .order('creado_en', { ascending: false });
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error al obtener invitaciones:', error);
@@ -98,7 +97,7 @@ export const obtenerInvitacionesActivas = async (): Promise<Invitacion[]> => {
     .from('invitaciones')
     .select('*')
     .eq('usado', false)
-    .order('creado_en', { ascending: false });
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error al obtener invitaciones activas:', error);
@@ -108,20 +107,24 @@ export const obtenerInvitacionesActivas = async (): Promise<Invitacion[]> => {
   return data || [];
 };
 
-// Validar código de invitación
-export const validarInvitacion = async (email: string, codigo: string): Promise<{ valida: boolean; id_hotel?: string; rol_sugerido?: string }> => {
-  const { data, error } = await supabase
-    .rpc('fn_validar_invitacion', { p_email: email, p_codigo: codigo });
-
-  if (error || !data || data.length === 0) {
-    return { valida: false };
+// Validar código de invitación (vía backend para evitar restricciones de RLS)
+export const validarInvitacion = async (
+  email: string,
+  codigo: string,
+): Promise<{ valida: boolean; id_hotel?: string; rol_sugerido?: string; owner_id?: string; razon?: string }> => {
+  try {
+    const res = await fetch('http://localhost:4000/api/public/invitacion/validar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, codigo }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { valida: false, razon: data.error };
+    return data;
+  } catch (err) {
+    console.error('Error validando invitación:', err);
+    return { valida: false, razon: 'Error de conexión' };
   }
-
-  return {
-    valida: data[0].valida,
-    id_hotel: data[0].id_hotel,
-    rol_sugerido: data[0].rol_sugerido,
-  };
 };
 
 // Marcar invitación como usada

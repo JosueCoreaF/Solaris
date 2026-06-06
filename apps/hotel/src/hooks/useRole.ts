@@ -1,92 +1,60 @@
 import { useAuth } from '../context/AuthContext';
 
-export type UserRole = 'PROPIETARIO' | 'ADMIN' | 'RECEPCIONISTA' | 'MANTENIMIENTO' | 'CONTADOR' | 'INVITADO';
+export type UserRole =
+  | 'PROPIETARIO'
+  | 'ADMIN'
+  | 'RECEPCIONISTA'
+  | 'MANTENIMIENTO'
+  | 'CONTADOR'
+  | 'INVITADO';
+
+/** Invalida el cache de rol — ya no necesario, se mantiene por compatibilidad */
+export const invalidateRoleCache = () => {};
 
 export const useRole = () => {
-  const { user } = useAuth();
+  const { role, loadingRole, refreshRole } = useAuth();
 
-  // TODO: Obtener rol desde JWT claim o metadata del usuario
-  // Por ahora, usamos un rol por defecto basado en el email
-  const getRole = (): UserRole => {
-    if (!user) return 'INVITADO';
-
-    // En producción, esto vendría del JWT o de una consulta a usuarios_roles
-    // const role = user.user_metadata?.rol;
-    // if (role) return role as UserRole;
-
-    // Rol temporal por email (para desarrollo)
-    if (user.email?.includes('josuejosuelpaz') || user.email?.includes('propietario') || user.email?.includes('owner')) return 'PROPIETARIO';
-    if (user.email?.includes('admin')) return 'ADMIN';
-    if (user.email?.includes('counter') || user.email?.includes('contador')) return 'CONTADOR';
-    if (user.email?.includes('maintenance') || user.email?.includes('mantenimiento')) return 'MANTENIMIENTO';
-
-    return 'RECEPCIONISTA'; // rol por defecto
-  };
-
-  const role = getRole();
-
-  const hasRole = (roles: UserRole | UserRole[]): boolean => {
-    const roleArray = Array.isArray(roles) ? roles : [roles];
-    return roleArray.includes(role);
-  };
+  const hasRole = (roles: UserRole | UserRole[]): boolean =>
+    (Array.isArray(roles) ? roles : [roles]).includes(role);
 
   const canRead = (resource: string): boolean => {
-    // PROPIETARIO puede leer todo
     if (role === 'PROPIETARIO') return true;
-
-    const permissions: Record<string, UserRole[]> = {
-      // Dashboard - todos pueden ver
-      dashboard: ['ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'],
-      // Reservas
-      reservas: ['ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'],
+    const perms: Record<string, UserRole[]> = {
+      dashboard:    ['ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'],
+      reservas:     ['ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'],
       habitaciones: ['ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'],
-      limpieza: ['ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'],
-      // Finanzas
-      finanzas: ['ADMIN', 'CONTADOR'],
-      pagos: ['ADMIN', 'RECEPCIONISTA', 'CONTADOR'],
-      // Admin
-      config: ['ADMIN'],
-      tarifas: ['ADMIN'],
-      reportes: ['ADMIN', 'CONTADOR'],
+      limpieza:     ['ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'],
+      finanzas:     ['ADMIN', 'CONTADOR'],
+      pagos:        ['ADMIN', 'RECEPCIONISTA', 'CONTADOR'],
+      config:       ['ADMIN'],
+      tarifas:      ['ADMIN'],
+      reportes:     ['ADMIN', 'CONTADOR'],
     };
-    return permissions[resource]?.includes(role) ?? false;
+    return perms[resource]?.includes(role) ?? false;
   };
 
   const canCreate = (resource: string): boolean => {
     if (role === 'PROPIETARIO' || role === 'ADMIN') return true;
-
-    const permissions: Record<string, boolean> = {
+    const perms: Record<string, boolean> = {
       reservas: role === 'RECEPCIONISTA',
-      pagos: role === 'RECEPCIONISTA' || role === 'CONTADOR',
+      pagos:    role === 'RECEPCIONISTA' || role === 'CONTADOR',
       limpieza: role === 'MANTENIMIENTO',
     };
-
-    return permissions[resource] ?? false;
+    return perms[resource] ?? false;
   };
 
   const canEdit = (resource: string): boolean => {
     if (role === 'PROPIETARIO' || role === 'ADMIN') return true;
-
-    const permissions: Record<string, boolean> = {
+    const perms: Record<string, boolean> = {
       reservas: role === 'RECEPCIONISTA',
-      pagos: role === 'RECEPCIONISTA' || role === 'CONTADOR',
+      pagos:    role === 'RECEPCIONISTA' || role === 'CONTADOR',
       limpieza: role === 'MANTENIMIENTO',
     };
-
-    return permissions[resource] ?? false;
+    return perms[resource] ?? false;
   };
 
-  const canDelete = (_resource: string): boolean => {
-    // Solo PROPIETARIO y ADMIN pueden borrar
-    return role === 'PROPIETARIO' || role === 'ADMIN';
-  };
+  const canDelete = (_resource: string): boolean =>
+    role === 'PROPIETARIO' || role === 'ADMIN';
 
-  return {
-    role,
-    hasRole,
-    canRead,
-    canCreate,
-    canEdit,
-    canDelete,
-  };
+  return { role, loadingRole, refreshRole, hasRole, canRead, canCreate, canEdit, canDelete };
 };

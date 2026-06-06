@@ -449,7 +449,51 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
     const co = new Date(checkOut);
     const msPerDay = 1000 * 60 * 60 * 24;
     const noches = Math.max(1, Math.round((co.getTime() - ci.getTime()) / msPerDay));
-    const totalEstimado = (habitacion.tarifa_noche || 0) * noches;
+
+    // Resolver tarifa activa para cada una de las noches
+    const ciStr = String(checkIn).split('T')[0];
+    const coStr = String(checkOut).split('T')[0];
+    const startDate = new Date(ciStr + 'T12:00:00Z');
+    const endDate = new Date(coStr + 'T12:00:00Z');
+
+    let totalTarifas = 0;
+    const { data: periodos, error: periodosErr } = await db()
+      .from('habitacion_tarifas_periodo')
+      .select('tarifa_noche, es_base, fecha_desde, fecha_hasta')
+      .eq('id_habitacion', habitacionId);
+
+    const staticRate = Number(habitacion.tarifa_noche || 0);
+
+    if (periodosErr) {
+      console.error('[Portal] Error leyendo tarifas_periodo:', periodosErr.message);
+      totalTarifas = staticRate * noches;
+    } else {
+      for (let d = new Date(startDate); d < endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+        const fCheck = d.toISOString().split('T')[0];
+
+        // Buscar período activo (no base) que cubra esta fecha
+        const periodoActivo = (periodos ?? []).find((p: any) => {
+          if (p.es_base) return false;
+          const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+          const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+          return (!desde || desde <= fCheck) && (!hasta || hasta >= fCheck);
+        });
+
+        if (periodoActivo) {
+          totalTarifas += Number(periodoActivo.tarifa_noche);
+        } else {
+          // Fallback a tarifa base
+          const base = (periodos ?? []).find((p: any) => p.es_base);
+          if (base) {
+            totalTarifas += Number(base.tarifa_noche);
+          } else {
+            totalTarifas += staticRate;
+          }
+        }
+      }
+    }
+
+    const totalEstimado = totalTarifas;
 
     // 3. Crear reserva
     const { data: nuevaReserva, error: reservaErr } = await db()
@@ -1041,12 +1085,21 @@ router.get('/disponibilidad', async (req: Request, res: Response) => {
   try {
     const { checkIn, checkOut, hotel_id } = req.query;
 
+    let checkInStr = checkIn ? String(checkIn).split('T')[0] : null;
+    let checkOutStr = checkOut ? String(checkOut).split('T')[0] : null;
+
+    if (checkInStr && (!checkOutStr || checkOutStr <= checkInStr)) {
+      const d = new Date(checkInStr + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() + 1);
+      checkOutStr = d.toISOString().split('T')[0];
+    }
+
     let roomQuery = db()
       .from('habitaciones_con_detalles')
       .select('id_habitacion, id_hotel, nombre_habitacion, nombre_alias, tipo, tarifa_noche, numero_camas, capacidad, imagenes, imagen_360, comodidades')
       .eq('estado', 'disponible');
 
-    if (hotel_id) roomQuery = roomQuery.eq('id_hotel', hotel_id as string);
+    if (hotel_id && hotel_id !== 'all') roomQuery = roomQuery.eq('id_hotel', hotel_id as string);
 
     // Obtener todas las habitaciones marcadas como disponibles desde la vista 3NF
     const { data: rooms, error: roomsError } = await roomQuery;
@@ -1056,10 +1109,7 @@ router.get('/disponibilidad', async (req: Request, res: Response) => {
     let availableRooms = rooms || [];
 
     // Si se especificaron checkIn y checkOut, filtrar por disponibilidad real
-    if (checkIn && checkOut) {
-      const checkInStr = (checkIn as string).split('T')[0];
-      const checkOutStr = (checkOut as string).split('T')[0];
-
+    if (checkInStr && checkOutStr) {
       // Obtener todas las reservas que NO estén canceladas ni no_show
       const { data: bookings, error: bookingsError } = await db()
         .from('reservas_hotel')
@@ -1098,21 +1148,122 @@ router.get('/disponibilidad', async (req: Request, res: Response) => {
       });
     }
 
-    const formatted = availableRooms.map((h: any) => ({
-      id:              h.id_habitacion,
-      id_hotel:        h.id_hotel,
-      nombre:          h.nombre_habitacion,
-      nombreAlias:     h.nombre_alias,
-      tipo:            h.tipo,
-      tarifaNoche:     h.tarifa_noche,
-      numeroCamas:     h.numero_camas,
-      capacidad:       h.capacidad,
-      cargoPersonaExtra: cargoMap[h.id_hotel] ?? 0,
-      imagenes:        h.imagenes || [],
-      imagen_360:      h.imagen_360,
-      comodidades:     h.comodidades || [],
-      disponible:      true,
-    }));
+    // Resolver tarifas activas desde habitacion_tarifas_periodo
+    const roomIds = availableRooms.map((r: any) => r.id_habitacion).filter(Boolean);
+    const tarifasMap: Record<string, { tarifa: number; totalTarifas: number; esPeriodo: boolean; nombrePeriodo?: string }> = {};
+
+    if (roomIds.length > 0) {
+      const { data: periodos } = await (supabaseAdmin || db())
+        .from('habitacion_tarifas_periodo')
+        .select('id_habitacion, tarifa_noche, es_base, fecha_desde, fecha_hasta, nombre_periodo')
+        .in('id_habitacion', roomIds);
+
+      const ciStr = checkInStr;
+      const coStr = checkOutStr;
+
+      for (const roomId of roomIds) {
+        const roomPeriodos = (periodos ?? []).filter((p: any) => p.id_habitacion === roomId);
+        const staticRate = Number(availableRooms.find((r: any) => r.id_habitacion === roomId)?.tarifa_noche ?? 0);
+
+        if (ciStr && coStr) {
+          const startDate = new Date(ciStr + 'T12:00:00Z');
+          const endDate = new Date(coStr + 'T12:00:00Z');
+
+          let totalTarifas = 0;
+          let containsPeriodo = false;
+          let nochesCount = 0;
+          let activePeriodoName: string | null = null;
+
+          for (let d = new Date(startDate); d < endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+            const fCheck = d.toISOString().split('T')[0];
+            nochesCount++;
+
+            const periodoActivo = roomPeriodos.find((p: any) => {
+              if (p.es_base) return false;
+              const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+              const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+              return (!desde || desde <= fCheck) && (!hasta || hasta >= fCheck);
+            });
+
+            if (periodoActivo) {
+              totalTarifas += Number(periodoActivo.tarifa_noche);
+              containsPeriodo = true;
+              if (periodoActivo.nombre_periodo) activePeriodoName = periodoActivo.nombre_periodo;
+            } else {
+              const base = roomPeriodos.find((p: any) => p.es_base);
+              if (base) {
+                totalTarifas += Number(base.tarifa_noche);
+              } else {
+                totalTarifas += staticRate;
+              }
+            }
+          }
+
+          const nochesVal = nochesCount || 1;
+          tarifasMap[roomId] = {
+            tarifa: Math.round((totalTarifas / nochesVal) * 100) / 100, // promedio
+            totalTarifas: totalTarifas,
+            esPeriodo: containsPeriodo,
+            nombrePeriodo: containsPeriodo ? (activePeriodoName || 'Tarifas mixtas') : undefined
+          };
+        } else {
+          // Un solo día (fecha actual)
+          const fCheck = checkIn ? String(checkIn).split('T')[0] : new Date().toLocaleDateString('en-CA').substring(0, 10);
+          const periodoActivo = roomPeriodos.find((p: any) => {
+            if (p.es_base) return false;
+            const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+            const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+            return (!desde || desde <= fCheck) && (!hasta || hasta >= fCheck);
+          });
+
+          if (periodoActivo) {
+            tarifasMap[roomId] = {
+              tarifa: Number(periodoActivo.tarifa_noche),
+              totalTarifas: Number(periodoActivo.tarifa_noche),
+              esPeriodo: true,
+              nombrePeriodo: periodoActivo.nombre_periodo || undefined
+            };
+          } else {
+            const base = roomPeriodos.find((p: any) => p.es_base);
+            if (base) {
+              tarifasMap[roomId] = {
+                tarifa: Number(base.tarifa_noche),
+                totalTarifas: Number(base.tarifa_noche),
+                esPeriodo: false
+              };
+            } else {
+              tarifasMap[roomId] = {
+                tarifa: staticRate,
+                totalTarifas: staticRate,
+                esPeriodo: false
+              };
+            }
+          }
+        }
+      }
+    }
+
+    const formatted = availableRooms.map((h: any) => {
+      const t = tarifasMap[h.id_habitacion];
+      return {
+        id:              h.id_habitacion,
+        id_hotel:        h.id_hotel,
+        nombre:          h.nombre_habitacion,
+        nombreAlias:     h.nombre_alias,
+        tipo:            h.tipo,
+        tarifaNoche:     t ? t.tarifa : h.tarifa_noche,
+        totalTarifas:    t ? t.totalTarifas : h.tarifa_noche,
+        esTarifaPeriodo: t?.esPeriodo ?? false,
+        nombrePeriodo:   t?.nombrePeriodo ?? null,
+        numeroCamas:     h.numero_camas,
+        capacidad:       h.capacidad,
+        cargoPersonaExtra: cargoMap[h.id_hotel] ?? 0,
+        imagenes:        h.imagenes || [],
+        imagen_360:      h.imagen_360,
+        comodidades:     h.comodidades || [],
+        disponible:      true,
+      };
+    });
 
     return res.json(formatted);
   } catch (error: any) {
@@ -1192,6 +1343,157 @@ router.get('/local-guide', async (req: Request, res: Response) => {
   try {
     // Placeholder para la guía local
     return res.json([]);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Validar invitación (sin auth requerida, usa supabaseAdmin para bypasear RLS) ──
+router.post('/invitacion/validar', async (req: Request, res: Response) => {
+  try {
+    const { email, codigo } = req.body as { email: string; codigo: string };
+    if (!email || !codigo) return res.status(400).json({ error: 'email y codigo requeridos' });
+
+    const client = supabaseAdmin ?? supabase;
+    const { data, error } = await client
+      .from('invitaciones')
+      .select('id, email, codigo_unico, id_hotel, rol_sugerido, owner_id, usado, expira_en')
+      .eq('email', email.toLowerCase().trim())
+      .eq('codigo_unico', codigo.toUpperCase().trim())
+      .maybeSingle();
+
+    if (error) return res.status(400).json({ error: error.message });
+    if (!data)  return res.json({ valida: false, razon: 'Código o correo inválido' });
+    if (data.usado) return res.json({ valida: false, razon: 'Este código ya fue utilizado' });
+    if (new Date(data.expira_en) < new Date()) {
+      return res.json({ valida: false, razon: 'El código de invitación ha expirado' });
+    }
+
+    return res.json({
+      valida:       true,
+      id_hotel:     data.id_hotel,
+      rol_sugerido: data.rol_sugerido,
+      owner_id:     data.owner_id,
+      codigo:       data.codigo_unico,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/public/tarifa-habitacion?id_habitacion=X&checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD
+ * Devuelve la tarifa activa o desglosada para una habitación en una fecha o rango de fechas.
+ * El portal lo usa para mostrar el precio correcto al seleccionar fechas.
+ */
+router.get('/tarifa-habitacion', async (req: Request, res: Response) => {
+  try {
+    const { id_habitacion, fecha, checkIn, checkOut } = req.query as { id_habitacion?: string; fecha?: string; checkIn?: string; checkOut?: string };
+    if (!id_habitacion) return res.status(400).json({ error: 'id_habitacion requerido' });
+
+    const { data: periodos, error } = await (supabaseAdmin || db())
+      .from('habitacion_tarifas_periodo')
+      .select('tarifa_noche, es_base, fecha_desde, fecha_hasta, nombre_periodo')
+      .eq('id_habitacion', id_habitacion);
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    // Fallback final: tarifa_noche estática de la habitación
+    const { data: hab } = await (supabaseAdmin || db())
+      .from('habitaciones')
+      .select('tarifa_noche')
+      .eq('id_habitacion', id_habitacion)
+      .maybeSingle();
+    const staticRate = Number(hab?.tarifa_noche ?? 0);
+
+    // Si se especificó un rango de fechas, calcular día por día (noche por noche)
+    if (checkIn && checkOut) {
+      const ciStr = String(checkIn).split('T')[0];
+      const coStr = String(checkOut).split('T')[0];
+      const startDate = new Date(ciStr + 'T12:00:00Z');
+      const endDate = new Date(coStr + 'T12:00:00Z');
+
+      let totalTarifas = 0;
+      let containsPeriodo = false;
+      const desglose: { fecha: string; tarifa: number; es_periodo: boolean; nombre_periodo: string | null }[] = [];
+
+      for (let d = new Date(startDate); d < endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+        const fCheck = d.toISOString().split('T')[0];
+
+        // Buscar período activo (no base) que cubra esta fecha
+        const periodoActivo = (periodos ?? []).find((p: any) => {
+          if (p.es_base) return false;
+          const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+          const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+          return (!desde || desde <= fCheck) && (!hasta || hasta >= fCheck);
+        });
+
+        if (periodoActivo) {
+          const rate = Number(periodoActivo.tarifa_noche);
+          totalTarifas += rate;
+          containsPeriodo = true;
+          desglose.push({ fecha: fCheck, tarifa: rate, es_periodo: true, nombre_periodo: periodoActivo.nombre_periodo || null });
+        } else {
+          // Fallback a tarifa base
+          const base = (periodos ?? []).find((p: any) => p.es_base);
+          if (base) {
+            const rate = Number(base.tarifa_noche);
+            totalTarifas += rate;
+            desglose.push({ fecha: fCheck, tarifa: rate, es_periodo: false, nombre_periodo: null });
+          } else {
+            totalTarifas += staticRate;
+            desglose.push({ fecha: fCheck, tarifa: staticRate, es_periodo: false, nombre_periodo: null });
+          }
+        }
+      }
+
+      const noches = desglose.length || 1;
+      return res.json({
+        total_tarifas:   totalTarifas,
+        tarifa_noche:    Math.round((totalTarifas / noches) * 100) / 100, // promedio
+        es_periodo:      containsPeriodo,
+        nombre_periodo:  containsPeriodo ? 'Tarifas mixtas' : null,
+        desglose
+      });
+    }
+
+    // Comportamiento de fecha única tradicional (para retrocompatibilidad)
+    const fCheck = fecha ? String(fecha).substring(0, 10) : new Date().toLocaleDateString('en-CA');
+
+    // Buscar período activo (no base) que cubra la fecha
+    const periodoActivo = (periodos ?? []).find((p: any) => {
+      if (p.es_base) return false;
+      const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+      const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+      return (!desde || desde <= fCheck) && (!hasta || hasta >= fCheck);
+    });
+
+    if (periodoActivo) {
+      return res.json({
+        total_tarifas:   Number(periodoActivo.tarifa_noche),
+        tarifa_noche:    Number(periodoActivo.tarifa_noche),
+        es_periodo:      true,
+        nombre_periodo:  periodoActivo.nombre_periodo || null,
+      });
+    }
+
+    // Fallback: tarifa base
+    const base = (periodos ?? []).find((p: any) => p.es_base);
+    if (base) {
+      return res.json({
+        total_tarifas:   Number(base.tarifa_noche),
+        tarifa_noche:    Number(base.tarifa_noche),
+        es_periodo:      false,
+        nombre_periodo:  null,
+      });
+    }
+
+    return res.json({
+      total_tarifas:   staticRate,
+      tarifa_noche:    staticRate,
+      es_periodo:      false,
+      nombre_periodo:  null,
+    });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }

@@ -28,6 +28,9 @@ export interface Habitacion {
   nombreAlias: string | null;
   tipo: string;
   tarifaNoche: number;
+  esTarifaPeriodo?: boolean;   // true cuando aplica tarifa especial por período
+  nombrePeriodo?: string | null;
+  totalTarifas?: number;       // total acumulado por rango de fechas
   numeroCamas: number;
   capacidad: number;
   imagenes: string[];

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   TrendingUp,
   Plus,
@@ -15,6 +16,7 @@ import {
   Info
 } from 'lucide-react';
 import { supabase } from '../../api/supabase';
+import { DatePicker } from '../../components/DatePicker';
 
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
@@ -290,538 +292,368 @@ export const Tarifas: React.FC = () => {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-tr from-slate-50 via-slate-50/50 to-blue-50/20 text-slate-700 p-8 relative overflow-hidden font-sans">
-      {/* Glow Effects */}
-      <div className="absolute top-[-200px] right-[-100px] w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(99,102,241,0.03),transparent_60%)] pointer-events-none"></div>
+  // ── Money field helper ──
+  const MoneyField = ({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) => (
+    <div>
+      <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>
+        {label}
+      </label>
+      <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid var(--shell-border-strong)', borderRadius: 10, background: 'var(--card-bg)', overflow: 'hidden', transition: 'border-color .18s' }}
+        onFocusCapture={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+        onBlurCapture={e => (e.currentTarget.style.borderColor = 'var(--shell-border-strong)')}>
+        <span style={{ padding: '8px 6px 8px 12px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', userSelect: 'none' as const, flexShrink: 0 }}>L.</span>
+        <input type="number" step="0.01" placeholder="0.00" value={value}
+          onChange={e => onChange(e.target.value)} onFocus={e => e.target.select()}
+          style={{ flex: 1, border: 'none', outline: 'none', padding: '8px 12px 8px 0', fontSize: 13, fontWeight: 600, color: 'var(--text-h)', background: 'transparent', fontFamily: 'var(--sans)', appearance: 'textfield' as any }} />
+      </div>
+    </div>
+  );
 
+  return (
+    <div style={{ padding: '28px clamp(20px, 3vw, 52px)', width: '100%' }}>
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-6 right-6 z-50 rounded-2xl px-5 py-3 text-xs font-bold text-white shadow-xl flex items-center gap-2.5 transition-all duration-300 animate-fade-in ${
-          toast.type === 'ok' ? 'bg-emerald-600 shadow-emerald-600/10' : 'bg-rose-600 shadow-rose-600/10'
-        }`}>
-          {toast.type === 'ok' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+        <div style={{
+          position: 'fixed', top: 20, right: 20, zIndex: 9999,
+          background: toast.type === 'ok' ? '#10b981' : '#ef4444',
+          color: '#fff', padding: '10px 18px', borderRadius: 12,
+          fontSize: 13, fontWeight: 600, boxShadow: '0 4px 20px rgba(0,0,0,.18)',
+          display: 'flex', alignItems: 'center', gap: 8, animation: 'fadeInUp .25s ease',
+        }}>
+          {toast.type === 'ok' ? <Check size={15} /> : <AlertCircle size={15} />}
           {toast.msg}
         </div>
       )}
 
-      {/* Header Premium */}
-      <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative z-10 border-b border-slate-200/60 pb-6">
-        <div>
-          <div className="inline-flex items-center gap-2 bg-indigo-50 border border-indigo-100 text-indigo-600 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-3 shadow-sm">
-            <TrendingUp className="w-3.5 h-3.5" /> Estructura Comercial
-          </div>
-          <h1 className="text-3xl font-light tracking-tight text-slate-900 flex items-center gap-3">
-            <DollarSign className="w-8 h-8 text-indigo-600 stroke-[1.5]" />
+      {/* ── Header ───────────────────────────────────────── */}
+      <div className="page-header" style={{ marginBottom: 28 }}>
+        <div className="page-header-left" style={{ position: 'relative', paddingLeft: 18 }}>
+          <div style={{ position: 'absolute', left: 0, top: 2, bottom: 4, width: 4, borderRadius: 99, background: 'linear-gradient(to bottom, #8b5cf6, #3b82f6)' }} />
+          <span className="page-kicker">Estructura comercial</span>
+          <h1 className="page-title" style={{ background: 'linear-gradient(135deg, var(--text-h) 0%, #8b5cf6 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
             Tarifas del Sistema
           </h1>
-          <p className="text-slate-500 text-xs mt-1.5 font-normal flex items-center gap-1.5">
-            <Info className="w-3.5 h-3.5 text-indigo-400" />
-            Configura y administra las tarifas por noche, hora o pasadía según el tipo de habitación y categoría operativa.
-          </p>
+          <p className="page-sub">Precios por noche, hora y pasadía según tipo de habitación y categoría</p>
         </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowCatModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-800 border border-slate-200 rounded-xl text-xs font-bold cursor-pointer transition-all shadow-sm active:scale-95"
-          >
-            <Folder className="w-4 h-4 text-slate-400" /> Gestionar Categorías
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button onClick={load} title="Actualizar"
+            style={{ width: 38, height: 38, borderRadius: 9, border: '1px solid var(--shell-border-strong)', background: 'var(--card-bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', transition: 'all .18s ease' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-h)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--shell-border-strong)'; }}>
+            <RefreshCw size={14} />
           </button>
-          <button
-            onClick={() => setCreateModal(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white border-none rounded-xl text-xs font-bold cursor-pointer transition-all shadow-md active:scale-98"
-          >
-            <Plus className="w-4 h-4" /> Nueva Tarifa
+          <button onClick={() => setShowCatModal(true)} className="btn-premium btn-premium-secondary" style={{ height: 38, gap: 7, fontSize: 13 }}>
+            <Folder size={14} /> Categorías
+          </button>
+          <button onClick={() => setCreateModal(true)} className="btn-premium btn-premium-primary" style={{ height: 38, gap: 7, fontSize: 13 }}>
+            <Plus size={14} /> Nueva Tarifa
           </button>
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="mb-8 flex flex-wrap gap-4 bg-white/70 backdrop-blur-md border border-slate-200/60 p-4 rounded-2xl relative z-10 shadow-sm items-center justify-between">
-        <div className="flex flex-wrap gap-3">
-          <select
-            value={filtroTipo}
-            onChange={e => setFiltroTipo(e.target.value)}
-            className="border border-slate-200 hover:border-slate-300 rounded-xl px-4 py-2 text-xs bg-white/95 font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all cursor-pointer shadow-sm"
-          >
-            <option value="todos">🏨 Todos los tipos de habitación</option>
-            {tipos.map(t => (
-              <option key={t.id} value={t.id}>{t.nombre}</option>
-            ))}
-          </select>
-
-          <select
-            value={filtroCategoria}
-            onChange={e => setFiltroCategoria(e.target.value)}
-            className="border border-slate-200 hover:border-slate-300 rounded-xl px-4 py-2 text-xs bg-white/95 font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all cursor-pointer shadow-sm"
-          >
-            <option value="todos">🏷️ Todas las categorías</option>
-            {categorias.map(c => (
-              <option key={c.id_categoria} value={c.id_categoria}>{c.nombre}</option>
-            ))}
-          </select>
+      {/* ── Stats ─────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+        <div className="kpi-card kpi-card-violet" style={{ animationDelay: '0ms' }}>
+          <div className="kpi-icon-wrap"><TrendingUp size={16} /></div>
+          <div className="kpi-label">Tarifas Activas</div>
+          <div className="kpi-value">{tarifas.length}</div>
+          <div className="kpi-sub"><span className="kpi-sub-text">{tarifasFiltradas.length} en filtro actual</span></div>
         </div>
-
-        <span className="text-xxs font-bold text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200/50">
-          {tarifasFiltradas.length} tarifa{tarifasFiltradas.length !== 1 ? 's' : ''} activa{tarifasFiltradas.length !== 1 ? 's' : ''}
-        </span>
+        <div className="kpi-card kpi-card-blue" style={{ animationDelay: '60ms' }}>
+          <div className="kpi-icon-wrap"><Folder size={16} /></div>
+          <div className="kpi-label">Categorías</div>
+          <div className="kpi-value">{categorias.length}</div>
+          <div className="kpi-sub"><span className="kpi-sub-text">Segmentos comerciales</span></div>
+        </div>
+        <div className="kpi-card kpi-card-emerald" style={{ animationDelay: '120ms' }}>
+          <div className="kpi-icon-wrap"><DollarSign size={16} /></div>
+          <div className="kpi-label">Promedio Noche</div>
+          <div className="kpi-value" style={{ fontSize: 22 }}>
+            {tarifas.length > 0
+              ? `L ${Math.round(tarifas.reduce((s, t) => s + t.tarifa_noche, 0) / tarifas.length).toLocaleString('es-HN')}`
+              : '—'}
+          </div>
+          <div className="kpi-sub"><span className="kpi-sub-text">Promedio del catálogo</span></div>
+        </div>
       </div>
 
-      {/* Content */}
-      <div className="relative z-10">
+      {/* ── Table Panel ───────────────────────────────────── */}
+      <div className="panel-card" style={{ padding: 0, overflow: 'hidden' }}>
+        {/* Filter bar */}
+        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--shell-border-subtle)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', background: 'rgba(15,23,42,.02)' }}>
+          <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)} className="input-premium" style={{ width: 'auto', padding: '7px 12px', fontSize: 12 }}>
+            <option value="todos">Todos los tipos</option>
+            {tipos.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+          </select>
+          <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)} className="input-premium" style={{ width: 'auto', padding: '7px 12px', fontSize: 12 }}>
+            <option value="todos">Todas las categorías</option>
+            {categorias.map(c => <option key={c.id_categoria} value={c.id_categoria}>{c.nombre}</option>)}
+          </select>
+          <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: 'var(--muted)', background: 'var(--card-bg)', padding: '4px 12px', borderRadius: 99, border: '1px solid var(--shell-border)' }}>
+            {tarifasFiltradas.length} tarifa{tarifasFiltradas.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+
+        {/* Content */}
         {loading ? (
-          <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-2xl p-16 text-center text-slate-400 text-xs font-semibold shadow-sm flex flex-col items-center justify-center gap-3">
-            <RefreshCw size={24} className="animate-spin text-indigo-500" />
-            Cargando tarifas y categorías configuradas...
+          <div style={{ padding: '52px 0', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            <RefreshCw size={22} style={{ animation: 'spin 1s linear infinite', color: 'var(--accent)' }} />
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>Cargando tarifas...</span>
           </div>
         ) : error ? (
-          <div className="bg-red-50 border border-red-200 rounded-2xl p-8 text-center text-red-600 text-xs font-semibold flex items-center justify-center gap-2">
-            <AlertCircle size={18} /> {error}
+          <div className="alert-banner alert-banner-red" style={{ margin: 20 }}>
+            <div className="alert-banner-icon"><AlertCircle size={16} /></div>
+            <div><p className="alert-banner-title">Error al cargar</p><p className="alert-banner-desc">{error}</p></div>
           </div>
         ) : tarifasFiltradas.length === 0 ? (
-          <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-2xl p-16 text-center text-slate-400 text-xs font-semibold shadow-sm">
-            No hay tarifas configuradas para los filtros seleccionados.
+          <div style={{ padding: '52px 0', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+            <DollarSign size={28} color="var(--shell-border-strong)" />
+            <p style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 500 }}>No hay tarifas para los filtros seleccionados</p>
           </div>
         ) : (
-          <div className="bg-white/80 backdrop-blur-md border border-slate-200/60 rounded-2xl shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse min-w-[900px]">
-                <thead>
-                  <tr className="bg-slate-50/70 border-b border-slate-200/80">
-                    <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tipo de Habitación</th>
-                    <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">Categoría</th>
-                    <th className="px-6 py-4 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">Noche</th>
-                    <th className="px-6 py-4 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hora</th>
-                    <th className="px-6 py-4 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">Pasadía</th>
-                    <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">Vigencia</th>
-                    <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">Acción</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {tarifasFiltradas.map((t) => (
-                    <tr key={t.id_tarifa} className="hover:bg-slate-50/50 transition-all duration-150">
-                      <td className="px-6 py-4.5 text-xs text-slate-900 font-bold">{t.tipo_habitacion}</td>
-                      <td className="px-6 py-4.5 text-center">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-full text-[10px] font-bold shadow-sm">
-                          <Tag className="w-3 h-3 text-indigo-400" /> {t.categoria}
+          <div style={{ overflowX: 'auto' }}>
+            <table className="table-premium">
+              <thead>
+                <tr>
+                  <th>Tipo de Habitación</th>
+                  <th>Categoría</th>
+                  <th style={{ textAlign: 'right' }}>🌙 Por Noche</th>
+                  <th style={{ textAlign: 'right' }}>⏱ Por Hora</th>
+                  <th style={{ textAlign: 'right' }}>☀️ Pasadía</th>
+                  <th style={{ textAlign: 'center' }}>Vigencia</th>
+                  <th style={{ textAlign: 'center' }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tarifasFiltradas.map(t => (
+                  <tr key={t.id_tarifa}>
+                    <td>
+                      <span style={{ fontWeight: 700, color: 'var(--text-h)', fontSize: 13 }}>{t.tipo_habitacion}</span>
+                    </td>
+                    <td>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, background: 'rgba(139,92,246,.1)', color: '#7c3aed', border: '1px solid rgba(139,92,246,.18)' }}>
+                        <Tag size={9} /> {t.categoria}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <span style={{ display: 'inline-block', padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: 'rgba(16,185,129,.08)', color: '#065f46', border: '1px solid rgba(16,185,129,.16)', fontVariantNumeric: 'tabular-nums' }}>
+                        L {t.tarifa_noche.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <span style={{ display: 'inline-block', padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'rgba(59,130,246,.07)', color: '#1e40af', border: '1px solid rgba(59,130,246,.14)', fontVariantNumeric: 'tabular-nums' }}>
+                        L {t.tarifa_hora.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <span style={{ display: 'inline-block', padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'rgba(245,158,11,.07)', color: '#78350f', border: '1px solid rgba(245,158,11,.14)', fontVariantNumeric: 'tabular-nums' }}>
+                        L {t.tarifa_pasadia.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                        <span style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <Calendar size={10} /> {t.vigente_desde}
                         </span>
-                      </td>
-                      <td className="px-6 py-4.5 text-right text-xs text-slate-900 font-bold font-mono">
-                        L. {t.tarifa_noche.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-6 py-4.5 text-right text-xs text-slate-600 font-medium font-mono">
-                        L. {t.tarifa_hora.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-6 py-4.5 text-right text-xs text-slate-600 font-medium font-mono">
-                        L. {t.tarifa_pasadia.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-6 py-4.5 text-center text-[10px] text-slate-400 font-semibold">
-                        <div className="flex items-center justify-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-slate-300" />
-                          <span>{t.vigente_desde}</span>
-                        </div>
-                        {t.vigente_hasta && <div className="text-[9px] text-slate-400 mt-0.5">hasta {t.vigente_hasta}</div>}
-                      </td>
-                      <td className="px-6 py-4.5 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <button
-                            onClick={() => abrirEditar(t)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-slate-50 text-indigo-600 border border-slate-200 rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95 shadow-sm"
-                          >
-                            <Edit2 size={11} className="text-indigo-400" /> Editar
-                          </button>
-                          <button
-                            onClick={() => void eliminar(t.id_tarifa)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 hover:border-rose-100 rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95 shadow-sm"
-                            title="Eliminar tarifa"
-                          >
-                            <Trash2 size={11} className="text-rose-400" /> Eliminar
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        {t.vigente_hasta && <span style={{ fontSize: 10, color: 'var(--muted)', opacity: .65 }}>hasta {t.vigente_hasta}</span>}
+                      </div>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                        <button onClick={() => abrirEditar(t)} className="btn-premium btn-premium-secondary" style={{ fontSize: 11, padding: '4px 12px', height: 'auto', gap: 5 }}>
+                          <Edit2 size={11} /> Editar
+                        </button>
+                        <button onClick={() => void eliminar(t.id_tarifa)}
+                          style={{ fontSize: 11, color: 'var(--danger)', background: 'rgba(239,68,68,.06)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 7, padding: '4px 12px', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5, transition: 'all .18s' }}>
+                          <Trash2 size={11} /> Eliminar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
-      {/* Modal Gestionar Categorías (Dynamic CRUD) */}
-      {showCatModal && (
-        <div className="fixed inset-0 bg-slate-900/35 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all duration-300">
-          <div className="bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/80 w-full max-w-[500px] shadow-2xl overflow-hidden animate-fade-in flex flex-col">
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+      {/* ── Modal: Gestionar Categorías ──────────────────── */}
+      {showCatModal && createPortal(
+        <div className="modal-backdrop-premium"
+          style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}
+          onClick={() => setShowCatModal(false)}
+        >
+          <div className="modal-content-premium" style={{ width: '100%', maxWidth: 500, margin: 'auto 0', maxHeight: 'none' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '20px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--shell-border-subtle)' }}>
               <div>
-                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                  <Folder className="w-4.5 h-4.5 text-indigo-500" /> Gestionar Categorías
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text-h)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Folder size={16} color="var(--accent)" /> Gestionar Categorías
                 </h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">Define los segmentos comerciales del hotel (Temporada Alta, Promo, etc.)</p>
+                <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>Define los segmentos comerciales (Temporada Alta, Promo, etc.)</p>
               </div>
-              <button
-                onClick={() => setShowCatModal(false)}
-                className="border-none bg-transparent cursor-pointer text-slate-400 hover:text-slate-600 transition-all p-1.5 rounded-lg hover:bg-slate-100"
-              >
+              <button onClick={() => setShowCatModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 8, display: 'flex' }}>
                 <X size={18} />
               </button>
             </div>
 
-            {/* Content */}
-            <div className="p-6 max-h-[60vh] overflow-y-auto flex flex-col gap-6">
-              
-              {/* Form to create new category */}
-              <form onSubmit={handleCrearCategoria} className="bg-slate-50/70 border border-slate-200/60 p-4 rounded-xl flex flex-col gap-3">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                  ➕ Nueva Categoría
-                </span>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="text"
-                    required
-                    placeholder="Nombre (ej. Promo)"
-                    value={catNombre}
-                    onChange={e => setCatNombre(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-800 text-xs outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/10 transition-all font-sans"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Descripción"
-                    value={catDesc}
-                    onChange={e => setCatDesc(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-800 text-xs outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/10 transition-all font-sans"
-                  />
+            <div style={{ padding: '20px 24px', maxHeight: '60vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Nueva categoría */}
+              <form onSubmit={handleCrearCategoria} style={{ background: 'rgba(15,23,42,.02)', border: '1px solid var(--shell-border)', borderRadius: 14, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Nueva categoría</span>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <input type="text" required placeholder="Nombre (ej. Promo)" value={catNombre} onChange={e => setCatNombre(e.target.value)} className="input-premium" style={{ fontSize: 13 }} />
+                  <input type="text" placeholder="Descripción" value={catDesc} onChange={e => setCatDesc(e.target.value)} className="input-premium" style={{ fontSize: 13 }} />
                 </div>
-                <div className="flex justify-end mt-1">
-                  <button
-                    type="submit"
-                    disabled={catSaving}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-bold border-none cursor-pointer transition-all active:scale-95 shadow-md shadow-indigo-600/10"
-                  >
-                    {catSaving ? 'Creando...' : 'Crear Categoría'}
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button type="submit" disabled={catSaving} className="btn-premium btn-premium-primary" style={{ fontSize: 12, gap: 6, opacity: catSaving ? .7 : 1 }}>
+                    <Plus size={13} /> {catSaving ? 'Creando…' : 'Crear Categoría'}
                   </button>
                 </div>
               </form>
 
-              {/* Categories list */}
+              {/* Lista de categorías */}
               <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
-                  Categorías Activas
-                </span>
-                
-                <div className="flex flex-col gap-2">
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 10 }}>Categorías activas</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {categorias.map(cat => (
-                    <div key={cat.id_categoria} className="p-3.5 bg-white border border-slate-200 rounded-xl flex justify-between items-center hover:border-slate-300 transition-all shadow-sm">
+                    <div key={cat.id_categoria} style={{ padding: '12px 16px', background: 'var(--card-bg)', border: '1px solid var(--shell-border)', borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'border-color .18s' }}
+                      onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--shell-border-strong)')}
+                      onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--shell-border)')}>
                       <div>
-                        <strong className="text-xs font-bold text-slate-800">{cat.nombre}</strong>
-                        {cat.descripcion && <p className="text-[11px] text-slate-400 mt-0.5">{cat.descripcion}</p>}
+                        <strong style={{ fontSize: 13, color: 'var(--text-h)' }}>{cat.nombre}</strong>
+                        {cat.descripcion && <p style={{ fontSize: 11, color: 'var(--muted)', margin: '2px 0 0' }}>{cat.descripcion}</p>}
                       </div>
-                      <button
-                        onClick={() => handleEliminarCategoria(cat.id_categoria)}
-                        className="p-2 border-none bg-transparent hover:bg-rose-50 text-rose-500 hover:text-rose-600 rounded-lg cursor-pointer transition-all"
-                        title="Eliminar categoría"
-                      >
+                      <button onClick={() => handleEliminarCategoria(cat.id_categoria)}
+                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--danger)', padding: 6, borderRadius: 8, display: 'flex', opacity: .7, transition: 'opacity .15s' }}
+                        onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.opacity = '1')}
+                        onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.opacity = '.7')}>
                         <Trash2 size={14} />
                       </button>
                     </div>
                   ))}
                 </div>
               </div>
-
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* Modal editar tarifa */}
-      {editModal && (
-        <div className="fixed inset-0 bg-slate-900/35 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all duration-300">
-          <div className="bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/80 w-full max-w-[480px] shadow-2xl overflow-hidden animate-fade-in flex flex-col">
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+      {editModal && createPortal(
+        <div className="modal-backdrop-premium"
+          style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}
+          onClick={() => setEditModal(null)}
+        >
+          <div className="modal-content-premium" style={{ width: '100%', maxWidth: 480, margin: 'auto 0', maxHeight: 'none' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '20px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--shell-border-subtle)' }}>
               <div>
-                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                  <Tag className="w-4 h-4 text-indigo-500" />
-                  Actualizar Tarifas
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text-h)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Edit2 size={15} color="var(--accent)" /> Actualizar Tarifas
                 </h3>
-                <p className="text-[10px] text-slate-400 mt-0.5">{editModal.tipo_habitacion} • {editModal.categoria}</p>
+                <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text-h)' }}>{editModal.tipo_habitacion}</span>
+                  {' · '}
+                  <span style={{ color: '#7c3aed', fontWeight: 600 }}>{editModal.categoria}</span>
+                </p>
               </div>
-              <button
-                onClick={() => setEditModal(null)}
-                className="border-none bg-transparent cursor-pointer text-slate-400 hover:text-slate-600 transition-all p-1.5 rounded-lg hover:bg-slate-100"
-              >
+              <button onClick={() => setEditModal(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 8, display: 'flex' }}>
                 <X size={18} />
               </button>
             </div>
 
-            {/* Inputs */}
-            <div className="p-6 flex flex-col gap-5">
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Por Noche
-                  </label>
-                  <div className="relative rounded-xl border border-slate-200 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/10 transition-all bg-white overflow-hidden flex items-center">
-                    <span className="pl-3 pr-1.5 text-xs font-bold text-slate-400 select-none">L.</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={editForm.tarifa_noche}
-                      onChange={e => setEditForm(f => ({ ...f, tarifa_noche: e.target.value }))}
-                      onFocus={e => e.target.select()}
-                      className="w-full py-2.5 pr-3.5 bg-transparent border-none text-slate-800 text-xs font-semibold outline-none font-sans [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Por Hora
-                  </label>
-                  <div className="relative rounded-xl border border-slate-200 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/10 transition-all bg-white overflow-hidden flex items-center">
-                    <span className="pl-3 pr-1.5 text-xs font-bold text-slate-400 select-none">L.</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={editForm.tarifa_hora}
-                      onChange={e => setEditForm(f => ({ ...f, tarifa_hora: e.target.value }))}
-                      onFocus={e => e.target.select()}
-                      className="w-full py-2.5 pr-3.5 bg-transparent border-none text-slate-800 text-xs font-semibold outline-none font-sans [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Pasadía
-                  </label>
-                  <div className="relative rounded-xl border border-slate-200 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/10 transition-all bg-white overflow-hidden flex items-center">
-                    <span className="pl-3 pr-1.5 text-xs font-bold text-slate-400 select-none">L.</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={editForm.tarifa_pasadia}
-                      onChange={e => setEditForm(f => ({ ...f, tarifa_pasadia: e.target.value }))}
-                      onFocus={e => e.target.select()}
-                      className="w-full py-2.5 pr-3.5 bg-transparent border-none text-slate-800 text-xs font-semibold outline-none font-sans [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                  </div>
-                </div>
+            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                <MoneyField label="Por Noche" value={editForm.tarifa_noche} onChange={v => setEditForm(f => ({ ...f, tarifa_noche: v }))} />
+                <MoneyField label="Por Hora" value={editForm.tarifa_hora} onChange={v => setEditForm(f => ({ ...f, tarifa_hora: v }))} />
+                <MoneyField label="Pasadía" value={editForm.tarifa_pasadia} onChange={v => setEditForm(f => ({ ...f, tarifa_pasadia: v }))} />
               </div>
 
-              {/* Date Ranges for seasonal rates/discounts */}
-              <div className="grid grid-cols-2 gap-4 mt-1 border-t border-slate-100 pt-4">
+              <div style={{ borderTop: '1px solid var(--shell-border-subtle)', paddingTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Vigente Desde
-                  </label>
-                  <input
-                    type="date"
-                    value={editForm.vigente_desde}
-                    onChange={e => setEditForm(f => ({ ...f, vigente_desde: e.target.value }))}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-850 text-xs font-semibold outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/10 transition-all font-sans cursor-pointer"
-                  />
+                  <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Vigente Desde</label>
+                  <DatePicker value={editForm.vigente_desde} onChange={v => setEditForm(f => ({ ...f, vigente_desde: v }))} placeholder="Sin fecha inicio" className="input-premium" />
                 </div>
-
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Vigente Hasta (Opcional)
-                  </label>
-                  <input
-                    type="date"
-                    value={editForm.vigente_hasta}
-                    onChange={e => setEditForm(f => ({ ...f, vigente_hasta: e.target.value }))}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-850 text-xs font-semibold outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/10 transition-all font-sans cursor-pointer"
-                  />
+                  <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Vigente Hasta (Opcional)</label>
+                  <DatePicker value={editForm.vigente_hasta} onChange={v => setEditForm(f => ({ ...f, vigente_hasta: v }))} placeholder="Sin fecha fin" className="input-premium" />
                 </div>
               </div>
             </div>
 
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50/50">
-              <button
-                onClick={() => setEditModal(null)}
-                className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-800 rounded-lg text-xs font-bold cursor-pointer transition-all active:scale-95 shadow-sm"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => void guardar()}
-                disabled={saving}
-                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-350 text-white border-none rounded-lg text-xs font-bold cursor-pointer transition-all active:scale-95 shadow-md shadow-slate-900/10"
-              >
-                {saving ? 'Guardando...' : 'Guardar Cambios'}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--shell-border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setEditModal(null)} className="btn-premium btn-premium-secondary">Cancelar</button>
+              <button onClick={() => void guardar()} disabled={saving} className="btn-premium btn-premium-primary" style={{ opacity: saving ? .7 : 1 }}>
+                {saving ? 'Guardando…' : 'Guardar Cambios'}
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* Modal crear tarifa */}
-      {createModal && (
-        <div className="fixed inset-0 bg-slate-900/35 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all duration-300">
-          <div className="bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/80 w-full max-w-[480px] shadow-2xl overflow-hidden animate-fade-in flex flex-col">
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+      {createModal && createPortal(
+        <div className="modal-backdrop-premium"
+          style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}
+          onClick={() => setCreateModal(false)}
+        >
+          <div className="modal-content-premium" style={{ width: '100%', maxWidth: 480, margin: 'auto 0', maxHeight: 'none' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '20px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--shell-border-subtle)' }}>
               <div>
-                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                  <Plus className="w-4 h-4 text-indigo-500" />
-                  Nueva Tarifa
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text-h)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Plus size={15} color="var(--accent)" /> Nueva Tarifa
                 </h3>
-                <p className="text-[10px] text-slate-400 mt-0.5">Establece precios para un tipo de habitación y categoría</p>
+                <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>Establece precios para un tipo de habitación y categoría</p>
               </div>
-              <button
-                onClick={() => setCreateModal(false)}
-                className="border-none bg-transparent cursor-pointer text-slate-400 hover:text-slate-600 transition-all p-1.5 rounded-lg hover:bg-slate-100"
-              >
+              <button onClick={() => setCreateModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 8, display: 'flex' }}>
                 <X size={18} />
               </button>
             </div>
 
-            {/* Inputs */}
-            <div className="p-6 flex flex-col gap-5">
-              <div className="grid grid-cols-2 gap-4">
+            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Tipo de Habitación
-                  </label>
-                  <select
-                    value={createForm.id_tipo_habitacion}
-                    onChange={e => setCreateForm(f => ({ ...f, id_tipo_habitacion: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 text-xs font-semibold outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/10 transition-all cursor-pointer font-sans"
-                  >
+                  <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Tipo de Habitación</label>
+                  <select value={createForm.id_tipo_habitacion} onChange={e => setCreateForm(f => ({ ...f, id_tipo_habitacion: e.target.value }))} className="input-premium">
                     <option value="">-- Selecciona tipo --</option>
-                    {tipos.map(t => (
-                      <option key={t.id} value={t.id}>{t.nombre}</option>
-                    ))}
+                    {tipos.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
                   </select>
                 </div>
-
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Categoría
-                  </label>
-                  <select
-                    value={createForm.id_categoria}
-                    onChange={e => setCreateForm(f => ({ ...f, id_categoria: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 text-xs font-semibold outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/10 transition-all cursor-pointer font-sans"
-                  >
+                  <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Categoría</label>
+                  <select value={createForm.id_categoria} onChange={e => setCreateForm(f => ({ ...f, id_categoria: e.target.value }))} className="input-premium">
                     <option value="">-- Selecciona categoría --</option>
-                    {categorias.map(c => (
-                      <option key={c.id_categoria} value={c.id_categoria}>{c.nombre}</option>
-                    ))}
+                    {categorias.map(c => <option key={c.id_categoria} value={c.id_categoria}>{c.nombre}</option>)}
                   </select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Por Noche
-                  </label>
-                  <div className="relative rounded-xl border border-slate-200 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/10 transition-all bg-white overflow-hidden flex items-center">
-                    <span className="pl-3 pr-1.5 text-xs font-bold text-slate-400 select-none">L.</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={createForm.tarifa_noche}
-                      onChange={e => setCreateForm(f => ({ ...f, tarifa_noche: e.target.value }))}
-                      onFocus={e => e.target.select()}
-                      className="w-full py-2.5 pr-3.5 bg-transparent border-none text-slate-800 text-xs font-semibold outline-none font-sans [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Por Hora
-                  </label>
-                  <div className="relative rounded-xl border border-slate-200 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/10 transition-all bg-white overflow-hidden flex items-center">
-                    <span className="pl-3 pr-1.5 text-xs font-bold text-slate-400 select-none">L.</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={createForm.tarifa_hora}
-                      onChange={e => setCreateForm(f => ({ ...f, tarifa_hora: e.target.value }))}
-                      onFocus={e => e.target.select()}
-                      className="w-full py-2.5 pr-3.5 bg-transparent border-none text-slate-800 text-xs font-semibold outline-none font-sans [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Pasadía
-                  </label>
-                  <div className="relative rounded-xl border border-slate-200 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/10 transition-all bg-white overflow-hidden flex items-center">
-                    <span className="pl-3 pr-1.5 text-xs font-bold text-slate-400 select-none">L.</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={createForm.tarifa_pasadia}
-                      onChange={e => setCreateForm(f => ({ ...f, tarifa_pasadia: e.target.value }))}
-                      onFocus={e => e.target.select()}
-                      className="w-full py-2.5 pr-3.5 bg-transparent border-none text-slate-800 text-xs font-semibold outline-none font-sans [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                  </div>
-                </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                <MoneyField label="Por Noche" value={createForm.tarifa_noche} onChange={v => setCreateForm(f => ({ ...f, tarifa_noche: v }))} />
+                <MoneyField label="Por Hora" value={createForm.tarifa_hora} onChange={v => setCreateForm(f => ({ ...f, tarifa_hora: v }))} />
+                <MoneyField label="Pasadía" value={createForm.tarifa_pasadia} onChange={v => setCreateForm(f => ({ ...f, tarifa_pasadia: v }))} />
               </div>
 
-              {/* Date Ranges for seasonal rates/discounts */}
-              <div className="grid grid-cols-2 gap-4 mt-1 border-t border-slate-100 pt-4">
+              <div style={{ borderTop: '1px solid var(--shell-border-subtle)', paddingTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Vigente Desde
-                  </label>
-                  <input
-                    type="date"
-                    value={createForm.vigente_desde}
-                    onChange={e => setCreateForm(f => ({ ...f, vigente_desde: e.target.value }))}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-850 text-xs font-semibold outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/10 transition-all font-sans cursor-pointer"
-                  />
+                  <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Vigente Desde</label>
+                  <DatePicker value={createForm.vigente_desde} onChange={v => setCreateForm(f => ({ ...f, vigente_desde: v }))} placeholder="Sin fecha inicio" className="input-premium" />
                 </div>
-
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Vigente Hasta (Opcional)
-                  </label>
-                  <input
-                    type="date"
-                    value={createForm.vigente_hasta}
-                    onChange={e => setCreateForm(f => ({ ...f, vigente_hasta: e.target.value }))}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-855 text-xs font-semibold outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/10 transition-all font-sans cursor-pointer"
-                  />
+                  <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Vigente Hasta (Opcional)</label>
+                  <DatePicker value={createForm.vigente_hasta} onChange={v => setCreateForm(f => ({ ...f, vigente_hasta: v }))} placeholder="Sin fecha fin" className="input-premium" />
                 </div>
               </div>
             </div>
 
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50/50">
-              <button
-                onClick={() => setCreateModal(false)}
-                className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-800 rounded-lg text-xs font-bold cursor-pointer transition-all active:scale-95 shadow-sm"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => void crear()}
-                disabled={saving}
-                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-350 text-white border-none rounded-lg text-xs font-bold cursor-pointer transition-all active:scale-95 shadow-md shadow-slate-900/10"
-              >
-                {saving ? 'Creando...' : 'Crear Tarifa'}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--shell-border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setCreateModal(false)} className="btn-premium btn-premium-secondary">Cancelar</button>
+              <button onClick={() => void crear()} disabled={saving} className="btn-premium btn-premium-primary" style={{ opacity: saving ? .7 : 1 }}>
+                {saving ? 'Creando…' : 'Crear Tarifa'}
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

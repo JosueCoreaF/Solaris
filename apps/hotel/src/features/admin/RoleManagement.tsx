@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, EyeOff, RefreshCw, Trash2, Check, X, UserPlus, Users, Mail } from 'lucide-react';
+import { Eye, EyeOff, RefreshCw, Trash2, Check, X, UserPlus, Users, Mail, Search, AlertTriangle } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { obtenerTodosLosUsuarios, asignarRol, cambiarEstadoUsuario, UsuarioRol } from '../../api/usuariosRolesService';
 import { crearInvitacion, obtenerInvitacionesActivas, resendInvitacion, eliminarInvitacion, Invitacion } from '../../api/invitacionesService';
-import { crearUsuarioManual } from '../../api/usuariosService';
+import { crearUsuarioManual, eliminarUsuario, buscarUsuarioPorEmail, eliminarUsuarioPorEmail, BusquedaUsuario } from '../../api/usuariosService';
+import apiClient from '../../services/api';
+
+interface HotelItem { id_hotel: string; nombre_hotel: string; ciudad?: string; }
 
 const ROL_COLOR: Record<string, string> = {
   PROPIETARIO: '#2563eb',
@@ -37,16 +41,19 @@ const Chip = ({ label, color }: { label: string; color: string }) => (
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export const RoleManagement: React.FC = () => {
+  const { user, refreshRole } = useAuth();
   const [usuarios,    setUsuarios]    = useState<UsuarioRol[]>([]);
   const [invitaciones,setInvitaciones]= useState<Invitacion[]>([]);
+  const [hoteles,     setHoteles]     = useState<HotelItem[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [toast,       setToast]       = useState<{ msg: string; type: 'ok' | 'err' } | null>(null);
 
   // Editing row
-  const [editingId,    setEditingId]    = useState<string | null>(null);
-  const [editingRol,   setEditingRol]   = useState('RECEPCIONISTA');
-  const [editingEstado,setEditingEstado]= useState('activo');
-  const [saving,       setSaving]       = useState(false);
+  const [editingId,     setEditingId]     = useState<string | null>(null);
+  const [editingRol,    setEditingRol]    = useState('RECEPCIONISTA');
+  const [editingEstado, setEditingEstado] = useState('activo');
+  const [editingHotel,  setEditingHotel]  = useState('');
+  const [saving,        setSaving]        = useState(false);
 
   // Invite form
   const [inviteEmail,  setInviteEmail]  = useState('');
@@ -60,7 +67,14 @@ export const RoleManagement: React.FC = () => {
   const [showPassword,  setShowPassword]  = useState(false);
   const [manualRol,     setManualRol]     = useState<typeof ROLES[number]>('RECEPCIONISTA');
   const [manualEstado,  setManualEstado]  = useState<'activo'|'inactivo'|'suspendido'>('activo');
+  const [manualHotel,   setManualHotel]   = useState('');
   const [manualLoading, setManualLoading] = useState(false);
+
+  // Buscar / eliminar cuenta por email
+  const [buscarEmail,    setBuscarEmail]    = useState('');
+  const [buscarResult,   setBuscarResult]   = useState<BusquedaUsuario | null>(null);
+  const [buscarLoading,  setBuscarLoading]  = useState(false);
+  const [eliminandoCuenta, setEliminandoCuenta] = useState(false);
 
   const showToast = (msg: string, type: 'ok' | 'err' = 'ok') => {
     setToast({ msg, type });
@@ -71,12 +85,14 @@ export const RoleManagement: React.FC = () => {
 
   const cargarDatos = async () => {
     setLoading(true);
-    const [usrs, invs] = await Promise.all([
+    const [usrs, invs, hots] = await Promise.all([
       obtenerTodosLosUsuarios(),
       obtenerInvitacionesActivas(),
+      apiClient.get('/hotel/config/hoteles').catch(() => []),
     ]);
     setUsuarios(usrs);
     setInvitaciones(invs);
+    setHoteles(Array.isArray(hots) ? hots : []);
     setLoading(false);
   };
 
@@ -123,11 +139,13 @@ export const RoleManagement: React.FC = () => {
   // ── Rol / Estado ──
   const handleGuardarRol = async (u: UsuarioRol) => {
     setSaving(true);
-    const res = await asignarRol({ user_id: u.user_id, id_hotel: u.id_hotel, rol: editingRol, estado: editingEstado });
+    const res = await asignarRol({ user_id: u.user_id, id_hotel: editingHotel || u.id_hotel, rol: editingRol, estado: editingEstado });
     if (res.ok) {
       setUsuarios(p => p.map(x => x.user_id === u.user_id ? { ...x, rol: editingRol as any, estado: editingEstado as any } : x));
       setEditingId(null);
       showToast('Cambios guardados.');
+      // Si el admin editó su propio rol, refrescar el contexto de permisos
+      if (u.user_id === user?.id) await refreshRole();
     } else {
       showToast(res.error ?? 'Error al guardar.', 'err');
     }
@@ -154,6 +172,49 @@ export const RoleManagement: React.FC = () => {
     }
   };
 
+  const handleBuscarCuenta = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!buscarEmail.trim()) return;
+    setBuscarLoading(true);
+    setBuscarResult(null);
+    try {
+      const result = await buscarUsuarioPorEmail(buscarEmail.trim());
+      setBuscarResult(result);
+    } catch (err: any) {
+      showToast(err.message ?? 'Usuario no encontrado.', 'err');
+    } finally {
+      setBuscarLoading(false);
+    }
+  };
+
+  const handleEliminarCuentaCompleta = async () => {
+    if (!buscarResult) return;
+    if (!confirm(`¿Eliminar completamente la cuenta de ${buscarResult.email}?\n\nEsto borrará su acceso a todo el sistema y no se puede deshacer.`)) return;
+    setEliminandoCuenta(true);
+    try {
+      await eliminarUsuarioPorEmail(buscarResult.email!);
+      setBuscarResult(null);
+      setBuscarEmail('');
+      setUsuarios(p => p.filter(u => u.user_id !== buscarResult.user_id));
+      showToast('Cuenta eliminada del sistema.');
+    } catch (err: any) {
+      showToast(err.message ?? 'Error al eliminar.', 'err');
+    } finally {
+      setEliminandoCuenta(false);
+    }
+  };
+
+  const handleEliminarUsuario = async (u: UsuarioRol) => {
+    if (!confirm(`¿Eliminar a ${u.email} del sistema?\n\nEsto revocará su acceso por completo.`)) return;
+    try {
+      await eliminarUsuario(u.user_id);
+      setUsuarios(p => p.filter(x => x.user_id !== u.user_id));
+      showToast('Usuario eliminado.');
+    } catch (err: any) {
+      showToast(err.message ?? 'Error al eliminar.', 'err');
+    }
+  };
+
   // ── Crear usuario manual ──
   const handleCrearManual = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,9 +223,9 @@ export const RoleManagement: React.FC = () => {
     if (!manualPassword || manualPassword.length < 8) { showToast('Contraseña mín. 8 caracteres.', 'err'); return; }
     setManualLoading(true);
     try {
-      const nuevo = await crearUsuarioManual({ email: manualEmail, password: manualPassword, nombre: manualNombre, rol: manualRol, estado: manualEstado });
+      const nuevo = await crearUsuarioManual({ email: manualEmail, password: manualPassword, nombre: manualNombre, rol: manualRol, estado: manualEstado, id_hotel: manualHotel || undefined });
       setUsuarios(p => [nuevo, ...p]);
-      setManualEmail(''); setManualNombre(''); setManualPassword('');
+      setManualEmail(''); setManualNombre(''); setManualPassword(''); setManualHotel('');
       showToast('Usuario creado exitosamente.');
     } catch (err: any) {
       showToast(err.message ?? 'Error al crear usuario.', 'err');
@@ -275,11 +336,84 @@ export const RoleManagement: React.FC = () => {
                   <option value="inactivo">Inactivo</option>
                 </select>
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">Hotel</label>
+                <select value={manualHotel} onChange={e => setManualHotel(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none">
+                  <option value="">— Sin hotel específico —</option>
+                  {hoteles.map(h => (
+                    <option key={h.id_hotel} value={h.id_hotel}>{h.nombre_hotel}</option>
+                  ))}
+                </select>
+              </div>
               <button type="submit" disabled={manualLoading}
                 className="self-end px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-60">
                 {manualLoading ? 'Creando...' : 'Crear Usuario'}
               </button>
             </form>
+          </div>
+
+          {/* ── Buscar y eliminar cuenta por correo ── */}
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+            <div className="flex items-center gap-2 mb-1">
+              <Search size={15} className="text-red-500"/>
+              <h3 className="text-sm font-semibold text-red-700">Buscar cuenta por correo</h3>
+            </div>
+            <p className="text-xs text-red-500 mb-4">
+              Útil para gestionar usuarios registrados como propietarios que no aparecen en la lista.
+            </p>
+            <form onSubmit={handleBuscarCuenta} className="flex gap-3">
+              <input
+                type="email"
+                value={buscarEmail}
+                onChange={e => { setBuscarEmail(e.target.value); setBuscarResult(null); }}
+                placeholder="correo@ejemplo.com"
+                className="flex-1 px-3 py-2 rounded-xl border border-red-200 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 bg-white"
+              />
+              <button type="submit" disabled={buscarLoading || !buscarEmail.trim()}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-60 flex items-center gap-2">
+                {buscarLoading ? <RefreshCw size={13} className="animate-spin"/> : <Search size={13}/>}
+                Buscar
+              </button>
+            </form>
+
+            {buscarResult && (
+              <div className="mt-4 bg-white border border-red-200 rounded-xl p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1.5">
+                    <p className="text-sm font-semibold text-slate-800">{buscarResult.email}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {buscarResult.en_owners && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-xs font-bold">
+                          <AlertTriangle size={10}/> Registrado como Propietario
+                          {buscarResult.nombre_empresa && ` — ${buscarResult.nombre_empresa}`}
+                        </span>
+                      )}
+                      {buscarResult.roles.map((r, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded-md text-xs font-semibold"
+                          style={{ background: `${ROL_COLOR[r.rol] ?? '#64748b'}18`, color: ROL_COLOR[r.rol] ?? '#64748b' }}>
+                          {r.rol} · {r.estado}
+                        </span>
+                      ))}
+                      {!buscarResult.en_owners && buscarResult.roles.length === 0 && (
+                        <span className="text-xs text-slate-400">Sin rol asignado</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Registrado: {new Date(buscarResult.created_at).toLocaleDateString('es-HN')}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleEliminarCuentaCompleta}
+                    disabled={eliminandoCuenta}
+                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-60"
+                  >
+                    <Trash2 size={12}/>
+                    {eliminandoCuenta ? 'Eliminando...' : 'Eliminar cuenta'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ── Invitaciones Activas ── */}
@@ -386,10 +520,19 @@ export const RoleManagement: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         {editingId === u.user_id ? (
-                          <select value={editingEstado} onChange={e => setEditingEstado(e.target.value)}
-                            className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold focus:outline-none">
-                            {ESTADOS_EDIT.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
-                          </select>
+                          <div className="flex flex-col gap-1.5">
+                            <select value={editingEstado} onChange={e => setEditingEstado(e.target.value)}
+                              className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold focus:outline-none">
+                              {ESTADOS_EDIT.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+                            </select>
+                            <select value={editingHotel} onChange={e => setEditingHotel(e.target.value)}
+                              className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none">
+                              <option value="">— Sin hotel —</option>
+                              {hoteles.map(h => (
+                                <option key={h.id_hotel} value={h.id_hotel}>{h.nombre_hotel}</option>
+                              ))}
+                            </select>
+                          </div>
                         ) : (
                           <Chip label={u.estado} color={ESTADO_COLOR[u.estado] ?? '#64748b'}/>
                         )}
@@ -407,10 +550,18 @@ export const RoleManagement: React.FC = () => {
                             </button>
                           </div>
                         ) : (
-                          <button onClick={() => { setEditingId(u.user_id); setEditingRol(u.rol); setEditingEstado(u.estado); }}
-                            className="px-3 py-1.5 border border-slate-200 bg-slate-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-50 transition-colors">
-                            Editar
-                          </button>
+                          <div className="flex gap-2">
+                            <button onClick={() => { setEditingId(u.user_id); setEditingRol(u.rol); setEditingEstado(u.estado); setEditingHotel(u.id_hotel || ''); }}
+                              className="px-3 py-1.5 border border-slate-200 bg-slate-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-50 transition-colors">
+                              Editar
+                            </button>
+                            {u.rol !== 'PROPIETARIO' && (
+                              <button onClick={() => handleEliminarUsuario(u)}
+                                className="flex items-center gap-1 px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-xs font-semibold hover:bg-red-50 transition-colors">
+                                <Trash2 size={11}/> Eliminar
+                              </button>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>

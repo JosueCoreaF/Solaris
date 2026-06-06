@@ -24,6 +24,7 @@ export interface AsignarRolParams {
   id_hotel?: string | null;
   rol: string;
   estado: string;
+  owner_id?: string;
 }
 
 /**
@@ -72,7 +73,7 @@ export const asignarRol = async (params: AsignarRolParams): Promise<{ ok: boolea
     const res = await fetch(`${API}/roles/crear`, {
       method: 'POST',
       headers: await authHeaders(),
-      body: JSON.stringify({ user_id: params.user_id, id_hotel: params.id_hotel || null, rol: params.rol, estado: params.estado }),
+      body: JSON.stringify({ user_id: params.user_id, id_hotel: params.id_hotel || null, rol: params.rol, estado: params.estado, owner_id: params.owner_id || undefined }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

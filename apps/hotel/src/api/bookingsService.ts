@@ -260,6 +260,28 @@ export async function createEmpresa(params: {
   return result;
 }
 
+export interface ColaboradorRow {
+  id_huesped: string;
+  cargo: string | null;
+  huespedes: {
+    id_huesped: string;
+    nombre_completo: string;
+    correo: string | null;
+    telefono: string | null;
+  } | null;
+}
+
+export async function fetchColaboradoresEmpresa(idEmpresa: string): Promise<ColaboradorRow[]> {
+  return apiFetch<ColaboradorRow[]>(`/bookings/empresas/${idEmpresa}/colaboradores`);
+}
+
+export async function addColaboradorEmpresa(idEmpresa: string, idHuesped: string, cargo?: string): Promise<void> {
+  await apiFetch(`/bookings/empresas/${idEmpresa}/colaboradores`, {
+    method: 'POST',
+    body: JSON.stringify({ id_huesped: idHuesped, cargo: cargo ?? null }),
+  });
+}
+
 export async function fetchReservas(desde: string, hasta: string): Promise<Reserva[]> {
   const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   const key = `reservas:${activeHotelId}:${desde}:${hasta}`;

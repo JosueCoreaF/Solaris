@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { supabase } from '../../api/supabase';
 import {
   ArrowLeft, Edit2, Save, X, Phone, MapPin, Mail, Calendar,
   CreditCard, CheckCircle, Clock, AlertCircle, TrendingUp, Wallet,
@@ -68,7 +69,6 @@ async function getAuthHeaders(contentType = false): Promise<Record<string, strin
   const headers: Record<string, string> = { 'X-Hotel-ID': activeHotelId };
   if (contentType) headers['Content-Type'] = 'application/json';
   try {
-    const { supabase } = await import('../../api/supabase');
     const { data } = await supabase.auth.getSession();
     if (data.session?.access_token) headers['Authorization'] = `Bearer ${data.session.access_token}`;
   } catch (_) {}

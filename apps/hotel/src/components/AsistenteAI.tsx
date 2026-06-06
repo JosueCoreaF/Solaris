@@ -113,9 +113,9 @@ const playChimeSound = (): void => {
   }
 };
 
-export const AsistenteAI: React.FC = () => {
+export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
   const { user } = useAuth();
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(embedded ? true : false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -929,6 +929,16 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
           font-family: var(--sans);
         }
 
+        .verona-ai-panel-embedded {
+          width: 100%;
+          height: 100%;
+          background: transparent;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          font-family: var(--sans);
+        }
+
         .verona-ai-header {
           padding: 16px 20px;
           background: var(--shell-panel);
@@ -1170,124 +1180,222 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
         }
       `}</style>
 
-      {/* Floating Toggle Button */}
-      <button
-        className={`verona-ai-float${isOpen ? ' active' : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
-        title="Asistente Verona AI (Gemini)"
-      >
-        {isOpen ? '×' : 'AI'}
-      </button>
+      {/* Floating Toggle Button (Only in floating mode) */}
+      {!embedded && (
+        <button
+          className={`verona-ai-float${isOpen ? ' active' : ''}`}
+          onClick={() => setIsOpen(!isOpen)}
+          title="Asistente Verona AI (Gemini)"
+        >
+          {isOpen ? '×' : 'AI'}
+        </button>
+      )}
 
-      {/* Slide-in Chat Panel */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            className="verona-ai-panel"
-            initial={{ opacity: 0, y: 30, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.97 }}
-            transition={{ duration: 0.22, cubicBezier: [0.16, 1, 0.3, 1] }}
-          >
-            {/* Header */}
-            <div className="verona-ai-header">
-              <div className="verona-ai-header-info">
-                <div className="verona-ai-logo">AI</div>
-                <div>
-                  <div className="verona-ai-header-title">Verona AI</div>
-                  <div className="verona-ai-header-sub">
-                    <span className="verona-ai-dot" /> Copiloto Activo
+      {/* Embedded Panel or Slide-in Panel */}
+      {embedded ? (
+        <div className="verona-ai-panel-embedded">
+          {/* Header */}
+          <div className="verona-ai-header" style={{ border: 'none', background: 'transparent', padding: '10px 16px' }}>
+            <div className="verona-ai-header-info">
+              <div className="verona-ai-logo" style={{ width: 24, height: 24, fontSize: 10, borderRadius: 6 }}>AI</div>
+              <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--muted)', letterSpacing: '0.05em' }}>MARS CO-PILOTO</span>
+            </div>
+            <button className="verona-ai-clear-btn" onClick={handleClearHistory} title="Limpiar conversación">
+              Reiniciar
+            </button>
+          </div>
+
+          {/* Message Area */}
+          <div className="verona-ai-messages">
+            {messages.map((msg, index) => (
+              <div key={index} className={`verona-ai-msg-row ${msg.role}`}>
+                <div className={`verona-ai-msg-avatar ${msg.role}`}>
+                  {msg.role === 'model' ? 'AI' : (user?.email?.[0]?.toUpperCase() || 'P')}
+                </div>
+                <div className={`verona-ai-bubble ${msg.role}`}>
+                  {renderMessageContent(msg.text)}
+                  {msg.timestamp && (
+                    <div className={`verona-ai-timestamp ${msg.role}`}>
+                      {msg.timestamp}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="verona-ai-msg-row model">
+                <div className="verona-ai-msg-avatar model">AI</div>
+                <div className="verona-ai-bubble model">
+                  <div className="ai-loading-dots">
+                    <div className="ai-dot" />
+                    <div className="ai-dot" />
+                    <div className="ai-dot" />
                   </div>
                 </div>
               </div>
-              <button className="verona-ai-clear-btn" onClick={handleClearHistory} title="Limpiar conversación">
-                Reiniciar
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Quick Suggestions */}
+          <div className="verona-ai-suggestions">
+            {SUGGESTIONS.map((sug, idx) => (
+              <button
+                key={idx}
+                className="verona-ai-chip"
+                onClick={() => handleSend(sug.prompt)}
+                disabled={loading || rateLimitCountdown !== null || isVerifying}
+              >
+                {sug.label}
               </button>
-            </div>
+            ))}
+          </div>
 
-            {/* Message Area */}
-            <div className="verona-ai-messages">
-              {messages.map((msg, index) => (
-                <div key={index} className={`verona-ai-msg-row ${msg.role}`}>
-                  <div className={`verona-ai-msg-avatar ${msg.role}`}>
-                    {msg.role === 'model' ? 'AI' : (user?.email?.[0]?.toUpperCase() || 'P')}
-                  </div>
-                  <div className={`verona-ai-bubble ${msg.role}`}>
-                    {renderMessageContent(msg.text)}
-                    {msg.timestamp && (
-                      <div className={`verona-ai-timestamp ${msg.role}`}>
-                        {msg.timestamp}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {loading && (
-                <div className="verona-ai-msg-row model">
-                  <div className="verona-ai-msg-avatar model">AI</div>
-                  <div className="verona-ai-bubble model">
-                    <div className="ai-loading-dots">
-                      <div className="ai-dot" />
-                      <div className="ai-dot" />
-                      <div className="ai-dot" />
+          {/* Input Form */}
+          <form
+            className="verona-ai-input-area"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend(input);
+            }}
+          >
+            <input
+              className="verona-ai-input"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={
+                isVerifying
+                  ? "Verificando disponibilidad..."
+                  : rateLimitCountdown !== null
+                    ? `Espera ${rateLimitCountdown}s para consultar...`
+                    : "Pregunta a Verona AI..."
+              }
+              disabled={loading || rateLimitCountdown !== null || isVerifying}
+              style={(rateLimitCountdown !== null || isVerifying) ? { backgroundColor: 'var(--shell-bg)', cursor: 'not-allowed' } : undefined}
+            />
+            <button
+              type="submit"
+              className="verona-ai-send-btn"
+              disabled={!input.trim() || loading || rateLimitCountdown !== null || isVerifying}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            </button>
+          </form>
+        </div>
+      ) : (
+        <AnimatePresence>
+          {isOpen && (
+            <motion.div
+              className="verona-ai-panel"
+              initial={{ opacity: 0, y: 30, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.97 }}
+              transition={{ duration: 0.22, cubicBezier: [0.16, 1, 0.3, 1] }}
+            >
+              {/* Header */}
+              <div className="verona-ai-header">
+                <div className="verona-ai-header-info">
+                  <div className="verona-ai-logo">AI</div>
+                  <div>
+                    <div className="verona-ai-header-title">Verona AI</div>
+                    <div className="verona-ai-header-sub">
+                      <span className="verona-ai-dot" /> Copiloto Activo
                     </div>
                   </div>
                 </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Quick Suggestions */}
-            <div className="verona-ai-suggestions">
-              {SUGGESTIONS.map((sug, idx) => (
-                <button
-                  key={idx}
-                  className="verona-ai-chip"
-                  onClick={() => handleSend(sug.prompt)}
-                  disabled={loading || rateLimitCountdown !== null || isVerifying}
-                >
-                  {sug.label}
+                <button className="verona-ai-clear-btn" onClick={handleClearHistory} title="Limpiar conversación">
+                  Reiniciar
                 </button>
-              ))}
-            </div>
+              </div>
 
-            {/* Input Form */}
-            <form
-              className="verona-ai-input-area"
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSend(input);
-              }}
-            >
-              <input
-                className="verona-ai-input"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={
-                  isVerifying
-                    ? "Verificando disponibilidad..."
-                    : rateLimitCountdown !== null
-                      ? `Espera ${rateLimitCountdown}s para consultar...`
-                      : "Pregunta a Verona AI..."
-                }
-                disabled={loading || rateLimitCountdown !== null || isVerifying}
-                style={(rateLimitCountdown !== null || isVerifying) ? { backgroundColor: 'var(--shell-bg)', cursor: 'not-allowed' } : undefined}
-              />
-              <button
-                type="submit"
-                className="verona-ai-send-btn"
-                disabled={!input.trim() || loading || rateLimitCountdown !== null || isVerifying}
+              {/* Message Area */}
+              <div className="verona-ai-messages">
+                {messages.map((msg, index) => (
+                  <div key={index} className={`verona-ai-msg-row ${msg.role}`}>
+                    <div className={`verona-ai-msg-avatar ${msg.role}`}>
+                      {msg.role === 'model' ? 'AI' : (user?.email?.[0]?.toUpperCase() || 'P')}
+                    </div>
+                    <div className={`verona-ai-bubble ${msg.role}`}>
+                      {renderMessageContent(msg.text)}
+                      {msg.timestamp && (
+                        <div className={`verona-ai-timestamp ${msg.role}`}>
+                          {msg.timestamp}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {loading && (
+                  <div className="verona-ai-msg-row model">
+                    <div className="verona-ai-msg-avatar model">AI</div>
+                    <div className="verona-ai-bubble model">
+                      <div className="ai-loading-dots">
+                        <div className="ai-dot" />
+                        <div className="ai-dot" />
+                        <div className="ai-dot" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Quick Suggestions */}
+              <div className="verona-ai-suggestions">
+                {SUGGESTIONS.map((sug, idx) => (
+                  <button
+                    key={idx}
+                    className="verona-ai-chip"
+                    onClick={() => handleSend(sug.prompt)}
+                    disabled={loading || rateLimitCountdown !== null || isVerifying}
+                  >
+                    {sug.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Input Form */}
+              <form
+                className="verona-ai-input-area"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSend(input);
+                }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="22" y1="2" x2="11" y2="13" />
-                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                </svg>
-              </button>
-            </form>
-          </motion.div>
-        )}
-      </AnimatePresence>
+                <input
+                  className="verona-ai-input"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={
+                    isVerifying
+                      ? "Verificando disponibilidad..."
+                      : rateLimitCountdown !== null
+                        ? `Espera ${rateLimitCountdown}s para consultar...`
+                        : "Pregunta a Verona AI..."
+                  }
+                  disabled={loading || rateLimitCountdown !== null || isVerifying}
+                  style={(rateLimitCountdown !== null || isVerifying) ? { backgroundColor: 'var(--shell-bg)', cursor: 'not-allowed' } : undefined}
+                />
+                <button
+                  type="submit"
+                  className="verona-ai-send-btn"
+                  disabled={!input.trim() || loading || rateLimitCountdown !== null || isVerifying}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                </button>
+              </form>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
     </>
   );
 };
