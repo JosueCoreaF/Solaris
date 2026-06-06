@@ -21,7 +21,7 @@ export const RightSidebarChat: React.FC = () => {
     try {
       const cached = sessionStorage.getItem('chat-unread-count');
       if (cached) setUnreadCount(parseInt(cached, 10));
-    } catch {}
+    } catch { }
 
     return () => {
       window.removeEventListener('chat-unread-update', handleUnreadUpdate);
