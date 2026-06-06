@@ -1112,8 +1112,8 @@ router.post('/reservas', async (req, res) => {
 
   const token = extractToken(req);
   if (token && id_reserva_hotel) {
-    const { email } = getInfoFromToken(token);
-    if (email) patchAuditUser(id_reserva_hotel, email);
+    const { email, userId } = getInfoFromToken(token);
+    if (email && userId) patchAuditUser('reservas_hotel', userId, email);
   }
 
   // Crear crédito empresarial automáticamente cuando la reserva tiene empresa
@@ -1334,7 +1334,7 @@ router.patch('/reservas/:id', async (req, res) => {
   }
 
   const token = extractToken(req);
-  if (token) { const { email } = getInfoFromToken(token); if (email) patchAuditUser(id, email); }
+  if (token) { const { email, userId } = getInfoFromToken(token); if (email && userId) patchAuditUser('reservas_hotel', userId, email); }
 
   // Auto-crear crédito cuando se asigna empresa por primera vez en edición
   const nuevaEmpresa = updates.id_empresa;
@@ -1407,7 +1407,7 @@ router.delete('/reservas/:id', async (req, res) => {
       return res.status(status).json({ error: msg });
     }
 
-    if (token) { if (emailUsuario) patchAuditUser(id, emailUsuario); }
+    if (token) { const { userId } = getInfoFromToken(token); if (emailUsuario && userId) patchAuditUser('reservas_hotel', userId, emailUsuario); }
 
     return res.json(rpcResult ?? { success: true });
   } catch (e) {
@@ -1857,6 +1857,9 @@ router.post('/pagos', async (req, res) => {
     ? await db().from('pagos_hotel').select('*').eq('id_pago_hotel', id_pago).single()
     : { data: rpcResult };
 
+  const tokenPago = extractToken(req);
+  if (tokenPago) { const { email, userId } = getInfoFromToken(tokenPago); if (email && userId) patchAuditUser('pagos_hotel', userId, email); }
+
   return res.status(201).json(nuevoPago ?? rpcResult);
 });
 
@@ -1889,6 +1892,8 @@ router.patch('/pagos/:id', async (req, res) => {
     .update({ monto, moneda, metodo_pago, referencia, fecha_pago, estado, notas })
     .eq('id_pago_hotel', id);
   if (error) return res.status(500).json({ error: error.message });
+  const tokenPatch = extractToken(req);
+  if (tokenPatch) { const { email, userId } = getInfoFromToken(tokenPatch); if (email && userId) patchAuditUser('pagos_hotel', userId, email); }
   return res.json({ success: true });
 });
 
