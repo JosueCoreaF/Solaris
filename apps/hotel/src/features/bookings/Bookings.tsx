@@ -1,14 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, FileSpreadsheet, Plus, X } from 'lucide-react';
 import { ImportadorReservas } from './ImportadorReservas';
+import { DatePicker } from '../../components/DatePicker';
 import { useNavigate } from 'react-router-dom';
 import {
   addDays,
   cancelReserva,
   checkOutFromNights,
+  addColaboradorEmpresa,
   createEmpresa,
   createHuesped,
   createReserva,
+  fetchColaboradoresEmpresa,
   fetchEmpresas,
   fetchHabitaciones,
   fetchHoteles,
@@ -176,6 +179,13 @@ export const Bookings: React.FC = () => {
   const [nuevaEmpresaRtn, setNuevaEmpresaRtn] = useState('');
   const [savingEmpresa, setSavingEmpresa] = useState(false);
 
+  // ── Colaboradores de empresa seleccionada ──
+  const [colaboradoresIds, setColaboradoresIds] = useState<string[]>([]);
+  const [mostrarTodosHuespedes, setMostrarTodosHuespedes] = useState(false);
+
+  // ── Animación reserva exitosa ──
+  const [successAnim, setSuccessAnim] = useState<{ guestName: string; habitacion: string; noches: number } | null>(null);
+
   // ── Context Menu ──
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; reserva: Reserva } | null>(null);
 
@@ -259,6 +269,18 @@ export const Bookings: React.FC = () => {
     window.addEventListener('reloadBookings', handleReload);
     return () => window.removeEventListener('reloadBookings', handleReload);
   }, [load]);
+
+  // Cargar colaboradores cuando se selecciona empresa en el modal de nueva reserva
+  useEffect(() => {
+    if (!form.esCredito || !form.empresaId) {
+      setColaboradoresIds([]);
+      setMostrarTodosHuespedes(false);
+      return;
+    }
+    fetchColaboradoresEmpresa(form.empresaId)
+      .then(rows => setColaboradoresIds(rows.map(r => r.huespedes?.id_huesped ?? r.id_huesped).filter(Boolean)))
+      .catch(() => setColaboradoresIds([]));
+  }, [form.esCredito, form.empresaId]);
 
   // ── Global ESC Handler ──
   useEffect(() => {
@@ -471,13 +493,18 @@ export const Bookings: React.FC = () => {
   const getEffectiveStatus = useCallback((reserva: Reserva): DisplayStatus => {
     const validStatuses: DisplayStatus[] = ['reservada', 'pagada', 'abonada', 'pendiente', 'credito', 'cortesia', 'check_out', 'cancelada', 'confirmada', 'check_in'];
 
-    // 1. Leer estado_display de la BD si existe y es válido
+    // Crédito y cortesía tienen prioridad sobre cualquier valor de la BD
+    if (reserva.estado === 'cancelada') return 'cancelada';
+    if (reserva.es_cortesia || reserva.estado_pago === 'cortesia') return 'cortesia';
+    if (reserva.id_empresa || reserva.estado_pago === 'credito') return 'credito';
+
+    // Leer estado_display de la BD si existe y es válido
     const fromBD = reserva.estado_display as string;
     if (fromBD && validStatuses.includes(fromBD as DisplayStatus)) {
       return fromBD as DisplayStatus;
     }
 
-    // 2. Fallback: calcular localmente (mismo flujo que el trigger SQL)
+    // Fallback: calcular localmente
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
@@ -490,9 +517,6 @@ export const Bookings: React.FC = () => {
     const isFullyPaid = totalDue > 0 && totalPaid + 0.009 >= totalDue;
     const hasPartialPayment = totalPaid > 0 && !isFullyPaid;
 
-    if (reserva.estado === 'cancelada') return 'cancelada';
-    if (reserva.es_cortesia) return 'cortesia';
-    if (reserva.id_empresa) return 'credito';
     if (reserva.estado === 'check_in') return 'check_in';
     if (reserva.estado === 'check_out') return 'check_out';
     if (totalDue === 0) return 'cortesia';
@@ -570,13 +594,13 @@ export const Bookings: React.FC = () => {
     } else {
       if (dateStr > todayStr) {
         // Noche futura
-        status = (isFullyPaid || isCredito) ? 'pagada' : 'reservada';
+        status = isCredito ? 'credito' : (isFullyPaid ? 'pagada' : 'reservada');
       } else if (dateStr === todayStr) {
         // Noche actual (de hoy)
         if (reserva.estado === 'check_in') {
           status = (isFullyPaid || isCredito) ? 'en_el_hotel' : 'check_in_pendiente';
         } else {
-          status = (isFullyPaid || isCredito) ? 'pagada' : 'reservada';
+          status = isCredito ? 'credito' : (isFullyPaid ? 'pagada' : 'reservada');
         }
       } else {
         // Noche pasada
@@ -1121,6 +1145,10 @@ export const Bookings: React.FC = () => {
           direccion: form.nuevaDireccion.trim() || undefined,
         });
         huespedId = nuevo.id_huesped;
+        // Auto-vincular como colaborador si la reserva es de empresa
+        if (form.esCredito && form.empresaId) {
+          addColaboradorEmpresa(form.empresaId, nuevo.id_huesped).catch(() => null);
+        }
       }
 
       if (!huespedId) { showToast('Selecciona o registra un huésped.', 'err'); setSaving(false); return; }
@@ -1177,6 +1205,7 @@ export const Bookings: React.FC = () => {
           tipo_reserva: form.tipoReserva,
         } as any);
         showToast('Reserva actualizada.');
+        closeEditor();
       } else {
         await createReserva({
           id_huesped: huespedId,
@@ -1199,10 +1228,19 @@ export const Bookings: React.FC = () => {
           plancha: form.plancha,
           tipo_reserva: form.tipoReserva,
         });
-        showToast('Reserva creada exitosamente.');
+        const guestName = form.registrarNuevo
+          ? form.nuevoNombre.trim()
+          : huespedes.find(h => h.id_huesped === form.huespedId)?.nombre_completo ?? 'Huésped';
+        const habName = habitaciones.find(h => h.id_habitacion === form.habitacionId);
+        closeEditor();
+        setSuccessAnim({
+          guestName,
+          habitacion: habName?.nombre_alias ?? habName?.nombre_habitacion ?? '',
+          noches: form.noches,
+        });
+        setTimeout(() => setSuccessAnim(null), 4200);
       }
 
-      closeEditor();
       void load();
     } catch (e: any) {
       showToast(e?.message ?? 'Error al guardar la reserva.', 'err');
@@ -2345,29 +2383,27 @@ export const Bookings: React.FC = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 90px', gap: 10 }}>
                   <div>
                     <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Check-in</label>
-                    <input
+                    <DatePicker
                       disabled={isPastReserva}
-                      type="date"
                       value={getOnlyDate(form.checkIn)}
-                      onChange={e => {
-                        const d = e.target.value + 'T14:00';
+                      onChange={v => {
+                        const d = v + 'T14:00';
                         setForm(f => ({ ...f, checkIn: d, checkOut: checkOutFromNights(d, f.noches) }));
                       }}
-                      style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, boxSizing: 'border-box', background: isPastReserva ? '#f1f5f9' : '#fff', cursor: isPastReserva ? 'not-allowed' : 'default' }}
+                      placeholder="Check-in"
                     />
                   </div>
                   <div>
                     <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Check-out</label>
-                    <input
+                    <DatePicker
                       disabled={isPastReserva}
-                      type="date"
                       value={getOnlyDate(form.checkOut)}
                       min={getOnlyDate(form.checkIn)}
-                      onChange={e => {
-                        const d = e.target.value + 'T12:00';
+                      onChange={v => {
+                        const d = v + 'T12:00';
                         setForm(f => ({ ...f, checkOut: d, noches: nightsBetween(f.checkIn, d) }));
                       }}
-                      style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, boxSizing: 'border-box', background: isPastReserva ? '#f1f5f9' : '#fff', cursor: isPastReserva ? 'not-allowed' : 'default' }}
+                      placeholder="Check-out"
                     />
                   </div>
                   <div>
@@ -2547,7 +2583,7 @@ export const Bookings: React.FC = () => {
                     <select
                       disabled={isPastReserva}
                       value={form.empresaId}
-                      onChange={e => setForm(f => ({ ...f, empresaId: e.target.value }))}
+                      onChange={e => setForm(f => ({ ...f, empresaId: e.target.value, esCredito: !!e.target.value }))}
                       style={{ width: '100%', border: '1px solid #bfdbfe', borderRadius: 8, padding: '8px 10px', fontSize: 13, background: isPastReserva ? '#f1f5f9' : '#f0f9ff', color: isPastReserva ? '#94a3b8' : '#000', cursor: isPastReserva ? 'not-allowed' : 'default' }}
                     >
                       <option value="">— Seleccionar empresa —</option>
@@ -2615,7 +2651,7 @@ export const Bookings: React.FC = () => {
           style={{ position: 'fixed', inset: 0, background: '#0007', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
         >
           <div
-            style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 680, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px #0005' }}
+            style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 1020, maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 72px #0006' }}
             onClick={e => e.stopPropagation()}
           >
             {/* Modal header */}
@@ -2691,16 +2727,44 @@ export const Bookings: React.FC = () => {
               {/* ─── PASO 1: DATOS ─── */}
               {wizardStep === 'datos' && (
                 <div>
-                  <div style={{ marginBottom: 6 }}>
+                  <div style={{ marginBottom: 14 }}>
                     <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, color: '#94a3b8', fontWeight: 600 }}>Paso 1</span>
-                    <h4 style={{ fontSize: 15, fontWeight: 600, margin: '2px 0 12px' }}>Datos base</h4>
+                    <h4 style={{ fontSize: 15, fontWeight: 600, margin: '2px 0 0' }}>Datos base</h4>
+                  </div>
+
+                  {/* Layout 2 paneles */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, alignItems: 'start' }}>
+
+                  {/* ── Panel izquierdo: huésped + habitación + empresa ── */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                  {/* Habitación */}
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 6 }}>Habitación *</div>
+                    <select
+                      value={form.habitacionId}
+                      onChange={e => setForm(f => ({ ...f, habitacionId: e.target.value }))}
+                      style={{ width: '100%', border: form.habitacionId ? '2px solid #4f46e5' : '1.5px solid #e2e8f0', borderRadius: 10, padding: '9px 12px', fontSize: 13, background: form.habitacionId ? 'linear-gradient(135deg,#eef2ff,#f5f3ff)' : '#fff', color: form.habitacionId ? '#4f46e5' : '#64748b', outline: 'none', boxSizing: 'border-box' }}
+                    >
+                      <option value="">— Seleccionar habitación —</option>
+                      {habitacionesFiltradas.map(h => (
+                        <option key={h.id_habitacion} value={h.id_habitacion}>
+                          {h.nombre_alias ? `${h.nombre_alias} (${h.nombre_habitacion})` : h.nombre_habitacion}{h.hotel ? ` · ${h.hotel}` : ''}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                     {/* Huésped — búsqueda live */}
                     {!form.registrarNuevo && (() => {
+                      const empresaActiva = form.esCredito && !!form.empresaId;
+                      const poolHuespedes = empresaActiva && !mostrarTodosHuespedes && colaboradoresIds.length > 0
+                        ? huespedes.filter(h => colaboradoresIds.includes(h.id_huesped))
+                        : huespedes;
+
                       const filtered = guestQuery.trim().length > 0
-                        ? huespedes.filter(h => {
+                        ? poolHuespedes.filter(h => {
                             const q = guestQuery.toLowerCase();
                             return (
                               h.nombre_completo.toLowerCase().includes(q) ||
@@ -2708,18 +2772,53 @@ export const Bookings: React.FC = () => {
                               (h.telefono ?? '').includes(q)
                             );
                           })
-                        : [];
+                        : empresaActiva && !mostrarTodosHuespedes
+                          ? poolHuespedes
+                          : [];
                       const selectedGuest2 = huespedes.find(h => h.id_huesped === form.huespedId);
                       return (
                         <div style={{ gridColumn: '1 / -1', position: 'relative' }}>
-                          <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Huésped *</div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b' }}>Huésped *</div>
+                            {empresaActiva && (
+                              <div style={{ fontSize: 11, color: '#0369a1', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                {mostrarTodosHuespedes ? (
+                                  <>
+                                    <span style={{ color: '#94a3b8' }}>Mostrando todos</span>
+                                    <button type="button" onClick={() => setMostrarTodosHuespedes(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0369a1', fontSize: 11, padding: 0, textDecoration: 'underline' }}>
+                                      Ver solo colaboradores
+                                    </button>
+                                  </>
+                                ) : colaboradoresIds.length === 0 ? (
+                                  <span style={{ color: '#f59e0b', fontWeight: 500 }}>Sin colaboradores registrados —&nbsp;
+                                    <button type="button" onClick={() => setMostrarTodosHuespedes(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0369a1', fontSize: 11, padding: 0, textDecoration: 'underline' }}>
+                                      buscar en todos
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <>
+                                    <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 6px', fontWeight: 600 }}>{colaboradoresIds.length} colaborador{colaboradoresIds.length !== 1 ? 'es' : ''}</span>
+                                    <button type="button" onClick={() => setMostrarTodosHuespedes(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0369a1', fontSize: 11, padding: 0, textDecoration: 'underline' }}>
+                                      ver todos
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
 
                           {/* Input de búsqueda */}
                           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                             <span style={{ position: 'absolute', left: 10, fontSize: 14, color: '#94a3b8', pointerEvents: 'none' }}>🔍</span>
                             <input
                               type="text"
-                              placeholder={selectedGuest2 ? selectedGuest2.nombre_completo : 'Buscar por nombre, correo o teléfono…'}
+                              placeholder={
+                                selectedGuest2
+                                  ? selectedGuest2.nombre_completo
+                                  : empresaActiva && !mostrarTodosHuespedes && colaboradoresIds.length > 0
+                                    ? 'Filtrar colaboradores…'
+                                    : 'Buscar por nombre, correo o teléfono…'
+                              }
                               value={selectedGuest2 ? '' : guestQuery}
                               onFocus={() => { if (selectedGuest2) setGuestQuery(''); }}
                               onChange={e => {
@@ -2758,11 +2857,14 @@ export const Bookings: React.FC = () => {
                               <span style={{ fontSize: 12, fontWeight: 700, color: '#4f46e5' }}>✓ {selectedGuest2.nombre_completo}</span>
                               {selectedGuest2.correo && <span style={{ fontSize: 11, color: '#6366f1' }}>✉ {selectedGuest2.correo}</span>}
                               {selectedGuest2.telefono && <span style={{ fontSize: 11, color: '#6366f1' }}>📞 {selectedGuest2.telefono}</span>}
+                              {empresaActiva && !colaboradoresIds.includes(selectedGuest2.id_huesped) && (
+                                <span style={{ fontSize: 11, color: '#f59e0b', fontWeight: 500 }}>No es colaborador de la empresa</span>
+                              )}
                             </div>
                           )}
 
                           {/* Dropdown de resultados */}
-                          {!selectedGuest2 && guestQuery.trim().length > 0 && (
+                          {!selectedGuest2 && (guestQuery.trim().length > 0 || (empresaActiva && !mostrarTodosHuespedes && filtered.length > 0)) && (
                             <div style={{
                               position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
                               background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10,
@@ -2784,7 +2886,12 @@ export const Bookings: React.FC = () => {
                                   onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                                   onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                                 >
-                                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{h.nombre_completo}</div>
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    {h.nombre_completo}
+                                    {empresaActiva && colaboradoresIds.includes(h.id_huesped) && (
+                                      <span style={{ fontSize: 10, background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>colaborador</span>
+                                    )}
+                                  </div>
                                   <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
                                     {[h.correo, h.telefono, h.ciudad].filter(Boolean).join(' · ')}
                                   </div>
@@ -2831,35 +2938,112 @@ export const Bookings: React.FC = () => {
                       </>
                     )}
 
-                    {/* Habitación */}
-                    {/* Tipo de Reserva */}
-                    <div style={{ gridColumn: '1 / -1', marginTop: 4 }}>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 6 }}>Tipo de reserva</div>
-                      <div style={{ display: 'flex', gap: 16 }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
-                          <input
-                            type="radio"
-                            name="tipoReserva"
-                            value="noche"
-                            checked={form.tipoReserva === 'noche'}
-                            onChange={() => setForm(f => ({ ...f, tipoReserva: 'noche' }))}
-                          />
-                          Por Noche
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
-                          <input
-                            type="radio"
-                            name="tipoReserva"
-                            value="hora"
-                            checked={form.tipoReserva === 'hora'}
-                            onChange={() => setForm(f => ({ ...f, tipoReserva: 'hora' }))}
-                          />
-                          Por Horas
-                        </label>
-                      </div>
-                    </div>
+                    {/* Crédito */}
+                    <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '8px 10px', background: form.esCredito ? '#eff6ff' : '#f8fafc', borderRadius: 8, border: `1px solid ${form.esCredito ? '#bfdbfe' : '#e2e8f0'}` }}>
+                      <input
+                        type="checkbox"
+                        checked={form.esCredito}
+                        onChange={e => setForm(f => ({ ...f, esCredito: e.target.checked, empresaId: '', esCortesia: e.target.checked ? false : f.esCortesia }))}
+                      />
+                      <span style={{ fontSize: 12, color: form.esCredito ? '#1d4ed8' : '#64748b', fontWeight: form.esCredito ? 600 : 400 }}>Reserva a crédito empresarial</span>
+                    </label>
 
-                    {form.tipoReserva === 'hora' ? (() => {
+                    {/* Selector de empresa (solo si es crédito) */}
+                    {form.esCredito && (
+                      <div style={{ gridColumn: '1 / -1', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, padding: '14px 16px' }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#0369a1', marginBottom: 10 }}>🏢 Empresa a facturar</div>
+
+                        {!showNuevaEmpresa ? (
+                          <>
+                            <select
+                              value={form.empresaId}
+                              onChange={e => setForm(f => ({ ...f, empresaId: e.target.value }))}
+                              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #bae6fd', background: '#fff', fontSize: 13, marginBottom: 8 }}
+                            >
+                              <option value="">— Seleccionar empresa —</option>
+                              {empresas.map(emp => (
+                                <option key={emp.id_empresa} value={emp.id_empresa}>{emp.nombre}</option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => setShowNuevaEmpresa(true)}
+                              style={{ fontSize: 12, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                            >
+                              + Crear nueva empresa
+                            </button>
+                          </>
+                        ) : (
+                          <div style={{ display: 'grid', gap: 8 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                              <div>
+                                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>Nombre *</div>
+                                <input type="text" value={nuevaEmpresaNombre} onChange={e => setNuevaEmpresaNombre(e.target.value)} placeholder="Ej: Tecún S.A." style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #cbd5e1', fontSize: 13, boxSizing: 'border-box' }} />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>RTN (opcional)</div>
+                                <input type="text" value={nuevaEmpresaRtn} onChange={e => setNuevaEmpresaRtn(e.target.value)} placeholder="Ej: 0801-1990-12345" style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #cbd5e1', fontSize: 13, boxSizing: 'border-box' }} />
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button type="button" disabled={savingEmpresa || !nuevaEmpresaNombre.trim()} onClick={async () => {
+                                if (!nuevaEmpresaNombre.trim()) return;
+                                setSavingEmpresa(true);
+                                try {
+                                  const emp = await createEmpresa({ nombre: nuevaEmpresaNombre.trim(), rtn: nuevaEmpresaRtn.trim() || undefined });
+                                  setEmpresas(prev => [...prev, emp]);
+                                  setForm(f => ({ ...f, empresaId: emp.id_empresa }));
+                                  setShowNuevaEmpresa(false);
+                                  setNuevaEmpresaNombre('');
+                                  setNuevaEmpresaRtn('');
+                                } catch (e: any) {
+                                  showToast(e?.message ?? 'Error al crear empresa', 'err');
+                                } finally {
+                                  setSavingEmpresa(false);
+                                }
+                              }} style={{ flex: 1, padding: '8px 12px', borderRadius: 7, border: 'none', background: '#0369a1', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                                {savingEmpresa ? 'Guardando...' : 'Guardar empresa'}
+                              </button>
+                              <button type="button" onClick={() => { setShowNuevaEmpresa(false); setNuevaEmpresaNombre(''); setNuevaEmpresaRtn(''); }} style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid #cbd5e1', background: '#fff', fontSize: 12, cursor: 'pointer' }}>
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Cortesía */}
+                    {!form.esCredito && (
+                      <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '8px 10px', background: form.esCortesia ? '#f0fdf4' : '#f8fafc', borderRadius: 8, border: `1px solid ${form.esCortesia ? '#bbf7d0' : '#e2e8f0'}` }}>
+                        <input type="checkbox" checked={form.esCortesia} onChange={e => setForm(f => ({ ...f, esCortesia: e.target.checked }))} />
+                        <span style={{ fontSize: 12, color: form.esCortesia ? '#15803d' : '#64748b', fontWeight: form.esCortesia ? 600 : 400 }}>Cortesía (sin cobro)</span>
+                      </label>
+                    )}
+
+                  </div>{/* fin inner grid */}
+                  </div>{/* fin panel izquierdo */}
+
+                  {/* ── Panel derecho: tipo + fechas + personas + estado + obs ── */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                  {/* Tipo de Reserva */}
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 8 }}>Tipo de reserva</div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {(['noche', 'hora'] as const).map(tipo => (
+                        <button key={tipo} type="button"
+                          onClick={() => setForm(f => ({ ...f, tipoReserva: tipo }))}
+                          style={{ flex: 1, padding: '9px 12px', borderRadius: 9, border: form.tipoReserva === tipo ? '2px solid #4f46e5' : '1.5px solid #e2e8f0', background: form.tipoReserva === tipo ? 'linear-gradient(135deg,#eef2ff,#f5f3ff)' : '#fff', color: form.tipoReserva === tipo ? '#4f46e5' : '#64748b', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+                          {tipo === 'noche' ? 'Por Noche' : 'Por Horas'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Fechas */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {form.tipoReserva === 'hora' ? (() => {
                       const timeOptions = Array.from({ length: 48 }, (_, i) => {
                         const h = Math.floor(i / 2);
                         const m = i % 2 === 0 ? '00' : '30';
@@ -2897,310 +3081,95 @@ export const Bookings: React.FC = () => {
                         <>
                           <label style={{ gridColumn: '1 / -1' }}>
                             <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Fecha</div>
-                            <input
-                              type="date"
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                              value={form.fechaHoraDate}
-                              onChange={e => setForm(f => ({ ...f, fechaHoraDate: e.target.value }))}
-                            />
+                            <DatePicker value={form.fechaHoraDate} onChange={v => setForm(f => ({ ...f, fechaHoraDate: v }))} placeholder="Seleccionar fecha" />
                           </label>
                           <label>
                             <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Hora entrada</div>
-                            <select
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                              value={form.horaCheckIn}
-                              onChange={e => setForm(f => ({ ...f, horaCheckIn: e.target.value }))}
-                            >
-                              {timeOptions.map(opt => (
-                                <option key={opt.value} value={opt.value} disabled={isCheckInDisabled(opt.value)}>
-                                  {opt.label} {isCheckInDisabled(opt.value) ? '(Ocupado)' : ''}
-                                </option>
-                              ))}
+                            <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={form.horaCheckIn} onChange={e => setForm(f => ({ ...f, horaCheckIn: e.target.value }))}>
+                              {timeOptions.map(opt => <option key={opt.value} value={opt.value} disabled={isCheckInDisabled(opt.value)}>{opt.label}{isCheckInDisabled(opt.value) ? ' (Ocupado)' : ''}</option>)}
                             </select>
                           </label>
                           <label>
                             <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Hora salida</div>
-                            <select
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                              value={form.horaCheckOut}
-                              onChange={e => setForm(f => ({ ...f, horaCheckOut: e.target.value }))}
-                            >
-                              {timeOptions.map(opt => (
-                                <option key={opt.value} value={opt.value} disabled={isCheckOutDisabled(opt.value)}>
-                                  {opt.label} {isCheckOutDisabled(opt.value) ? '(Ocupado)' : ''}
-                                </option>
-                              ))}
+                            <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={form.horaCheckOut} onChange={e => setForm(f => ({ ...f, horaCheckOut: e.target.value }))}>
+                              {timeOptions.map(opt => <option key={opt.value} value={opt.value} disabled={isCheckOutDisabled(opt.value)}>{opt.label}{isCheckOutDisabled(opt.value) ? ' (Ocupado)' : ''}</option>)}
                             </select>
                           </label>
                         </>
                       );
                     })() : (
                       <>
-                        {/* Fecha entrada */}
                         <label>
                           <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Fecha entrada</div>
-                          <input
-                            type="date"
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                            value={getOnlyDate(form.checkIn)}
-                            onChange={e => {
-                              const d = e.target.value;
-                              setForm(f => ({
-                                ...f,
-                                checkIn: d + 'T14:00',
-                                checkOut: f.modoFechas === 'noches' ? checkOutFromNights(d + 'T14:00', f.noches) : f.checkOut,
-                              }));
-                            }}
-                          />
+                          <DatePicker value={getOnlyDate(form.checkIn)} onChange={d => setForm(f => ({ ...f, checkIn: d + 'T14:00', checkOut: f.modoFechas === 'noches' ? checkOutFromNights(d + 'T14:00', f.noches) : f.checkOut }))} placeholder="Fecha entrada" />
                         </label>
-
-                        {/* Modo estadía */}
                         <label>
                           <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Modo estadía</div>
-                          <select
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                            value={form.modoFechas}
-                            onChange={e => {
-                              const mode = e.target.value as EditorForm['modoFechas'];
-                              setForm(f => ({
-                                ...f,
-                                modoFechas: mode,
-                                checkOut: mode === 'noches' ? checkOutFromNights(f.checkIn, f.noches) : f.checkOut,
-                              }));
-                            }}
-                          >
+                          <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={form.modoFechas} onChange={e => { const mode = e.target.value as EditorForm['modoFechas']; setForm(f => ({ ...f, modoFechas: mode, checkOut: mode === 'noches' ? checkOutFromNights(f.checkIn, f.noches) : f.checkOut })); }}>
                             <option value="noches">Por noches</option>
                             <option value="rango">Por fecha salida</option>
                           </select>
                         </label>
-
-                        {/* Noches o fecha salida */}
                         {form.modoFechas === 'noches' ? (
                           <div style={{ gridColumn: '1 / -1' }}>
                             <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Noches</div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                              <button
-                                type="button"
-                                onClick={() => setForm(f => {
-                                  const n = Math.max(1, f.noches - 1);
-                                  return { ...f, noches: n, checkOut: checkOutFromNights(f.checkIn, n) };
-                                })}
-                                style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}
-                              >−</button>
+                              <button type="button" onClick={() => setForm(f => { const n = Math.max(1, f.noches - 1); return { ...f, noches: n, checkOut: checkOutFromNights(f.checkIn, n) }; })} style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}>−</button>
                               <span style={{ fontSize: 16, fontWeight: 700, minWidth: 30, textAlign: 'center' }}>{form.noches}</span>
-                              <button
-                                type="button"
-                                onClick={() => setForm(f => {
-                                  const n = f.noches + 1;
-                                  return { ...f, noches: n, checkOut: checkOutFromNights(f.checkIn, n) };
-                                })}
-                                style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}
-                              >+</button>
+                              <button type="button" onClick={() => setForm(f => { const n = f.noches + 1; return { ...f, noches: n, checkOut: checkOutFromNights(f.checkIn, n) }; })} style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}>+</button>
                               <span style={{ fontSize: 12, color: '#94a3b8' }}>Salida: {new Date(form.checkOut).toLocaleDateString('es-HN')}</span>
                             </div>
                           </div>
                         ) : (
                           <label>
                             <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Fecha salida</div>
-                            <input
-                              type="date"
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                              value={getOnlyDate(form.checkOut)}
-                              min={getOnlyDate(form.checkIn)}
-                              onChange={e => {
-                                const d = e.target.value + 'T12:00';
-                                setForm(f => ({ ...f, checkOut: d, noches: nightsBetween(f.checkIn, d) }));
-                              }}
-                            />
+                            <DatePicker value={getOnlyDate(form.checkOut)} min={getOnlyDate(form.checkIn)} onChange={v => { const d = v + 'T12:00'; setForm(f => ({ ...f, checkOut: d, noches: nightsBetween(f.checkIn, d) })); }} placeholder="Fecha salida" />
                           </label>
                         )}
                       </>
                     )}
+                  </div>{/* fin grid fechas */}
 
-                    {/* Adultos / Niños */}
+                  {/* Adultos / Niños */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     {(['adultos', 'ninos'] as const).map(field => (
                       <div key={field}>
-                        <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>
-                          {field === 'adultos' ? 'Adultos' : 'Niños'}
-                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>{field === 'adultos' ? 'Adultos' : 'Niños'}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <button
-                            type="button"
-                            onClick={() => setForm(f => ({ ...f, [field]: Math.max(field === 'adultos' ? 1 : 0, f[field] - 1) }))}
-                            style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}
-                          >−</button>
+                          <button type="button" onClick={() => setForm(f => ({ ...f, [field]: Math.max(field === 'adultos' ? 1 : 0, f[field] - 1) }))} style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}>−</button>
                           <span style={{ fontSize: 15, fontWeight: 700, minWidth: 24, textAlign: 'center' }}>{form[field]}</span>
-                          <button
-                            type="button"
-                            onClick={() => setForm(f => ({ ...f, [field]: f[field] + 1 }))}
-                            style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}
-                          >+</button>
+                          <button type="button" onClick={() => setForm(f => ({ ...f, [field]: f[field] + 1 }))} style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}>+</button>
                         </div>
                       </div>
                     ))}
-
-                    {/* Estado */}
-                    <label>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Estado</div>
-                      <select
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                        value={form.estado}
-                        onChange={e => setForm(f => ({ ...f, estado: e.target.value as EstadoReserva }))}
-                      >
-                        <option value="confirmada">Confirmada</option>
-                        <option value="pendiente">Pendiente</option>
-                        <option value="cancelada">Cancelada</option>
-                      </select>
-                    </label>
-
-                    {/* Observaciones */}
-                    <label style={{ gridColumn: '1 / -1' }}>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Observaciones</div>
-                      <input
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                        maxLength={200}
-                        placeholder="Nota breve (opcional)"
-                        value={form.observaciones}
-                        onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))}
-                      />
-                    </label>
-
-                    {/* Crédito */}
-                    <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={form.esCredito}
-                        onChange={e => setForm(f => ({ ...f, esCredito: e.target.checked, empresaId: '', esCortesia: e.target.checked ? false : f.esCortesia }))}
-                      />
-                      <span style={{ fontSize: 12, color: '#64748b' }}>Reserva a crédito empresarial</span>
-                    </label>
-
-                    {/* Selector de empresa (solo si es crédito) */}
-                    {form.esCredito && (
-                      <div style={{ gridColumn: '1 / -1', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, padding: '14px 16px' }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#0369a1', marginBottom: 10 }}>🏢 Empresa a facturar</div>
-
-                        {!showNuevaEmpresa ? (
-                          <>
-                            <select
-                              value={form.empresaId}
-                              onChange={e => setForm(f => ({ ...f, empresaId: e.target.value }))}
-                              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #bae6fd', background: '#fff', fontSize: 13, marginBottom: 8 }}
-                            >
-                              <option value="">— Seleccionar empresa —</option>
-                              {empresas.map(emp => (
-                                <option key={emp.id_empresa} value={emp.id_empresa}>{emp.nombre}</option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              onClick={() => setShowNuevaEmpresa(true)}
-                              style={{ fontSize: 12, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
-                            >
-                              + Crear nueva empresa
-                            </button>
-                          </>
-                        ) : (
-                          <div style={{ display: 'grid', gap: 8 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                              <div>
-                                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>Nombre *</div>
-                                <input
-                                  type="text"
-                                  value={nuevaEmpresaNombre}
-                                  onChange={e => setNuevaEmpresaNombre(e.target.value)}
-                                  placeholder="Ej: Tecún S.A."
-                                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #cbd5e1', fontSize: 13, boxSizing: 'border-box' }}
-                                />
-                              </div>
-                              <div>
-                                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>RTN (opcional)</div>
-                                <input
-                                  type="text"
-                                  value={nuevaEmpresaRtn}
-                                  onChange={e => setNuevaEmpresaRtn(e.target.value)}
-                                  placeholder="Ej: 0801-1990-12345"
-                                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #cbd5e1', fontSize: 13, boxSizing: 'border-box' }}
-                                />
-                              </div>
-                            </div>
-                            <div style={{ display: 'flex', gap: 8 }}>
-                              <button
-                                type="button"
-                                disabled={savingEmpresa || !nuevaEmpresaNombre.trim()}
-                                onClick={async () => {
-                                  if (!nuevaEmpresaNombre.trim()) return;
-                                  setSavingEmpresa(true);
-                                  try {
-                                    const emp = await createEmpresa({ nombre: nuevaEmpresaNombre.trim(), rtn: nuevaEmpresaRtn.trim() || undefined });
-                                    setEmpresas(prev => [...prev, emp]);
-                                    setForm(f => ({ ...f, empresaId: emp.id_empresa }));
-                                    setShowNuevaEmpresa(false);
-                                    setNuevaEmpresaNombre('');
-                                    setNuevaEmpresaRtn('');
-                                  } catch (e: any) {
-                                    showToast(e?.message ?? 'Error al crear empresa', 'err');
-                                  } finally {
-                                    setSavingEmpresa(false);
-                                  }
-                                }}
-                                style={{ flex: 1, padding: '8px 12px', borderRadius: 7, border: 'none', background: '#0369a1', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-                              >
-                                {savingEmpresa ? 'Guardando...' : 'Guardar empresa'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { setShowNuevaEmpresa(false); setNuevaEmpresaNombre(''); setNuevaEmpresaRtn(''); }}
-                                style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid #cbd5e1', background: '#fff', fontSize: 12, cursor: 'pointer' }}
-                              >
-                                Cancelar
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Cortesía */}
-                    {!form.esCredito && (
-                      <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={form.esCortesia}
-                          onChange={e => setForm(f => ({ ...f, esCortesia: e.target.checked }))}
-                        />
-                        <span style={{ fontSize: 12, color: '#64748b' }}>Cortesía (sin cobro)</span>
-                      </label>
-                    )}
-
-                    {/* Comodidades de la habitación */}
-                    <div style={{ gridColumn: '1 / -1', marginTop: 4 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 8 }}>Comodidades de la habitación</div>
-                      {(() => {
-                        const comodidades: string[] = (selectedHabitacion as any)?.comodidades ?? [];
-                        if (!selectedHabitacion) {
-                          return <div style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>Selecciona una habitación para ver sus comodidades.</div>;
-                        }
-                        if (comodidades.length === 0) {
-                          return <div style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>No hay comodidades registradas para esta habitación.</div>;
-                        }
-                        return (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                            {comodidades.map((c, i) => (
-                              <span key={i} style={{
-                                display: 'inline-flex', alignItems: 'center', gap: 4,
-                                padding: '4px 10px', borderRadius: 20,
-                                background: '#f0f9ff', border: '1px solid #bae6fd',
-                                fontSize: 11, fontWeight: 600, color: '#0369a1',
-                              }}>
-                                ✦ {c}
-                              </span>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                    </div>
                   </div>
+
+                  {/* Observaciones */}
+                  <label>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Observaciones</div>
+                    <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" maxLength={200} placeholder="Nota breve (opcional)" value={form.observaciones} onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))} />
+                  </label>
+
+                  </div>{/* fin panel derecho */}
+                  </div>{/* fin layout 2 paneles */}
+
+                  {/* Comodidades (ancho completo) */}
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #f1f5f9' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 8 }}>Comodidades de la habitación</div>
+                    {(() => {
+                      const comodidades: string[] = (selectedHabitacion as any)?.comodidades ?? [];
+                      if (!selectedHabitacion) return <div style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>Selecciona una habitación para ver sus comodidades.</div>;
+                      if (comodidades.length === 0) return <div style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>No hay comodidades registradas para esta habitación.</div>;
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {comodidades.map((c, i) => (
+                            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, background: '#f0f9ff', border: '1px solid #bae6fd', fontSize: 11, fontWeight: 600, color: '#0369a1' }}>✦ {c}</span>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                 </div>
               )}
 
@@ -3235,7 +3204,10 @@ export const Bookings: React.FC = () => {
                       boxShadow: active ? '0 4px 12px rgba(79,70,229,.12)' : '0 1px 3px rgba(0,0,0,.04)',
                       textAlign: 'left' as const, display: 'block', width: '100%',
                     });
-                    return (<>
+                    return (
+                    <div style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', gap: 24, alignItems: 'start' }}>
+                      {/* ── Izquierda: selector de tarifas ── */}
+                      <div>
                       {/* ── Sección: Modos de tarifa ── */}
                       <div style={{ marginBottom: 16 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>Esquema de cobro</div>
@@ -3355,28 +3327,32 @@ export const Bookings: React.FC = () => {
                         );
                       })()}
 
-                      {/* Desglose */}
-                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
-                        <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6 }}>Desglose de cobro</span>
-                        </div>
-                        {[
-                          { label: form.tipoReserva === 'hora' ? 'Subtotal por horas' : form.tipoReserva === 'pasadia' ? 'Subtotal pasadía' : `Subtotal (${form.noches} noche${form.noches !== 1 ? 's' : ''})`, value: `L ${rates.subtotalBruto.toFixed(2)}` },
-                          form.aplicarDescuento && form.tipoReserva === 'noche' ? { label: `Descuento tercera edad (${Math.round((hotelConfig?.descuento_tercera_edad ?? 25))}%)`, value: `− L ${rates.discount.toFixed(2)}`, color: '#16a34a' } : null,
-                          { label: `ISV (${(rates.isvRate * 100).toFixed(0)}%)`, value: `L ${rates.isv.toFixed(2)}` },
-                          { label: `Tasa Turística (${(rates.turisticaRate * 100).toFixed(0)}%)`, value: `L ${rates.tasaTuristica.toFixed(2)}` },
-                        ].filter(Boolean).map((row, i) => (
-                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', fontSize: 13, color: (row as any).color ?? '#64748b' }}>
-                            <span>{row!.label}</span>
-                            <span style={{ fontWeight: 500 }}>{row!.value}</span>
+                      </div>{/* fin izquierda */}
+
+                      {/* ── Derecha: desglose sticky ── */}
+                      <div style={{ position: 'sticky', top: 0 }}>
+                        <div style={{ border: '1.5px solid #e2e8f0', borderRadius: 14, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                          <div style={{ padding: '12px 16px', background: 'linear-gradient(135deg,#f8fafc,#f1f5f9)', borderBottom: '1px solid #e2e8f0' }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6 }}>Desglose de cobro</span>
                           </div>
-                        ))}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 16px', fontSize: 16, fontWeight: 800, color: '#1e293b', background: 'linear-gradient(135deg,#f8fafc 0%,#f1f5f9 100%)' }}>
-                          <span>Total a cobrar (HNL)</span>
-                          <span style={{ color: rates.total > 0 ? '#1e293b' : '#94a3b8' }}>{rates.total > 0 ? `L ${rates.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}` : '—'}</span>
+                          {[
+                            { label: form.tipoReserva === 'hora' ? 'Subtotal por horas' : form.tipoReserva === 'pasadia' ? 'Subtotal pasadía' : `Subtotal (${form.noches} noche${form.noches !== 1 ? 's' : ''})`, value: `L ${rates.subtotalBruto.toFixed(2)}` },
+                            form.aplicarDescuento && form.tipoReserva === 'noche' ? { label: `Descuento 3ª edad (${Math.round((hotelConfig?.descuento_tercera_edad ?? 25))}%)`, value: `− L ${rates.discount.toFixed(2)}`, color: '#16a34a' } : null,
+                            { label: `ISV (${(rates.isvRate * 100).toFixed(0)}%)`, value: `L ${rates.isv.toFixed(2)}` },
+                            { label: `Tasa Turística (${(rates.turisticaRate * 100).toFixed(0)}%)`, value: `L ${rates.tasaTuristica.toFixed(2)}` },
+                          ].filter(Boolean).map((row, i) => (
+                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', fontSize: 13, color: (row as any).color ?? '#64748b' }}>
+                              <span>{row!.label}</span>
+                              <span style={{ fontWeight: 500 }}>{row!.value}</span>
+                            </div>
+                          ))}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', fontSize: 17, fontWeight: 800, color: '#1e293b', background: 'linear-gradient(135deg,#f8fafc,#f1f5f9)' }}>
+                            <span>Total (HNL)</span>
+                            <span style={{ color: rates.total > 0 ? '#4f46e5' : '#94a3b8' }}>{rates.total > 0 ? `L ${rates.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}` : '—'}</span>
+                          </div>
                         </div>
                       </div>
-                    </>);
+                    </div>);
                   })()}
                 </div>
               )}
@@ -3476,6 +3452,113 @@ export const Bookings: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── Animación reserva exitosa ── */}
+      {successAnim && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 2000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none',
+        }}>
+          {/* Backdrop difuso */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'radial-gradient(ellipse at center, rgba(79,70,229,0.18) 0%, rgba(0,0,0,0.35) 100%)',
+            animation: 'fadeInOut 4.2s ease forwards',
+          }} />
+
+          {/* Tarjeta central */}
+          <div style={{
+            position: 'relative', zIndex: 1,
+            background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%)',
+            borderRadius: 24, padding: '44px 56px', textAlign: 'center',
+            boxShadow: '0 32px 80px rgba(79,70,229,0.45), 0 0 0 1px rgba(167,139,250,0.2)',
+            animation: 'successCardIn 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards',
+            minWidth: 340,
+          }}>
+            {/* Círculo con check */}
+            <div style={{
+              width: 80, height: 80, borderRadius: '50%',
+              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 20px',
+              boxShadow: '0 0 0 12px rgba(99,102,241,0.15), 0 0 40px rgba(139,92,246,0.4)',
+              animation: 'checkPop 0.4s 0.3s cubic-bezier(0.34,1.56,0.64,1) both',
+            }}>
+              <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+                <path d="M8 18L15 25L28 11" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ strokeDasharray: 30, strokeDashoffset: 30, animation: 'drawCheck 0.4s 0.5s ease forwards' }} />
+              </svg>
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8 }}>
+              Reserva registrada
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#ffffff', marginBottom: 6, lineHeight: 1.2 }}>
+              {successAnim.guestName}
+            </div>
+            {successAnim.habitacion && (
+              <div style={{ fontSize: 14, color: '#c4b5fd', marginBottom: 4 }}>
+                {successAnim.habitacion}
+              </div>
+            )}
+            {successAnim.noches > 0 && (
+              <div style={{ fontSize: 13, color: '#7c3aed', background: 'rgba(167,139,250,0.15)', borderRadius: 20, padding: '4px 14px', display: 'inline-block', marginTop: 6 }}>
+                {successAnim.noches} noche{successAnim.noches !== 1 ? 's' : ''}
+              </div>
+            )}
+
+            {/* Partículas */}
+            {[...Array(8)].map((_, i) => (
+              <div key={i} style={{
+                position: 'absolute',
+                width: 6 + (i % 3) * 3, height: 6 + (i % 3) * 3,
+                borderRadius: i % 2 === 0 ? '50%' : 3,
+                background: ['#818cf8','#a78bfa','#c4b5fd','#6366f1','#7c3aed','#8b5cf6','#a855f7','#c084fc'][i],
+                top: `${10 + (i * 11) % 70}%`,
+                left: `${5 + (i * 13) % 90}%`,
+                animation: `particleFly${i % 4} 0.9s ${0.2 + i * 0.07}s ease-out both`,
+              }} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes fadeInOut {
+          0%   { opacity: 0 }
+          15%  { opacity: 1 }
+          75%  { opacity: 1 }
+          100% { opacity: 0 }
+        }
+        @keyframes successCardIn {
+          from { opacity: 0; transform: scale(0.6) translateY(40px); }
+          to   { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        @keyframes checkPop {
+          from { transform: scale(0); }
+          to   { transform: scale(1); }
+        }
+        @keyframes drawCheck {
+          to { stroke-dashoffset: 0; }
+        }
+        @keyframes particleFly0 {
+          from { transform: translate(0,0) scale(0); opacity:1; }
+          to   { transform: translate(-28px,-52px) scale(1); opacity:0; }
+        }
+        @keyframes particleFly1 {
+          from { transform: translate(0,0) scale(0); opacity:1; }
+          to   { transform: translate(32px,-48px) scale(1); opacity:0; }
+        }
+        @keyframes particleFly2 {
+          from { transform: translate(0,0) scale(0); opacity:1; }
+          to   { transform: translate(-40px,36px) scale(1); opacity:0; }
+        }
+        @keyframes particleFly3 {
+          from { transform: translate(0,0) scale(0); opacity:1; }
+          to   { transform: translate(44px,40px) scale(1); opacity:0; }
+        }
+      `}</style>
 
       {/* ── Modal Confirmación Cancelación ── */}
       {cancelModalOpen && cancelModalData && (

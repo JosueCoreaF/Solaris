@@ -336,4 +336,45 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /api/tarifas/activa?id_tipo_habitacion=X&fecha=YYYY-MM-DD
+ * Devuelve la tarifa vigente para un tipo de habitación en una fecha dada.
+ * Prioridad: tarifa más específica (con vigente_hasta) sobre tarifa base (sin vigente_hasta).
+ * Si no hay ninguna activa, retorna null.
+ */
+router.get('/activa', async (req, res) => {
+  try {
+    const { id_tipo_habitacion, fecha } = req.query as { id_tipo_habitacion?: string; fecha?: string };
+    if (!id_tipo_habitacion) return res.status(400).json({ error: 'id_tipo_habitacion requerido' });
+
+    const fechaConsulta = fecha || new Date().toLocaleDateString('en-CA');
+
+    const { data, error } = await supabaseAdmin
+      .from('tarifas')
+      .select(`
+        id_tarifa, id_tipo_habitacion, id_categoria,
+        tarifa_noche, tarifa_hora, tarifa_pasadia,
+        vigente_desde, vigente_hasta, activa,
+        categorias_tarifa ( nombre )
+      `)
+      .eq('id_tipo_habitacion', id_tipo_habitacion)
+      .eq('activa', true)
+      .lte('vigente_desde', fechaConsulta)
+      .or(`vigente_hasta.is.null,vigente_hasta.gte.${fechaConsulta}`)
+      // Prioridad: la que vence antes primero (más específica)
+      .order('vigente_hasta', { ascending: true, nullsFirst: false });
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    // Tomar la más específica (vigente_hasta no nulo) o la base si solo hay esa
+    const tarifas = data ?? [];
+    const especifica = tarifas.find((t: any) => t.vigente_hasta != null);
+    const resultado  = especifica ?? tarifas[0] ?? null;
+
+    return res.json(resultado);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

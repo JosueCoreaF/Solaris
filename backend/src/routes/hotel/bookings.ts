@@ -252,20 +252,23 @@ export async function verificarPlanchasDisponibles(
 // GET /api/bookings/empresas
 router.get('/empresas', async (req, res) => {
   const { hotelIds } = await getOwnerIdAndRole(req);
+  const hotelId = req.headers['x-hotel-id'] as string;
+  const soloActivas = req.query.estado !== 'todos';
+
+  const SELECT = 'id_empresa, nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, direccion, limite_credito, dias_credito, estado, notas';
+
   if (!hotelIds.length) {
-    const hotelId = req.headers['x-hotel-id'] as string;
     if (!hotelId || hotelId === 'all') return res.status(401).json({ error: 'No autorizado' });
-    const { data, error } = await db()
-      .from('empresas')
-      .select('id_empresa, nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, limite_credito, dias_credito, estado')
-      .eq('id_hotel', hotelId).eq('estado', 'activo').order('nombre');
+    let q = db().from('empresas').select(SELECT).eq('id_hotel', hotelId).order('nombre');
+    if (soloActivas) q = q.eq('estado', 'activo');
+    const { data, error } = await q;
     if (error) return res.status(500).json({ error: error.message });
     return res.json(data ?? []);
   }
-  const { data, error } = await db()
-    .from('empresas')
-    .select('id_empresa, nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, limite_credito, dias_credito, estado')
-    .in('id_hotel', hotelIds).eq('estado', 'activo').order('nombre');
+
+  let q = db().from('empresas').select(SELECT).in('id_hotel', hotelIds).order('nombre');
+  if (soloActivas) q = q.eq('estado', 'activo');
+  const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
   return res.json(data ?? []);
 });
@@ -274,24 +277,179 @@ router.get('/empresas', async (req, res) => {
 router.post('/empresas', async (req, res) => {
   const hotelId = req.headers['x-hotel-id'] as string;
   if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
-  const { nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, limite_credito, dias_credito } = req.body;
+  const { nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, direccion, limite_credito, dias_credito, notas } = req.body;
   if (!nombre) return res.status(400).json({ error: 'nombre es requerido' });
   const { data, error } = await db()
     .from('empresas')
     .insert({
       id_hotel: hotelId,
       nombre,
-      rtn: rtn || null,
-      contacto_nombre: contacto_nombre || null,
+      rtn:               rtn               || null,
+      contacto_nombre:   contacto_nombre   || null,
       contacto_telefono: contacto_telefono || null,
-      contacto_correo: contacto_correo || null,
-      limite_credito: limite_credito ?? 0,
-      dias_credito: dias_credito ?? 30,
+      contacto_correo:   contacto_correo   || null,
+      direccion:         direccion         || null,
+      limite_credito:    limite_credito    ?? 0,
+      dias_credito:      dias_credito      ?? 30,
+      notas:             notas             || null,
       estado: 'activo',
     })
+    .select('id_empresa, nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, direccion, limite_credito, dias_credito, estado, notas')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.status(201).json(data);
+});
+
+// PUT /api/bookings/empresas/:id
+router.put('/empresas/:id', async (req, res) => {
+  const hotelId = req.headers['x-hotel-id'] as string;
+  if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
+  const { id } = req.params;
+  const { nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, direccion, limite_credito, dias_credito, estado, notas } = req.body;
+  if (!nombre) return res.status(400).json({ error: 'nombre es requerido' });
+  // Solo incluir campos que realmente vengan en el body (no sobreescribir con undefined)
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (nombre   !== undefined) updates.nombre             = nombre;
+  if (rtn      !== undefined) updates.rtn                = rtn      || null;
+  if (contacto_nombre   !== undefined) updates.contacto_nombre   = contacto_nombre   || null;
+  if (contacto_telefono !== undefined) updates.contacto_telefono = contacto_telefono || null;
+  if (contacto_correo   !== undefined) updates.contacto_correo   = contacto_correo   || null;
+  if (direccion         !== undefined) updates.direccion         = direccion         || null;
+  if (limite_credito    !== undefined) updates.limite_credito    = limite_credito;
+  if (dias_credito      !== undefined) updates.dias_credito      = dias_credito;
+  if (estado            !== undefined) updates.estado            = estado;
+  if (notas             !== undefined) updates.notas             = notas             || null;
+  const { data, error } = await db()
+    .from('empresas')
+    .update(updates)
+    .eq('id_empresa', id)
+    .eq('id_hotel', hotelId)
+    .select('id_empresa, nombre, rtn, contacto_nombre, contacto_telefono, contacto_correo, direccion, limite_credito, dias_credito, estado, notas')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data);
+});
+
+// DELETE /api/bookings/empresas/:id
+router.delete('/empresas/:id', async (req, res) => {
+  const hotelId = req.headers['x-hotel-id'] as string;
+  const { id } = req.params;
+  const { error } = await db()
+    .from('empresas')
+    .update({ estado: 'inactivo', updated_at: new Date().toISOString() })
+    .eq('id_empresa', id)
+    .eq('id_hotel', hotelId);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
+});
+
+// GET /api/bookings/empresas/creditos/alertas  — créditos próximos a vencer o vencidos
+router.get('/empresas/creditos/alertas', async (req, res) => {
+  const { hotelIds } = await getOwnerIdAndRole(req);
+  const hotelId = req.headers['x-hotel-id'] as string;
+  const ids = hotelIds.length ? hotelIds : hotelId && hotelId !== 'all' ? [hotelId] : [];
+  if (!ids.length) return res.json([]);
+  const hoy = new Date().toISOString().substring(0, 10);
+  const en7dias = new Date(Date.now() + 7 * 86400000).toISOString().substring(0, 10);
+  const { data, error } = await db()
+    .from('empresa_creditos')
+    .select('*, empresas(nombre, contacto_nombre, contacto_telefono)')
+    .in('id_hotel', ids)
+    .in('estado', ['activo'])
+    .lte('fecha_vencimiento', en7dias)
+    .order('fecha_vencimiento', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data ?? []);
+});
+
+// GET /api/bookings/empresas/:id/creditos
+router.get('/empresas/:id/creditos', async (req, res) => {
+  const hotelId = req.headers['x-hotel-id'] as string;
+  const { id } = req.params;
+  const { data, error } = await db()
+    .from('empresa_creditos')
+    .select('*, reservas_hotel(check_in, check_out, id_habitacion)')
+    .eq('id_empresa', id)
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data ?? []);
+});
+
+// POST /api/bookings/empresas/:id/creditos
+router.post('/empresas/:id/creditos', async (req, res) => {
+  const hotelId = req.headers['x-hotel-id'] as string;
+  if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
+  const { id } = req.params;
+  const { id_reserva, monto, fecha_emision, dias_credito, notas } = req.body;
+  if (!monto || monto <= 0) return res.status(400).json({ error: 'monto debe ser mayor a 0' });
+  const emision = fecha_emision ?? new Date().toISOString().substring(0, 10);
+  const diasV = dias_credito ?? 30;
+  const vencimiento = new Date(new Date(emision).getTime() + diasV * 86400000).toISOString().substring(0, 10);
+  const { data, error } = await db()
+    .from('empresa_creditos')
+    .insert({ id_empresa: id, id_hotel: hotelId, id_reserva: id_reserva ?? null, monto, saldo_restante: monto, fecha_emision: emision, fecha_vencimiento: vencimiento, notas: notas ?? null })
     .select().single();
   if (error) return res.status(500).json({ error: error.message });
   return res.status(201).json(data);
+});
+
+// PUT /api/bookings/empresas/:id/creditos/:cid
+router.put('/empresas/:id/creditos/:cid', async (req, res) => {
+  const hotelId = req.headers['x-hotel-id'] as string;
+  if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
+  const { id, cid } = req.params;
+  const { saldo_restante, estado, notas } = req.body;
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (saldo_restante !== undefined) updates.saldo_restante = saldo_restante;
+  if (estado         !== undefined) updates.estado         = estado;
+  if (notas          !== undefined) updates.notas          = notas || null;
+  const { data, error } = await db()
+    .from('empresa_creditos')
+    .update(updates)
+    .eq('id', cid)
+    .eq('id_empresa', id)
+    .eq('id_hotel', hotelId)
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data);
+});
+
+// GET /api/bookings/empresas/:id/colaboradores
+router.get('/empresas/:id/colaboradores', async (req, res) => {
+  const { id } = req.params;
+  const { data, error } = await db()
+    .from('empresa_colaboradores')
+    .select('*, huespedes(id_huesped, nombre_completo, correo, telefono, documento_identidad)')
+    .eq('id_empresa', id)
+    .eq('activo', true)
+    .order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data ?? []);
+});
+
+// POST /api/bookings/empresas/:id/colaboradores
+router.post('/empresas/:id/colaboradores', async (req, res) => {
+  const { id } = req.params;
+  const { id_huesped, cargo } = req.body;
+  if (!id_huesped) return res.status(400).json({ error: 'id_huesped requerido' });
+  const { data, error } = await db()
+    .from('empresa_colaboradores')
+    .upsert({ id_empresa: id, id_huesped, cargo: cargo ?? null, activo: true }, { onConflict: 'id_empresa,id_huesped' })
+    .select('*, huespedes(id_huesped, nombre_completo, correo, telefono)').single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.status(201).json(data);
+});
+
+// DELETE /api/bookings/empresas/:id/colaboradores/:hid
+router.delete('/empresas/:id/colaboradores/:hid', async (req, res) => {
+  const { id, hid } = req.params;
+  const { error } = await db()
+    .from('empresa_colaboradores')
+    .update({ activo: false })
+    .eq('id_empresa', id)
+    .eq('id_huesped', hid);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
 });
 
 // ─── Hoteles ─────────────────────────────────────────────────────────────────
@@ -363,6 +521,9 @@ router.get('/habitaciones', async (req, res) => {
 
   const { data, error } = await query.order('nombre_habitacion');
   if (error) return res.status(500).json({ error: error.message });
+
+  // tarifa_noche ya viene resuelta desde la vista habitaciones_con_detalles
+  // (base de habitacion_tarifas_periodo > campo estático)
   const result = (data ?? []).map((h: any) => ({
     ...h,
     hotel: h.hoteles?.nombre_hotel ?? '',
@@ -373,7 +534,7 @@ router.get('/habitaciones', async (req, res) => {
 
 // POST /api/bookings/habitaciones
 router.post('/habitaciones', async (req, res) => {
-  const { nombre_habitacion, nombre_alias, tipo, capacidad, tarifa_noche, estado, piso, id_hotel, numero_camas, imagenes, imagen_360, comodidades } = req.body;
+  const { nombre_habitacion, nombre_alias, tipo, capacidad, tarifa_noche, id_tarifa_default, estado, piso, id_hotel, numero_camas, imagenes, imagen_360, comodidades } = req.body;
   if (!nombre_habitacion || !id_hotel) {
     return res.status(400).json({ error: 'nombre_habitacion e id_hotel son requeridos' });
   }
@@ -423,6 +584,7 @@ router.post('/habitaciones', async (req, res) => {
       codigo_habitacion,
       capacidad,
       tarifa_noche,
+      id_tarifa_default: id_tarifa_default || null,
       estado: estado ?? 'disponible',
       piso,
       id_hotel,
@@ -467,7 +629,7 @@ router.post('/habitaciones', async (req, res) => {
 // PATCH y PUT /api/bookings/habitaciones/:id
 const updateHabitacionHandler = async (req: express.Request, res: express.Response) => {
   const { id } = req.params;
-  const { nombre_habitacion, nombre_alias, tipo, capacidad, tarifa_noche, estado, piso, id_hotel, numero_camas, imagenes, imagen_360, comodidades } = req.body;
+  const { nombre_habitacion, nombre_alias, tipo, capacidad, tarifa_noche, id_tarifa_default, estado, piso, id_hotel, numero_camas, imagenes, imagen_360, comodidades } = req.body;
 
   // Buscar id_tipo_habitacion filtrado por hotel (tipos son hotel-específicos)
   let id_tipo_habitacion = undefined;
@@ -497,6 +659,7 @@ const updateHabitacionHandler = async (req: express.Request, res: express.Respon
   if (nombre_alias !== undefined) updateFields.nombre_alias = nombre_alias || null;
   if (capacidad !== undefined) updateFields.capacidad = capacidad;
   if (tarifa_noche !== undefined) updateFields.tarifa_noche = tarifa_noche;
+  if (id_tarifa_default !== undefined) updateFields.id_tarifa_default = id_tarifa_default || null;
   if (estado !== undefined) updateFields.estado = estado;
   if (piso !== undefined) updateFields.piso = piso;
   if (id_hotel !== undefined) updateFields.id_hotel = id_hotel;
@@ -860,6 +1023,62 @@ router.post('/reservas', async (req, res) => {
   if (plancha)         servicios.push('Plancha');
   if (limpieza_diaria) servicios.push('Limpieza Diaria');
 
+  // Resolver tarifa activa para las fechas de la reserva.
+  // Prioridad: 1) período específico en habitacion_tarifas_periodo
+  //            2) tarifa base en habitacion_tarifas_periodo (es_base=true)
+  //            3) habitaciones.tarifa_noche como fallback final
+  let totalFinal = total_reserva ?? 0;
+  if (!totalFinal || totalFinal <= 0) {
+    try {
+      const fechaCI = typeof check_in === 'string' ? check_in.substring(0, 10) : check_in;
+
+      // 1. Buscar período activo específico para esta habitación y fecha
+      const { data: periodoActivo } = await db()
+        .from('habitacion_tarifas_periodo')
+        .select('tarifa_noche')
+        .eq('id_habitacion', id_habitacion)
+        .eq('es_base', false)
+        .lte('fecha_desde', fechaCI)
+        .or(`fecha_hasta.is.null,fecha_hasta.gte.${fechaCI}`)
+        .order('fecha_hasta', { ascending: true, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+
+      let tarifaNoche: number = 0;
+
+      if (periodoActivo?.tarifa_noche) {
+        tarifaNoche = Number(periodoActivo.tarifa_noche);
+      } else {
+        // 2. Tarifa base de la habitación
+        const { data: tarifaBase } = await db()
+          .from('habitacion_tarifas_periodo')
+          .select('tarifa_noche')
+          .eq('id_habitacion', id_habitacion)
+          .eq('es_base', true)
+          .maybeSingle();
+
+        if (tarifaBase?.tarifa_noche) {
+          tarifaNoche = Number(tarifaBase.tarifa_noche);
+        } else {
+          // 3. Fallback: tarifa_noche almacenada en la habitación
+          const { data: hab } = await db()
+            .from('habitaciones')
+            .select('tarifa_noche')
+            .eq('id_habitacion', id_habitacion)
+            .maybeSingle();
+          tarifaNoche = Number(hab?.tarifa_noche ?? 0);
+        }
+      }
+
+      if (tarifaNoche > 0) {
+        const noches = Math.max(1, Math.round(
+          (new Date(check_out).getTime() - new Date(check_in).getTime()) / 86400000
+        ));
+        totalFinal = tarifaNoche * noches;
+      }
+    } catch (_) { /* Silencioso — usar valor del frontend */ }
+  }
+
   // Llamada atómica: valida disponibilidad + inserta reserva + inserta servicios
   const { data: rpcResult, error: rpcError } = await db()
     .rpc('fn_crear_reserva_completa', {
@@ -871,7 +1090,7 @@ router.post('/reservas', async (req, res) => {
       p_adultos:       adultos  ?? 1,
       p_ninos:         ninos    ?? 0,
       p_estado:        estado   ?? 'confirmada',
-      p_total_reserva: total_reserva ?? 0,
+      p_total_reserva: totalFinal,
       p_moneda:        moneda   ?? 'HNL',
       p_observaciones: observaciones ?? null,
       p_estado_pago:   mapEstadoPago(estado_pago, es_cortesia ?? false, id_empresa ?? null),
@@ -895,6 +1114,28 @@ router.post('/reservas', async (req, res) => {
   if (token && id_reserva_hotel) {
     const { email } = getInfoFromToken(token);
     if (email) patchAuditUser(id_reserva_hotel, email);
+  }
+
+  // Crear crédito empresarial automáticamente cuando la reserva tiene empresa
+  if (id_empresa && id_reserva_hotel && id_hotel && totalFinal > 0) {
+    (async () => {
+      try {
+        const { data: emp } = await db()
+          .from('empresas').select('dias_credito').eq('id_empresa', id_empresa).maybeSingle();
+        const diasV = emp?.dias_credito ?? 30;
+        const checkOutDate = typeof check_out === 'string' ? check_out.substring(0, 10) : new Date(check_out).toISOString().substring(0, 10);
+        const vencimiento = new Date(new Date(checkOutDate).getTime() + diasV * 86400000).toISOString().substring(0, 10);
+        await db().from('empresa_creditos').insert({
+          id_empresa,
+          id_hotel,
+          id_reserva: id_reserva_hotel,
+          monto: totalFinal,
+          saldo_restante: totalFinal,
+          fecha_emision: new Date().toISOString().substring(0, 10),
+          fecha_vencimiento: vencimiento,
+        });
+      } catch (_) { /* no bloquea la respuesta */ }
+    })();
   }
 
   // Enviar correos de confirmación de forma asíncrona (no bloquea la respuesta)
@@ -950,7 +1191,7 @@ router.patch('/reservas/:id', async (req, res) => {
   // Obtener los datos existentes de la reserva
   const { data: reservaExistente } = await db()
     .from('reservas_hotel')
-    .select('check_in, check_out, estado, id_habitacion, es_cortesia, id_empresa')
+    .select('check_in, check_out, estado, id_habitacion, es_cortesia, id_empresa, monto_total')
     .eq('id_reserva_hotel', id)
     .single();
 
@@ -1094,6 +1335,47 @@ router.patch('/reservas/:id', async (req, res) => {
 
   const token = extractToken(req);
   if (token) { const { email } = getInfoFromToken(token); if (email) patchAuditUser(id, email); }
+
+  // Auto-crear crédito cuando se asigna empresa por primera vez en edición
+  const nuevaEmpresa = updates.id_empresa;
+  const empresaAnterior = (reservaExistente as any).id_empresa;
+  if (nuevaEmpresa && !empresaAnterior) {
+    const hotelId = req.headers['x-hotel-id'] as string;
+    if (hotelId && hotelId !== 'all') {
+      (async () => {
+        try {
+          const { data: existingCredit } = await db()
+            .from('empresa_creditos')
+            .select('id')
+            .eq('id_reserva', id)
+            .maybeSingle();
+          if (existingCredit) return;
+
+          const { data: emp } = await db()
+            .from('empresas')
+            .select('dias_credito')
+            .eq('id_empresa', nuevaEmpresa)
+            .maybeSingle();
+
+          const diasV = emp?.dias_credito ?? 30;
+          const checkOutDate = (updates.check_out ?? (reservaExistente as any).check_out ?? '').substring(0, 10);
+          const vencimiento = new Date(new Date(checkOutDate).getTime() + diasV * 86400000).toISOString().substring(0, 10);
+          const totalFinal = updates.monto_total ?? (reservaExistente as any).monto_total ?? 0;
+          if (totalFinal > 0 && checkOutDate) {
+            await db().from('empresa_creditos').insert({
+              id_empresa: nuevaEmpresa,
+              id_hotel: hotelId,
+              id_reserva: id,
+              monto: totalFinal,
+              saldo_restante: totalFinal,
+              fecha_emision: new Date().toISOString().substring(0, 10),
+              fecha_vencimiento: vencimiento,
+            });
+          }
+        } catch (_) {}
+      })();
+    }
+  }
 
   return res.json({ success: true });
 });
@@ -1989,6 +2271,182 @@ router.post('/bulk-import', async (req, res) => {
     return res.json({ success: true, ...resultados });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Tarifas por período para habitaciones individuales ──────────────────────
+
+/**
+ * GET /api/bookings/habitaciones/:id/tarifas-periodo
+ * Lista TODOS los períodos de una habitación (activos, próximos y vencidos).
+ */
+router.get('/habitaciones/:id/tarifas-periodo', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data, error } = await db()
+      .from('habitacion_tarifas_periodo')
+      .select('*, tarifas(id_tarifa, tarifa_noche, categorias_tarifa(nombre))')
+      .eq('id_habitacion', id)
+      .order('es_base', { ascending: false })        // base primero
+      .order('fecha_desde', { ascending: false });   // luego más recientes
+
+    if (error) return res.status(400).json({ error: error.message });
+    return res.json(data ?? []);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/bookings/habitaciones/:id/tarifas-periodo
+ * Crea un nuevo período de tarifa. Valida que no se solape con períodos existentes.
+ */
+router.post('/habitaciones/:id/tarifas-periodo', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre_periodo, id_tarifa, tarifa_noche, fecha_desde, fecha_hasta, es_base } = req.body;
+
+    if (!tarifa_noche || Number(tarifa_noche) < 0) {
+      return res.status(400).json({ error: 'tarifa_noche es requerida y debe ser >= 0' });
+    }
+    if (!es_base && !fecha_desde) {
+      return res.status(400).json({ error: 'fecha_desde es requerida para períodos no base' });
+    }
+
+    // Verificar solapamiento con períodos existentes (solo para no-base)
+    if (!es_base && fecha_desde) {
+      const { data: existentes } = await db()
+        .from('habitacion_tarifas_periodo')
+        .select('id, fecha_desde, fecha_hasta, nombre_periodo')
+        .eq('id_habitacion', id)
+        .eq('es_base', false);
+
+      const nuevo_desde = new Date(fecha_desde);
+      const nuevo_hasta = fecha_hasta ? new Date(fecha_hasta) : null;
+
+      const solapado = (existentes ?? []).find((p: any) => {
+        const p_desde = new Date(p.fecha_desde);
+        const p_hasta  = p.fecha_hasta ? new Date(p.fecha_hasta) : null;
+
+        // Se solapan si los rangos se intersectan
+        const inicio_antes = !nuevo_hasta || p_desde <= nuevo_hasta;
+        const fin_despues  = !p_hasta    || p_hasta >= nuevo_desde;
+        return inicio_antes && fin_despues;
+      });
+
+      if (solapado) {
+        return res.status(400).json({
+          error: `El período se solapa con "${solapado.nombre_periodo || 'otro período'}" (${solapado.fecha_desde}${solapado.fecha_hasta ? ' → ' + solapado.fecha_hasta : ''})`,
+        });
+      }
+    }
+
+    const { data, error } = await db()
+      .from('habitacion_tarifas_periodo')
+      .insert({
+        id_habitacion:  id,
+        id_tarifa:      id_tarifa || null,
+        tarifa_noche:   Number(tarifa_noche),
+        nombre_periodo: nombre_periodo || null,
+        fecha_desde:    es_base ? null : fecha_desde,
+        fecha_hasta:    fecha_hasta || null,
+        es_base:        !!es_base,
+      })
+      .select()
+      .single();
+
+    if (error) return res.status(400).json({ error: error.message });
+    return res.status(201).json(data);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * PUT /api/bookings/habitaciones/:id/tarifas-periodo/:pid
+ * Actualiza un período. Revalida solapamiento.
+ */
+router.put('/habitaciones/:id/tarifas-periodo/:pid', async (req, res) => {
+  try {
+    const { id, pid } = req.params;
+    const { nombre_periodo, id_tarifa, tarifa_noche, fecha_desde, fecha_hasta } = req.body;
+
+    // Obtener el período actual para saber si es_base
+    const { data: actual } = await db()
+      .from('habitacion_tarifas_periodo')
+      .select('es_base')
+      .eq('id', pid)
+      .eq('id_habitacion', id)
+      .single();
+
+    if (!actual) return res.status(404).json({ error: 'Período no encontrado' });
+
+    // Verificar solapamiento (excluir el propio período del check)
+    if (!actual.es_base && fecha_desde) {
+      const { data: existentes } = await db()
+        .from('habitacion_tarifas_periodo')
+        .select('id, fecha_desde, fecha_hasta, nombre_periodo')
+        .eq('id_habitacion', id)
+        .eq('es_base', false)
+        .neq('id', pid);
+
+      const nuevo_desde = new Date(fecha_desde);
+      const nuevo_hasta = fecha_hasta ? new Date(fecha_hasta) : null;
+
+      const solapado = (existentes ?? []).find((p: any) => {
+        const p_desde = new Date(p.fecha_desde);
+        const p_hasta  = p.fecha_hasta ? new Date(p.fecha_hasta) : null;
+        return (!nuevo_hasta || p_desde <= nuevo_hasta) && (!p_hasta || p_hasta >= nuevo_desde);
+      });
+
+      if (solapado) {
+        return res.status(400).json({
+          error: `El período se solapa con "${solapado.nombre_periodo || 'otro período'}" (${solapado.fecha_desde}${solapado.fecha_hasta ? ' → ' + solapado.fecha_hasta : ''})`,
+        });
+      }
+    }
+
+    const updates: any = { updated_at: new Date().toISOString() };
+    if (nombre_periodo !== undefined) updates.nombre_periodo = nombre_periodo || null;
+    if (id_tarifa      !== undefined) updates.id_tarifa      = id_tarifa || null;
+    if (tarifa_noche   !== undefined) updates.tarifa_noche   = Number(tarifa_noche);
+    if (!actual.es_base) {
+      if (fecha_desde !== undefined) updates.fecha_desde = fecha_desde || null;
+      if (fecha_hasta !== undefined) updates.fecha_hasta = fecha_hasta || null;
+    }
+
+    const { data, error } = await db()
+      .from('habitacion_tarifas_periodo')
+      .update(updates)
+      .eq('id', pid)
+      .eq('id_habitacion', id)
+      .select()
+      .single();
+
+    if (error) return res.status(400).json({ error: error.message });
+    return res.json(data);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * DELETE /api/bookings/habitaciones/:id/tarifas-periodo/:pid
+ * Elimina un período (no se puede eliminar la tarifa base si es la única).
+ */
+router.delete('/habitaciones/:id/tarifas-periodo/:pid', async (req, res) => {
+  try {
+    const { id, pid } = req.params;
+    const { error } = await db()
+      .from('habitacion_tarifas_periodo')
+      .delete()
+      .eq('id', pid)
+      .eq('id_habitacion', id);
+
+    if (error) return res.status(400).json({ error: error.message });
+    return res.json({ ok: true });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
   }
 });
 

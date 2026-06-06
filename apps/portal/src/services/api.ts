@@ -37,6 +37,25 @@ export async function registrarHuesped(data: { nombre_completo: string; correo: 
   return body;
 }
 
+export async function fetchTarifaHabitacion(
+  idHabitacion: string,
+  fecha: string,
+  checkIn?: string,
+  checkOut?: string,
+): Promise<{ tarifa_noche: number; total_tarifas?: number; es_periodo: boolean; nombre_periodo: string | null }> {
+  const queryObj: Record<string, string> = { id_habitacion: idHabitacion };
+  if (checkIn && checkOut) {
+    queryObj.checkIn = checkIn;
+    queryObj.checkOut = checkOut;
+  } else {
+    queryObj.fecha = fecha;
+  }
+  const params = new URLSearchParams(queryObj);
+  const res = await fetch(`${BASE}/tarifa-habitacion?${params}`);
+  if (!res.ok) throw new Error('Error al obtener tarifa');
+  return res.json();
+}
+
 export async function crearSolicitudReserva(payload: Record<string, any>) {
   const res = await fetch(`${BASE}/solicitud-reserva`, {
     method: 'POST',

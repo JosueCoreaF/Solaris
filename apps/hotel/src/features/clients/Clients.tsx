@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, UserPlus, RefreshCw, User, Phone, MapPin, Mail, CreditCard, ChevronRight } from 'lucide-react';
+import { supabase } from '../../api/supabase';
 
 /* ─── Tipos ──────────────────────────────────────────────── */
 interface Huesped {
@@ -20,12 +21,7 @@ async function getHeaders(contentType = false): Promise<Record<string, string>> 
   const headers: Record<string, string> = { 'X-Hotel-ID': activeHotelId };
   if (contentType) headers['Content-Type'] = 'application/json';
   try {
-    const { createClient } = await import('@supabase/supabase-js');
-    const sb = createClient(
-      import.meta.env.VITE_SUPABASE_URL,
-      import.meta.env.VITE_SUPABASE_ANON_KEY
-    );
-    const { data } = await sb.auth.getSession();
+    const { data } = await supabase.auth.getSession();
     if (data.session?.access_token) headers['Authorization'] = `Bearer ${data.session.access_token}`;
   } catch (_) {}
   return headers;

@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 
-const API_BASE = 'http://localhost:4000/api/users';
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api') + '/users';
 
 export interface UserProfile {
   id: string;

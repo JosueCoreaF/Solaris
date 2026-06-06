@@ -21,6 +21,7 @@ import {
   FileText
 } from 'lucide-react';
 import { supabase } from '../../api/supabase';
+import { DateRangePicker } from '../../components/DatePicker';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
@@ -281,32 +282,14 @@ export const ExportadorDatos: React.FC = () => {
                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
                       Filtrar por Rango (Opcional)
                     </span>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-[10px] text-slate-500 font-medium block mb-1">Desde</label>
-                        <input
-                          type="date"
-                          value={df.desde}
-                          onChange={e => setDateFilters(prev => ({
-                            ...prev,
-                            [mod.endpoint]: { ...prev[mod.endpoint], desde: e.target.value }
-                          }))}
-                          className="w-full px-3 py-1.5 rounded-lg border border-slate-200 bg-white/90 text-slate-800 text-xs outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/10 transition-all font-sans"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-slate-500 font-medium block mb-1">Hasta</label>
-                        <input
-                          type="date"
-                          value={df.hasta}
-                          onChange={e => setDateFilters(prev => ({
-                            ...prev,
-                            [mod.endpoint]: { ...prev[mod.endpoint], hasta: e.target.value }
-                          }))}
-                          className="w-full px-3 py-1.5 rounded-lg border border-slate-200 bg-white/90 text-slate-800 text-xs outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/10 transition-all font-sans"
-                        />
-                      </div>
-                    </div>
+                    <DateRangePicker
+                      from={df.desde}
+                      to={df.hasta}
+                      onFromChange={v => setDateFilters(prev => ({ ...prev, [mod.endpoint]: { ...prev[mod.endpoint], desde: v } }))}
+                      onToChange={v => setDateFilters(prev => ({ ...prev, [mod.endpoint]: { ...prev[mod.endpoint], hasta: v } }))}
+                      placeholderFrom="Desde" placeholderTo="Hasta"
+                      direction="row" gap={8}
+                    />
                   </div>
                 )}
               </div>
