@@ -19,6 +19,7 @@ import tarifasRouter from './routes/hotel/tarifas.js';
 import reportesRouter from './routes/hotel/reportes.js';
 import finanzasRouter from './routes/hotel/finanzas.js';
 import chatRouter, { setIO } from './routes/hotel/chat.js';
+import hubAdminRouter from './routes/hub-admin.js';
 import gymRouter from './routes/gym/index.js';
 import restaurantRouter from './routes/restaurant/index.js';
 import { startExchangeRateScheduler } from './utils/exchangeRateUpdater.js';
@@ -63,12 +64,14 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 import billingRouter from './routes/billing.js';
 import supportRouter from './routes/support.js';
 
-// Rutas que necesitan raw body (Stripe Webhook) deben ir antes de express.json()
+// Rutas que necesitan raw body (Stripe Webhook) deben ir ANTES de express.json()
 app.use('/api/hub/billing', billingRouter);
-app.use('/api/hub/support', supportRouter);
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+app.use('/api/hub/support', supportRouter);
+app.use('/api/hub/admin', hubAdminRouter);
 
 
 // Health Check

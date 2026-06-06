@@ -1,6 +1,71 @@
 import express from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 
+/**
+ * Middleware: bloquea el acceso si el owner tiene estado 'suspendido' o 'inactivo'.
+ * También bloquea a usuarios cuyo token fue revocado (usuario eliminado → 401).
+ */
+export async function checkAccountStatus(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
+  const user = await getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  // Buscar el estado del owner: primero como propietario directo, luego como staff
+  let estado: string | null = null;
+
+  const { data: owner } = await supabaseAdmin!
+    .from('owners')
+    .select('estado')
+    .eq('id_owner', user.id)
+    .maybeSingle();
+
+  if (owner?.estado) {
+    estado = owner.estado;
+  } else {
+    const { data: role } = await supabaseAdmin!
+      .from('usuarios_roles')
+      .select('owner_id')
+      .eq('user_id', user.id)
+      .eq('estado', 'activo')
+      .limit(1)
+      .maybeSingle();
+
+    if (role?.owner_id) {
+      const { data: ownerData } = await supabaseAdmin!
+        .from('owners')
+        .select('estado')
+        .eq('id_owner', role.owner_id)
+        .maybeSingle();
+      estado = ownerData?.estado ?? null;
+    }
+  }
+
+  if (estado === 'suspendido') {
+    res.status(403).json({
+      error: 'ACCOUNT_SUSPENDED',
+      message: 'Tu cuenta ha sido suspendida. Contacta con soporte para más información.',
+    });
+    return;
+  }
+
+  if (estado === 'inactivo') {
+    res.status(403).json({
+      error: 'ACCOUNT_INACTIVE',
+      message: 'Tu cuenta está inactiva.',
+    });
+    return;
+  }
+
+  (req as any).authUser = user;
+  next();
+}
+
 export async function getAuthUser(req: express.Request) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) return null;

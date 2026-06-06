@@ -5,13 +5,16 @@ import type { UserRole } from '../hooks/useRole';
 
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
+export type AccountBlockedReason = 'ACCOUNT_SUSPENDED' | 'ACCOUNT_INACTIVE' | 'INVALID_SESSION' | null;
+
 interface AuthContextValue {
-  session:     Session | null;
-  user:        User | null;
-  loading:     boolean;
-  role:        UserRole;
-  loadingRole: boolean;
-  refreshRole: () => Promise<void>;
+  session:        Session | null;
+  user:           User | null;
+  loading:        boolean;
+  role:           UserRole;
+  loadingRole:    boolean;
+  accountBlocked: AccountBlockedReason;
+  refreshRole:    () => Promise<void>;
   signIn:  (email: string, password: string) => Promise<{ error: string | null }>;
   signUp:  (email: string, password: string, metadata?: Record<string, any>) => Promise<{ error: string | null; user_id?: string }>;
   signOut: () => Promise<void>;
@@ -32,14 +35,33 @@ async function fetchRole(token: string): Promise<UserRole> {
   }
 }
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [session,     setSession]     = useState<Session | null>(null);
-  const [user,        setUser]        = useState<User | null>(null);
-  const [loading,     setLoading]     = useState(true);
-  const [role,        setRole]        = useState<UserRole>('INVITADO');
-  const [loadingRole, setLoadingRole] = useState(false);
+async function fetchAccountStatus(token: string): Promise<AccountBlockedReason> {
+  try {
+    const res = await fetch(`${API}/hotel/account-status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) return null;
+    if (res.status === 403) {
+      const data = await res.json();
+      const code = data.error;
+      if (code === 'ACCOUNT_SUSPENDED' || code === 'ACCOUNT_INACTIVE') {
+        return code as AccountBlockedReason;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
-  // Fetcha el rol desde el backend con el token de sesión actual
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [session,        setSession]        = useState<Session | null>(null);
+  const [user,           setUser]           = useState<User | null>(null);
+  const [loading,        setLoading]        = useState(true);
+  const [role,           setRole]           = useState<UserRole>('INVITADO');
+  const [loadingRole,    setLoadingRole]    = useState(false);
+  const [accountBlocked, setAccountBlocked] = useState<AccountBlockedReason>(null);
+
   const refreshRole = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
@@ -50,6 +72,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoadingRole(false);
   }, []);
 
+  // Escuchar el evento que dispara el interceptor de Axios cuando llega un 403/401 de bloqueo
+  useEffect(() => {
+    const handleBlocked = (e: Event) => {
+      const { reason } = (e as CustomEvent<{ reason: AccountBlockedReason }>).detail;
+      setAccountBlocked(reason);
+    };
+    window.addEventListener('solarys:account-blocked', handleBlocked);
+    return () => window.removeEventListener('solarys:account-blocked', handleBlocked);
+  }, []);
+
   useEffect(() => {
     const init = async () => {
       const params       = new URLSearchParams(window.location.search);
@@ -57,7 +89,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const refreshToken = params.get('refresh_token');
       const hotelId      = params.get('hotel_id') || params.get('business_id');
 
-      if (hotelId) localStorage.setItem('active_hotel_id', hotelId);
+      if (hotelId) {
+        localStorage.setItem('active_hotel_id', hotelId);
+      } else if (accessToken) {
+        localStorage.removeItem('active_hotel_id');
+      }
       if (accessToken || refreshToken || hotelId) {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
@@ -82,28 +118,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setSession(activeSession);
       setUser(activeSession?.user ?? null);
-      setLoading(false);
 
       if (activeSession?.access_token) {
-        setLoadingRole(true);
-        const fetched = await fetchRole(activeSession.access_token);
-        setRole(fetched);
-        setLoadingRole(false);
+        // Verificar estado antes de bajar loading — evita que SyncProvider
+        // monte y haga requests mientras la cuenta está bloqueada.
+        const blocked = await fetchAccountStatus(activeSession.access_token);
+        setAccountBlocked(blocked);
+
+        if (!blocked) {
+          setLoadingRole(true);
+          const fetched = await fetchRole(activeSession.access_token);
+          setRole(fetched);
+          setLoadingRole(false);
+        }
       }
+
+      setLoading(false);
     };
 
     init();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, s) => {
+    const { data: listener } = supabase.auth.onAuthStateChange(async (event, s) => {
+      // INITIAL_SESSION y TOKEN_REFRESHED no requieren re-chequear el estado
+      // de la cuenta: el primero ya lo maneja init(), el segundo es solo
+      // renovación silenciosa del JWT.
+      if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
+        setSession(s);
+        setUser(s?.user ?? null);
+        return;
+      }
+
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.access_token) {
-        setLoadingRole(true);
-        const fetched = await fetchRole(s.access_token);
-        setRole(fetched);
-        setLoadingRole(false);
+        const blocked = await fetchAccountStatus(s.access_token);
+        setAccountBlocked(blocked);
+        if (!blocked) {
+          setLoadingRole(true);
+          const fetched = await fetchRole(s.access_token);
+          setRole(fetched);
+          setLoadingRole(false);
+        }
       } else {
         setRole('INVITADO');
+        setAccountBlocked(null);
       }
     });
 
@@ -156,13 +214,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     localStorage.removeItem('autoLoginSession');
     setRole('INVITADO');
+    setAccountBlocked(null);
     await supabase.auth.signOut();
   };
 
   return (
     <AuthContext.Provider value={{
       session, user, loading,
-      role, loadingRole, refreshRole,
+      role, loadingRole, accountBlocked,
+      refreshRole,
       signIn, signUp, signOut,
     }}>
       {children}

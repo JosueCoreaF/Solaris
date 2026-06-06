@@ -33,7 +33,14 @@ axiosInstance.interceptors.response.use(
     return response;
   },
   (error) => {
-    console.error('🌐 [API Error]:', error.config?.url, error.message);
+    const code = error.response?.data?.error;
+    if (code === 'ACCOUNT_SUSPENDED' || code === 'ACCOUNT_INACTIVE') {
+      window.dispatchEvent(new CustomEvent('solarys:account-blocked', {
+        detail: { reason: code, message: error.response?.data?.message ?? '' },
+      }));
+    } else {
+      console.error('🌐 [API Error]:', error.config?.url, error.message);
+    }
     return Promise.reject(error);
   }
 );

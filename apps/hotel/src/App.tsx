@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { SyncProvider } from './context/SyncContext';
+import { AccountBlockedScreen } from './components/AccountBlockedScreen';
 import { AuthGuard, GuestGuard } from './components/AuthGuard';
 import { RoleGuard } from './components/RoleGuard';
 import { Layout } from './components/Layout';
@@ -39,19 +40,35 @@ const Guarded: React.FC<{ path: string; children: React.ReactNode }> = ({ path, 
   </RoleGuard>
 );
 
-export const App: React.FC = () => {
+// Contenido interno del app — separado para poder usar useAuth() dentro de AuthProvider
+const AppContent: React.FC = () => {
+  const { accountBlocked, loading, signOut } = useAuth();
+
   useEffect(() => {
     apiClient.get('/health-check')
       .then(res => console.log('[Health Check]:', res))
       .catch(err => console.error('[Health Check Error]:', err));
   }, []);
 
+  // Esperar a que la sesión esté lista antes de montar el resto de la app.
+  // Evita que SyncContext y otros hagan requests antes de que el JWT esté disponible.
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (accountBlocked) {
+    return <AccountBlockedScreen reason={accountBlocked} onSignOut={signOut} />;
+  }
+
   return (
-    <AuthProvider>
-      <SyncProvider>
-        <FinanceAIProvider>
-          <ToastProvider>
-            <Router>
+    <SyncProvider>
+      <FinanceAIProvider>
+        <ToastProvider>
+          <Router>
               <Routes>
                 {/* Rutas públicas */}
                 <Route path="/login"    element={<GuestGuard><Login /></GuestGuard>} />
@@ -128,6 +145,11 @@ export const App: React.FC = () => {
           </ToastProvider>
         </FinanceAIProvider>
       </SyncProvider>
-    </AuthProvider>
   );
 };
+
+export const App: React.FC = () => (
+  <AuthProvider>
+    <AppContent />
+  </AuthProvider>
+);
