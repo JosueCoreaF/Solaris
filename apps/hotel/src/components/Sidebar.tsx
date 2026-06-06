@@ -193,6 +193,10 @@ export const Sidebar: React.FC = () => {
             const firstId = data[0].id_hotel;
             localStorage.setItem('active_hotel_id', firstId);
             setActiveHotelId(firstId);
+            // Recargar para que todos los componentes usen el hotel correcto.
+            // Sin esto, Dashboard y otros que ya iniciaron peticiones con el ID
+            // antiguo mostrarían datos del usuario anterior.
+            window.location.reload();
           } else if (current && current !== 'all') {
             setActiveHotelId(current);
           }

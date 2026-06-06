@@ -455,12 +455,28 @@ ATAJO FORMULARIO: Si el usuario dice "crear reserva", "nueva reserva" o similar 
 
     const toolsUsed: string[] = [];
     let maxIter = 8;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+
+    const logUsage = () => {
+      if (!ownerIds[0] || (totalInputTokens === 0 && totalOutputTokens === 0)) return;
+      void db.from('ai_usage_log').insert({
+        owner_id: ownerIds[0],
+        provider: 'gemini',
+        input_tokens: totalInputTokens,
+        output_tokens: totalOutputTokens,
+      });
+    };
 
     while (maxIter-- > 0) {
       const data = await callGemini(contents, systemInstruction, enabledTools);
+      totalInputTokens  += data.usageMetadata?.promptTokenCount     || 0;
+      totalOutputTokens += data.usageMetadata?.candidatesTokenCount || 0;
+
       const candidate = data.candidates?.[0];
 
       if (!candidate) {
+        logUsage();
         return res.json({ reply: 'No se pudo obtener respuesta del modelo.', toolsUsed });
       }
 
@@ -471,6 +487,7 @@ ATAJO FORMULARIO: Si el usuario dice "crear reserva", "nueva reserva" o similar 
       // Sin llamadas a función → respuesta final
       if (functionCalls.length === 0) {
         const reply = textParts.map((p: any) => p.text).join('');
+        logUsage();
         return res.json({ reply: reply || '(Sin respuesta de texto)', toolsUsed });
       }
 
@@ -493,6 +510,7 @@ ATAJO FORMULARIO: Si el usuario dice "crear reserva", "nueva reserva" o similar 
       contents.push({ role: 'user', parts: functionResponses });
     }
 
+    logUsage();
     return res.json({ reply: 'Se alcanzó el límite de iteraciones.', toolsUsed });
 
   } catch (err: any) {

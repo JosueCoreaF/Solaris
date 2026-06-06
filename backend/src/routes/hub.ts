@@ -162,6 +162,116 @@ router.get(['/business', '/businesses'], async (req, res) => {
   }
 });
 
+// ─── Seed de habitaciones base al crear un hotel ─────────────────────────────
+
+async function seedHotelDefaults(hotelId: string) {
+  // 3 tipos de habitación
+  const tiposData = [
+    { nombre_tipo: 'Estándar',  descripcion: 'Habitación estándar con cama doble',     capacidad_base: 2 },
+    { nombre_tipo: 'Doble',     descripcion: 'Habitación doble con dos camas individuales', capacidad_base: 2 },
+    { nombre_tipo: 'Suite',     descripcion: 'Suite con área de sala y vistas al exterior', capacidad_base: 4 },
+  ];
+
+  const { data: tipos, error: tipoErr } = await db
+    .from('tipos_habitacion')
+    .insert(tiposData.map(t => ({ ...t, id_hotel: hotelId, estado: 'activo' })))
+    .select('id_tipo_habitacion, nombre_tipo, capacidad_base');
+
+  if (tipoErr || !tipos) return;
+
+  // 3 categorías de tarifa
+  const categoriasData = [
+    { nombre: 'Regular',         descripcion: 'Tarifa entre semana' },
+    { nombre: 'Fines de Semana', descripcion: 'Tarifa viernes, sábado y domingo' },
+    { nombre: 'Temporada Alta',  descripcion: 'Tarifa en temporada alta y feriados' },
+  ];
+
+  const { data: categorias, error: catErr } = await db
+    .from('categorias_tarifa')
+    .insert(categoriasData.map(c => ({ ...c, id_hotel: hotelId, activa: true })))
+    .select('id_categoria, nombre');
+
+  if (catErr || !categorias) return;
+
+  // Precios base por tipo (Regular / Fines de Semana / Temporada Alta)
+  const precios: Record<string, [number, number, number]> = {
+    'Estándar': [60,  80,  100],
+    'Doble':    [90,  115, 140],
+    'Suite':    [150, 190, 240],
+  };
+
+  const tarifasRows: any[] = [];
+  for (const tipo of tipos) {
+    const [precReg, precFds, precTA] = precios[tipo.nombre_tipo] ?? [60, 80, 100];
+    for (const [i, cat] of categorias.entries()) {
+      const tarifa_noche = i === 0 ? precReg : i === 1 ? precFds : precTA;
+      tarifasRows.push({
+        id_tipo_habitacion: tipo.id_tipo_habitacion,
+        id_categoria:       cat.id_categoria,
+        tarifa_noche,
+        tarifa_hora:    parseFloat((tarifa_noche / 6).toFixed(2)),
+        tarifa_pasadia: parseFloat((tarifa_noche * 0.6).toFixed(2)),
+        activa:         true,
+      });
+    }
+  }
+
+  const { data: tarifas, error: tarErr } = await db
+    .from('tarifas')
+    .insert(tarifasRows)
+    .select('id_tarifa, id_tipo_habitacion, id_categoria');
+
+  if (tarErr || !tarifas) return;
+
+  // id_categoria Regular para obtener la tarifa default
+  const catRegularId = categorias.find(c => c.nombre === 'Regular')?.id_categoria ?? categorias[0].id_categoria;
+
+  // Mapa tipo → tarifa Regular
+  const tarifaDefaultByTipo: Record<string, string> = {};
+  for (const t of tarifas) {
+    if (t.id_categoria === catRegularId) {
+      tarifaDefaultByTipo[t.id_tipo_habitacion] = t.id_tarifa;
+    }
+  }
+
+  // 6 habitaciones — 2 por tipo
+  const habitacionesRows: any[] = [];
+  const pisoByTipo: Record<string, number> = {};
+  tipos.forEach((t, i) => { pisoByTipo[t.id_tipo_habitacion] = i + 1; });
+
+  let numBase: Record<string, number> = {};
+  tipos.forEach((t, i) => { numBase[t.id_tipo_habitacion] = (i + 1) * 100; });
+
+  for (const tipo of tipos) {
+    const piso = pisoByTipo[tipo.id_tipo_habitacion];
+    const base = numBase[tipo.id_tipo_habitacion];
+    const tarifaId = tarifaDefaultByTipo[tipo.id_tipo_habitacion] ?? null;
+
+    // Buscar la tarifa_noche Regular para precargarla en la habitación
+    const tarifaNoche = tarifasRows.find(
+      r => r.id_tipo_habitacion === tipo.id_tipo_habitacion && r.id_categoria === catRegularId
+    )?.tarifa_noche ?? 0;
+
+    for (let n = 1; n <= 2; n++) {
+      const codigo = `${base + n}`;
+      habitacionesRows.push({
+        id_hotel:           hotelId,
+        id_tipo_habitacion: tipo.id_tipo_habitacion,
+        id_tarifa_default:  tarifaId,
+        codigo_habitacion:  codigo,
+        nombre_habitacion:  `Habitación ${codigo}`,
+        piso,
+        capacidad:          tipo.capacidad_base,
+        numero_camas:       tipo.capacidad_base <= 2 ? 1 : 2,
+        tarifa_noche:       tarifaNoche,
+        estado:             'disponible',
+      });
+    }
+  }
+
+  await db.from('habitaciones').insert(habitacionesRows);
+}
+
 // ─── POST /hub/businesses — Crear nuevo negocio ──────────────────────────────
 
 import { checkPlanLimits } from '../middlewares/checkPlanLimits.js';
@@ -228,6 +338,9 @@ router.post(['/business', '/businesses'], checkPlanLimits, async (req, res) => {
         return res.status(400).json({ error: hotelErr.message });
       }
       businessId = hotel.id_hotel;
+
+      // Seed: 3 tipos, 3 categorías de tarifa, 9 tarifas, 6 habitaciones base
+      void seedHotelDefaults(hotel.id_hotel);
     }
 
     return res.status(201).json({ success: true, businessId, moduleId: mod.id_module, type: tipo_modulo, name: nombre_modulo, slug: hotelSlug });
