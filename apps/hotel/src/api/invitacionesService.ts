@@ -113,7 +113,8 @@ export const validarInvitacion = async (
   codigo: string,
 ): Promise<{ valida: boolean; id_hotel?: string; rol_sugerido?: string; owner_id?: string; razon?: string }> => {
   try {
-    const res = await fetch('http://localhost:4000/api/public/invitacion/validar', {
+    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+    const res = await fetch(`${base}/public/invitacion/validar`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, codigo }),

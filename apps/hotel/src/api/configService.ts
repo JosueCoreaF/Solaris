@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 
-const API_BASE = 'http://localhost:4000/api/config';
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api') + '/config';
 
 // Helper centralizado para inyectar token de autorización y cabecera de hotel activo
 async function fetchWithHotel(url: string, options?: RequestInit) {

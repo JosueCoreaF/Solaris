@@ -99,7 +99,7 @@ interface SaldoEntry {
   aplicado: boolean;
 }
 
-const API_BASE = 'http://localhost:4000/api';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
 async function getAuthHeaders(contentType = false): Promise<Record<string, string>> {
   const hotelId = localStorage.getItem('active_hotel_id') || '';

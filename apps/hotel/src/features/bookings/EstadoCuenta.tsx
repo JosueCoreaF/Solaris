@@ -49,7 +49,7 @@ interface ClienteGrupo {
 }
 
 /* ─── API ─────────────────────────────────────────────────── */
-const API = 'http://localhost:4000/api';
+const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const activeHotelId = localStorage.getItem('active_hotel_id') || '';

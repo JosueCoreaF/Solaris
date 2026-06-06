@@ -1,6 +1,8 @@
 import { UsuarioRol } from './usuariosRolesService';
 import { supabase } from './supabase';
 
+const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+
 export interface CrearUsuarioParams {
   email: string;
   password: string;
@@ -26,7 +28,7 @@ export interface BusquedaUsuario {
 export const buscarUsuarioPorEmail = async (email: string): Promise<BusquedaUsuario> => {
   const token = (await supabase.auth.getSession()).data.session?.access_token || '';
   const response = await fetch(
-    `http://localhost:4000/api/users/buscar?email=${encodeURIComponent(email)}`,
+    `${API}/users/buscar?email=${encodeURIComponent(email)}`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
   const data = await response.json();
@@ -36,7 +38,7 @@ export const buscarUsuarioPorEmail = async (email: string): Promise<BusquedaUsua
 
 export const eliminarUsuarioPorEmail = async (email: string): Promise<void> => {
   const token = (await supabase.auth.getSession()).data.session?.access_token || '';
-  const response = await fetch('http://localhost:4000/api/users/por-email', {
+  const response = await fetch(`${API}/users/por-email`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ email }),
@@ -47,7 +49,7 @@ export const eliminarUsuarioPorEmail = async (email: string): Promise<void> => {
 
 export const eliminarUsuario = async (userId: string): Promise<void> => {
   const token = (await supabase.auth.getSession()).data.session?.access_token || '';
-  const response = await fetch(`http://localhost:4000/api/users/${userId}`, {
+  const response = await fetch(`${API}/users/${userId}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -57,7 +59,7 @@ export const eliminarUsuario = async (userId: string): Promise<void> => {
 
 export const crearUsuarioManual = async (params: CrearUsuarioParams): Promise<UsuarioRol> => {
   const token = (await supabase.auth.getSession()).data.session?.access_token || '';
-  const response = await fetch('http://localhost:4000/api/users/crear', {
+  const response = await fetch(`${API}/users/crear`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(params),

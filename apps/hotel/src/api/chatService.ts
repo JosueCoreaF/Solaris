@@ -2,7 +2,7 @@ import { io, Socket } from 'socket.io-client';
 import { supabase } from './supabase';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
-const WS_URL   = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').replace('/api', '');
+const WS_URL   = API_BASE.replace(/\/api\/?$/, '');
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
