@@ -5,7 +5,7 @@ import type { UserRole } from '../hooks/useRole';
 
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
-export type AccountBlockedReason = 'ACCOUNT_SUSPENDED' | 'ACCOUNT_INACTIVE' | 'INVALID_SESSION' | null;
+export type AccountBlockedReason = 'ACCOUNT_SUSPENDED' | 'ACCOUNT_INACTIVE' | 'MODULE_SUSPENDED' | 'INVALID_SESSION' | null;
 
 interface AuthContextValue {
   session:        Session | null;
@@ -44,7 +44,7 @@ async function fetchAccountStatus(token: string): Promise<AccountBlockedReason> 
     if (res.status === 403) {
       const data = await res.json();
       const code = data.error;
-      if (code === 'ACCOUNT_SUSPENDED' || code === 'ACCOUNT_INACTIVE') {
+      if (code === 'ACCOUNT_SUSPENDED' || code === 'ACCOUNT_INACTIVE' || code === 'MODULE_SUSPENDED') {
         return code as AccountBlockedReason;
       }
     }

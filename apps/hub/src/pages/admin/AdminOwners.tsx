@@ -10,10 +10,18 @@ import apiClient from '../../services/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface Hotel {
+  id_hotel: string;
+  nombre_hotel: string;
+  ciudad: string;
+  estado: string;
+}
+
 interface Module {
   id_module: string;
   tipo_modulo: string;
   is_active: boolean;
+  hoteles?: Hotel[];
 }
 
 interface Owner {
@@ -115,6 +123,11 @@ export default function AdminOwners() {
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [confirmText, setConfirmText]     = useState('');
   const [actioning, setActioning]         = useState(false);
+
+  // Eliminación de hotel
+  const [selectedHotelToDelete, setSelectedHotelToDelete] = useState<Hotel | null>(null);
+  const [deleteHotelConfirmText, setDeleteHotelConfirmText] = useState('');
+  const [deletingHotel, setDeletingHotel] = useState(false);
 
   const LIMIT = 20;
 
@@ -262,6 +275,41 @@ export default function AdminOwners() {
     }
   };
 
+  // ── Seleccionar Propietario con detalles completos ──
+  const selectOwner = async (owner: Owner) => {
+    setSelected(owner);
+    try {
+      const fullOwner = await apiClient.get(`/hub/admin/owners/${owner.id_owner}`);
+      setSelected(fullOwner);
+    } catch (e: any) {
+      console.error('[selectOwner] error fetching full details:', e.message);
+    }
+  };
+
+  // ── Eliminar Hotel ──
+  const executeDeleteHotel = async () => {
+    if (!selectedHotelToDelete || !selected) return;
+    if (deleteHotelConfirmText.trim().toLowerCase() !== selectedHotelToDelete.nombre_hotel.toLowerCase()) return;
+    setDeletingHotel(true);
+    try {
+      await apiClient.delete(`/hub/admin/hoteles/${selectedHotelToDelete.id_hotel}`);
+      
+      // Volver a cargar el owner seleccionado para refrescar la lista de hoteles en el lateral
+      const fullOwner = await apiClient.get(`/hub/admin/owners/${selected.id_owner}`);
+      setSelected(fullOwner);
+      
+      // También refrescar la lista de owners principal (para contar módulos, etc.)
+      load(offset);
+      
+      setSelectedHotelToDelete(null);
+      setDeleteHotelConfirmText('');
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setDeletingHotel(false);
+    }
+  };
+
   // ── Impersonación ──
   const impersonate = async (ownerId: string) => {
     setImpersonating(true);
@@ -401,7 +449,7 @@ export default function AdminOwners() {
                       </td>
                       <td className="px-5 py-3.5">
                         <button
-                          onClick={() => setSelected(owner)}
+                          onClick={() => selectOwner(owner)}
                           className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition"
                         >
                           <ChevronRight size={16} />
@@ -493,26 +541,48 @@ export default function AdminOwners() {
               </div>
               <div className="space-y-2">
                 {selected.business_modules?.length ? selected.business_modules.map(m => (
-                  <div key={m.id_module} className="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2.5">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Building2 size={13} className="text-slate-400" />
-                      <span className="font-medium capitalize text-slate-700">{m.tipo_modulo}</span>
-                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${m.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>
-                        {m.is_active ? 'Activo' : 'Suspendido'}
-                      </span>
+                  <div key={m.id_module} className="bg-slate-50 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm">
+                        <Building2 size={13} className="text-slate-400" />
+                        <span className="font-medium capitalize text-slate-700">{m.tipo_modulo}</span>
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${m.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>
+                          {m.is_active ? 'Activo' : 'Suspendido'}
+                        </span>
+                      </div>
+                      <button
+                        disabled={patchingModule === m.id_module}
+                        onClick={() => toggleModule(m)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none
+                          ${m.is_active ? 'bg-emerald-500' : 'bg-slate-300'}
+                          disabled:opacity-50`}
+                      >
+                        {patchingModule === m.id_module
+                          ? <span className="absolute inset-0 flex items-center justify-center"><Loader2 size={11} className="animate-spin text-white" /></span>
+                          : <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${m.is_active ? 'translate-x-4' : 'translate-x-1'}`} />
+                        }
+                      </button>
                     </div>
-                    <button
-                      disabled={patchingModule === m.id_module}
-                      onClick={() => toggleModule(m)}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none
-                        ${m.is_active ? 'bg-emerald-500' : 'bg-slate-300'}
-                        disabled:opacity-50`}
-                    >
-                      {patchingModule === m.id_module
-                        ? <span className="absolute inset-0 flex items-center justify-center"><Loader2 size={11} className="animate-spin text-white" /></span>
-                        : <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${m.is_active ? 'translate-x-4' : 'translate-x-1'}`} />
-                      }
-                    </button>
+
+                    {m.tipo_modulo === 'hotel' && m.hoteles && m.hoteles.length > 0 && (
+                      <div className="pl-5 border-l border-slate-200 space-y-1.5 mt-1.5">
+                        {m.hoteles.map(h => (
+                          <div key={h.id_hotel} className="flex items-center justify-between text-xs text-slate-600 py-0.5">
+                            <span className="font-semibold text-slate-700">{h.nombre_hotel} ({h.ciudad})</span>
+                            <button
+                              onClick={() => {
+                                setSelectedHotelToDelete(h);
+                                setDeleteHotelConfirmText('');
+                              }}
+                              className="text-rose-500 hover:text-rose-700 p-1 hover:bg-rose-50 rounded transition"
+                              title="Eliminar hotel permanentemente"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )) : <p className="text-slate-400 text-sm">Sin módulos</p>}
               </div>
@@ -818,6 +888,69 @@ export default function AdminOwners() {
             <p className="text-xs text-slate-400 text-center mt-3">
               Recomendado: abre en ventana de incógnito para no cerrar tu sesión actual
             </p>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ══ Modal de confirmación de eliminación de hotel ═══════════════════ */}
+      {selectedHotelToDelete && createPortal(
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="p-5 rounded-t-2xl bg-rose-50">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-xl bg-rose-100">
+                  <Trash2 size={18} className="text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900">Eliminar hotel permanentemente</h3>
+                  <p className="text-sm text-slate-500 mt-1">{selectedHotelToDelete.nombre_hotel}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-sm text-rose-800 space-y-1">
+                <p className="font-semibold">Esta acción es irreversible y eliminará:</p>
+                <ul className="list-disc list-inside text-rose-700 space-y-0.5 text-xs">
+                  <li>Toda la configuración y datos del hotel</li>
+                  <li>Todas las habitaciones, comodidades y servicios</li>
+                  <li>Todas las cotizaciones, reservas y pagos registrados</li>
+                  <li>Todos los huéspedes, empresas y colaboradores de este hotel</li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Escribe <span className="font-bold text-slate-900">"{selectedHotelToDelete.nombre_hotel}"</span> para confirmar:
+                </label>
+                <input
+                  type="text"
+                  value={deleteHotelConfirmText}
+                  onChange={e => setDeleteHotelConfirmText(e.target.value)}
+                  placeholder={selectedHotelToDelete.nombre_hotel}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-300"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={() => { setSelectedHotelToDelete(null); setDeleteHotelConfirmText(''); }}
+                  className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  disabled={deletingHotel || deleteHotelConfirmText.trim().toLowerCase() !== selectedHotelToDelete.nombre_hotel.toLowerCase()}
+                  onClick={executeDeleteHotel}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium rounded-xl transition disabled:opacity-40"
+                >
+                  {deletingHotel ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  Eliminar hotel
+                </button>
+              </div>
+            </div>
           </div>
         </div>,
         document.body

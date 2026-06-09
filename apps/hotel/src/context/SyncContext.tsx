@@ -51,7 +51,14 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // Obtener contexto del backend
-        const response = await apiClient.get(`/hotel/sync-context?business_id=${businessId}`);
+        const response = await apiClient.get(`/hotel/sync-context${businessId ? `?business_id=${businessId}` : ''}`);
+        // Si el backend corrigió el business_id (stale), actualizarlo en localStorage
+        const correctedId = response.headers?.['x-correct-business-id'] as string | undefined;
+        if (correctedId) {
+          localStorage.setItem('solaris_active_business_id', correctedId);
+        } else if (response.data?.id_module) {
+          localStorage.setItem('solaris_active_business_id', response.data.id_module);
+        }
         setHotel(response.data);
       } catch (err: any) {
         console.error('Error sincronizando contexto:', err);

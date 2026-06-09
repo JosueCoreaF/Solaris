@@ -67,7 +67,7 @@ export const RightSidebarChat: React.FC = () => {
           top: 0;
           right: 0;
           height: 100vh;
-          width: 480px;
+          width: 720px;
           z-index: 990;
           display: flex;
           flex-direction: column;

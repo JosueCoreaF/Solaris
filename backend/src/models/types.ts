@@ -278,6 +278,60 @@ export interface UsuarioRol {
   actualizado_en:  string;
 }
 
+// ── Cotizaciones ──────────────────────────────────────────────────────────────
+
+export interface Cotizacion {
+  id_cotizacion:          string;
+  id_hotel:               string;
+  numero_cotizacion:      string;
+  id_huesped?:            string;
+  id_empresa?:            string;
+  cliente_nombre:         string;
+  cliente_identificacion?: string;
+  cliente_correo:         string;
+  cliente_telefono?:       string;
+  fecha_emision:          string;
+  fecha_vencimiento:      string;
+  check_in:               string;
+  check_out:              string;
+  cant_noches:            number;
+  adultos:                number;
+  ninos:                  number;
+  estado:                 'Borrador' | 'Enviada' | 'Aceptada' | 'Rechazada' | 'Expirada';
+  subtotal:               number;
+  impuesto_isv:           number;
+  impuesto_turismo:       number;
+  total:                  number;
+  moneda:                 string;
+  tipo_cambio:            number;
+  clausula_no_fiscalidad?: string;
+  politicas_cancelacion?:  string;
+  vigencia_texto?:        string;
+  cuentas_bancarias?:      string;
+  notas?:                 string;
+  owner_id:               string;
+  created_at:             string;
+  updated_at:             string;
+  items?:                 CotizacionItem[];
+}
+
+export interface CotizacionItem {
+  id_item:            string;
+  id_cotizacion:      string;
+  tipo_item:          'habitacion' | 'servicio';
+  descripcion:        string;
+  id_tipo_habitacion?: string;
+  id_servicio?:        string;
+  cantidad:           number;
+  precio_unitario:    number;
+  subtotal:           number;
+  detalles_huespedes?: {
+    adultos?: number;
+    ninos?:   number;
+  };
+  created_at:         string;
+}
+
 // ── Respuesta API genérica ────────────────────────────────────────────────────
 
 export interface ApiResponse<T> {

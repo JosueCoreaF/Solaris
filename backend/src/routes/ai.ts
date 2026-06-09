@@ -320,7 +320,7 @@ async function callGeminiTranscribe(audioBase64: string, mimeType: string): Prom
         }),
       });
       if (response.ok) {
-        const data = await response.json();
+        const data = (await response.json()) as any;
         const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
         // Si Gemini devuelve "VACIO" o parece una alucinación, retornar vacío
         if (raw.toUpperCase() === 'VACIO' || isHallucination(raw)) return '';

@@ -2,18 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Eye, EyeOff, Upload, Lock, Bell, Moon, Globe, Shield, LogOut, User, Mail, Phone, MapPin, Calendar, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useRole } from '../../hooks/useRole';
-import { supabase } from '../../api/supabase';
 import * as perfilService from '../../api/perfilService';
-
-interface ActivityLog {
-  id: string;
-  usuario_id: string;
-  accion: string;
-  tabla_afectada: string;
-  valores_antiguos?: Record<string, any>;
-  valores_nuevos?: Record<string, any>;
-  timestamp: string;
-}
+import { auditService, AuditLog } from '../../api/auditService';
 
 interface UserProfile {
   id: string;
@@ -35,7 +25,7 @@ export const PerfilUsuario: React.FC = () => {
   const { role, canRead, canCreate, canEdit, canDelete } = useRole();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [activityLogs, setActivityLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -146,14 +136,8 @@ export const PerfilUsuario: React.FC = () => {
   const cargarHistorialActividad = async () => {
     try {
       if (!authUser) return;
-      const { data, error: err } = await supabase
-        .from('bitacora_actividad')
-        .select('*')
-        .eq('usuario_id', authUser.id)
-        .order('timestamp', { ascending: false })
-        .limit(50);
-      if (err) return;
-      if (data) setActivityLogs(data);
+      const response = await auditService.obtenerMiActividad(30, 0);
+      setActivityLogs(response.data ?? []);
     } catch (err) {
       console.error(err);
     }
@@ -239,11 +223,11 @@ export const PerfilUsuario: React.FC = () => {
     }
   };
 
-  const actividadFiltrada = activityLogs.filter(log => {
-    const coincideAccion = !filtroAccion || log.accion.toLowerCase().includes(filtroAccion.toLowerCase());
-    const coincideTabla = !filtroTabla || log.tabla_afectada.toLowerCase().includes(filtroTabla.toLowerCase());
-    return coincideAccion && coincideTabla;
-  });
+  const etiquetaEntidadPerfil: Record<string, string> = {
+    reservas_hotel: 'Reservas', pagos_hotel: 'Pagos', huespedes: 'Huéspedes',
+    usuarios_roles: 'Usuarios & Roles', saldos_clientes: 'Saldos',
+    habitaciones: 'Habitaciones', cotizaciones: 'Cotizaciones', hoteles: 'Hotel',
+  };
 
   const userRole = role;
 
@@ -637,17 +621,17 @@ export const PerfilUsuario: React.FC = () => {
                       type="text"
                       value={filtroAccion}
                       onChange={e => setFiltroAccion(e.target.value)}
-                      placeholder="Ej: INSERT, UPDATE"
+                      placeholder="Ej: Creado, Actualizado"
                       className="w-full bg-white border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 outline-none"
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Filtrar por Tabla</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Filtrar por Módulo</label>
                     <input
                       type="text"
                       value={filtroTabla}
                       onChange={e => setFiltroTabla(e.target.value)}
-                      placeholder="Ej: reservas_hotel"
+                      placeholder="Ej: Reservas, Pagos"
                       className="w-full bg-white border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 outline-none"
                     />
                   </div>
@@ -660,32 +644,36 @@ export const PerfilUsuario: React.FC = () => {
                     <tr>
                       <th className="py-4 px-6 font-semibold">Fecha y Hora</th>
                       <th className="py-4 px-6 font-semibold">Acción</th>
-                      <th className="py-4 px-6 font-semibold">Tabla Afectada</th>
-                      <th className="py-4 px-6 font-semibold">Detalles</th>
+                      <th className="py-4 px-6 font-semibold">Módulo</th>
+                      <th className="py-4 px-6 font-semibold">Descripción</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {activityLogs.length > 0 ? (
                       activityLogs
-                        .filter(log => 
-                          (filtroAccion ? log.accion.toLowerCase().includes(filtroAccion.toLowerCase()) : true) &&
-                          (filtroTabla ? log.tabla_afectada.toLowerCase().includes(filtroTabla.toLowerCase()) : true)
-                        )
+                        .filter(log => {
+                          const etiquetaAccion = auditService.obtenerEtiquetaAccion(log.accion).toLowerCase();
+                          const etiquetaEnt = (etiquetaEntidadPerfil[log.entidad] ?? log.entidad ?? '').toLowerCase();
+                          return (
+                            (!filtroAccion || etiquetaAccion.includes(filtroAccion.toLowerCase()) || log.accion.toLowerCase().includes(filtroAccion.toLowerCase())) &&
+                            (!filtroTabla  || etiquetaEnt.includes(filtroTabla.toLowerCase()))
+                          );
+                        })
                         .map(log => (
                           <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="py-4 px-6 text-slate-700 whitespace-nowrap">
-                              {new Date(log.timestamp).toLocaleString()}
+                              {new Date(log.created_at_iso).toLocaleString('es-HN', { dateStyle: 'short', timeStyle: 'short' })}
                             </td>
                             <td className="py-4 px-6 font-medium text-slate-900">
-                              <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-bold uppercase tracking-wider">
-                                {log.accion}
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${auditService.obtenerColorAccion(log.accion)} bg-slate-100`}>
+                                {auditService.obtenerIconoAccion(log.accion)} {auditService.obtenerEtiquetaAccion(log.accion)}
                               </span>
                             </td>
-                            <td className="py-4 px-6 text-slate-500 font-mono text-xs">
-                              {log.tabla_afectada}
+                            <td className="py-4 px-6 text-slate-600 text-sm">
+                              {etiquetaEntidadPerfil[log.entidad] ?? log.entidad?.replace(/_/g, ' ') ?? '—'}
                             </td>
-                            <td className="py-4 px-6 text-slate-500 text-xs">
-                              <button className="text-blue-600 hover:text-blue-800 font-semibold underline underline-offset-2">Ver Detalles</button>
+                            <td className="py-4 px-6 text-slate-500 text-xs max-w-xs truncate">
+                              {log.cambios_resumidos || '—'}
                             </td>
                           </tr>
                         ))

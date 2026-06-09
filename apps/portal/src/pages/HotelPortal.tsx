@@ -247,7 +247,7 @@ const RoomDetailModal = ({ hab, hotel, onReservar, onClose }: {
               {hotel.cargoPersonaExtra > 0 && (
                 <div className="bg-amber-50 border border-amber-100 rounded-2xl p-3 text-xs text-amber-700">
                   <strong>Cargo por persona adicional:</strong> {formatMoneda(hotel.cargoPersonaExtra, hotel.moneda)} por noche
-                  (sobre la capacidad de {hab.capacidad} personas)
+                  (cap. base {hab.capacidad} pers. · máx. 1 persona extra permitida)
                 </div>
               )}
 
@@ -465,7 +465,7 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
   };
 
   const noches   = calcularNoches(form.checkIn, form.checkOut);
-  const personasExtra = Math.max(0, form.adultos + form.ninos - hab.capacidad);
+  const personasExtra = (form.adultos + form.ninos) > hab.capacidad ? 1 : 0;
   const subtotal = (tarifaActiva.total_tarifas !== undefined ? tarifaActiva.total_tarifas : tarifaActiva.tarifa_noche * noches)
                    + personasExtra * hotel.cargoPersonaExtra * noches;
 
@@ -825,24 +825,35 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
 
                 {/* Personas */}
                 <div className="grid grid-cols-2 gap-3">
-                  {[{ key: 'adultos', label: 'Adultos', min: 1, max: 6 }, { key: 'ninos', label: 'Niños', min: 0, max: 4 }].map(p => (
+                  {[{ key: 'adultos', label: 'Adultos', min: 1 }, { key: 'ninos', label: 'Niños', min: 0 }].map(p => {
+                    const maxTotal = hab.capacidad + 1;
+                    const currentOther = p.key === 'adultos' ? form.ninos : form.adultos;
+                    const atLimit = (form as any)[p.key] + currentOther >= maxTotal;
+                    return (
                     <div key={p.key}>
                       <label className={lbl}>{p.label}</label>
                       <div className="flex items-center justify-between bg-stone-50 border border-stone-200 rounded-2xl px-3 py-2.5">
                         <button type="button" onClick={() => setForm(f => ({ ...f, [p.key]: Math.max(p.min, (f as any)[p.key] - 1) }))}
                           className="w-7 h-7 rounded-full bg-stone-200 flex items-center justify-center font-bold text-stone-700">−</button>
                         <span className="font-bold text-stone-900">{(form as any)[p.key]}</span>
-                        <button type="button" onClick={() => setForm(f => ({ ...f, [p.key]: Math.min(p.max, (f as any)[p.key] + 1) }))}
-                          className="w-7 h-7 rounded-full bg-stone-200 flex items-center justify-center font-bold text-stone-700">+</button>
+                        <button type="button"
+                          disabled={atLimit}
+                          onClick={() => setForm(f => {
+                            const next = (f as any)[p.key] + 1;
+                            const other = p.key === 'adultos' ? f.ninos : f.adultos;
+                            return next + other <= maxTotal ? { ...f, [p.key]: next } : f;
+                          })}
+                          className={`w-7 h-7 rounded-full flex items-center justify-center font-bold ${atLimit ? 'bg-stone-100 text-stone-300 cursor-not-allowed' : 'bg-stone-200 text-stone-700'}`}>+</button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Alerta persona extra */}
                 {personasExtra > 0 && hotel.cargoPersonaExtra > 0 && (
                   <div className="bg-amber-50 border border-amber-100 rounded-2xl px-3 py-2 text-xs text-amber-700">
-                    {personasExtra} persona{personasExtra !== 1 ? 's' : ''} adicional{personasExtra !== 1 ? 'es' : ''}: +{formatMoneda(hotel.cargoPersonaExtra * personasExtra * noches, hotel.moneda)} ({formatMoneda(hotel.cargoPersonaExtra, hotel.moneda)}/pers./noche)
+                    1 persona adicional: +{formatMoneda(hotel.cargoPersonaExtra * noches, hotel.moneda)} ({formatMoneda(hotel.cargoPersonaExtra, hotel.moneda)}/noche)
                   </div>
                 )}
 

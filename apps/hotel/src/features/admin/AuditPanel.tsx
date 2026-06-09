@@ -118,6 +118,20 @@ export const AuditPanel: React.FC = () => {
     aplicado: 'Aplicado', detalles_estado: 'Detalles Estado',
   };
 
+  // Etiquetas legibles para entidades (nombres de tablas)
+  const etiquetaEntidad: Record<string, string> = {
+    reservas_hotel: 'Reservas',
+    pagos_hotel: 'Pagos',
+    huespedes: 'Huéspedes',
+    usuarios_roles: 'Usuarios & Roles',
+    saldos_clientes: 'Saldos de Clientes',
+    habitaciones: 'Habitaciones',
+    empresas: 'Empresas',
+    cotizaciones: 'Cotizaciones',
+    servicios_adicionales: 'Servicios Adicionales',
+    hoteles: 'Hotel',
+  };
+
   const formatValor = (val: unknown): string => {
     if (val === null || val === undefined) return '—';
     if (typeof val === 'boolean') return val ? 'Sí' : 'No';
@@ -190,9 +204,6 @@ export const AuditPanel: React.FC = () => {
 
   const renderLog = (log: AuditLog) => {
     const isExpanded = expandedLogId === log.id;
-    const usuario = log.usuario_email
-      ? log.usuario_email.split('@')[0]
-      : 'Sistema';
     const usuarioCompleto = log.usuario_email ?? 'Sistema (trigger automático)';
 
     return (
@@ -211,7 +222,7 @@ export const AuditPanel: React.FC = () => {
                   {auditService.obtenerEtiquetaAccion(log.accion)}
                 </span>
                 <span className="text-sm text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                  {log.entidad?.replace('_', ' ')}
+                  {etiquetaEntidad[log.entidad ?? ''] ?? log.entidad?.replace(/_/g, ' ')}
                 </span>
                 {log.usuario_rol && (
                   <span className="text-xs text-white bg-blue-600 px-2 py-0.5 rounded">
@@ -224,10 +235,7 @@ export const AuditPanel: React.FC = () => {
               <div className="flex items-center gap-3 text-sm mb-2">
                 <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-full">
                   <span className="text-base">·</span>
-                  <span className="font-semibold text-indigo-800">{usuario}</span>
-                  {log.usuario_email && (
-                    <span className="text-indigo-500 text-xs">{log.usuario_email}</span>
-                  )}
+                  <span className="font-semibold text-indigo-800">{usuarioCompleto}</span>
                 </div>
                 <span className="text-gray-400">•</span>
                 <span className="text-gray-500">{auditService.formatearFecha(log.created_at_iso)}</span>
@@ -410,7 +418,7 @@ export const AuditPanel: React.FC = () => {
                   .slice(0, 3)
                   .map(([entidad, count]) => (
                     <div key={entidad}>
-                      {entidad}: {count}
+                      {etiquetaEntidad[entidad] ?? entidad.replace(/_/g, ' ')}: {count}
                     </div>
                   ))}
               </div>

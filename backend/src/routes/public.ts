@@ -3,6 +3,7 @@ import { supabase, supabaseAdmin } from '../config/supabase.js';
 import { getIO, buildBotSystemPrompt, getSimpleAutoResponse, callGeminiChat } from './hotel/chat.js';
 import { verificarCamasExtrasDisponibles, verificarNeveritasDisponibles, verificarPlanchasDisponibles } from './hotel/bookings.js';
 import { sendBookingConfirmation, sendHotelNotificationEmail } from '../utils/emailService.js';
+import { syncQuoteReservations } from '../utils/quoteReservationHelper.js';
 
 const router = Router();
 const db = () => supabaseAdmin ?? supabase;
@@ -357,6 +358,11 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
       .select('id_hotel, tarifa_noche, nombre_habitacion, nombre_alias')
       .eq('id_habitacion', habitacionId)
       .maybeSingle();
+    const { data: habTipoData } = await db()
+      .from('habitaciones')
+      .select('id_tipo_habitacion, tipos_habitacion(capacidad_base)')
+      .eq('id_habitacion', habitacionId)
+      .maybeSingle();
 
     if (habErr) {
       console.error('Error buscando habitación:', habErr);
@@ -493,7 +499,15 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
       }
     }
 
-    const totalEstimado = totalTarifas;
+    const capacidadBase = Number((habTipoData?.tipos_habitacion as any)?.capacidad_base ?? 2);
+    const { data: configHotel } = await db()
+      .from('configuracion_hotelera')
+      .select('cargo_persona_extra')
+      .eq('id_hotel', habitacion.id_hotel)
+      .maybeSingle();
+    const cargoPersonaExtraRate = Number(configHotel?.cargo_persona_extra ?? 0);
+    const personasExtra = ((Number(adultos) || 0) + (Number(ninos) || 0)) > capacidadBase ? 1 : 0;
+    const totalEstimado = totalTarifas + personasExtra * cargoPersonaExtraRate * noches;
 
     // 3. Crear reserva
     const { data: nuevaReserva, error: reservaErr } = await db()
@@ -584,7 +598,8 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
                 finalNeverita && 'Neverita/Minibar',
                 finalPlancha && 'Plancha de ropa',
                 finalLimpiezaDiaria && 'Limpieza Diaria'
-              ].filter(Boolean) as string[]
+              ].filter(Boolean) as string[],
+              id_hotel: habitacion.id_hotel,
             };
 
             // 1. Enviar correo al huésped
@@ -592,8 +607,8 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
               await sendBookingConfirmation(emailData);
             }
 
-            // 2. Enviar correo de notificación al hotel
-            if (hotel.correo_contacto) {
+            // 2. Enviar correo de notificación al hotel (solo si es diferente al del huésped)
+            if (hotel.correo_contacto && hotel.correo_contacto !== correoFinal) {
               await sendHotelNotificationEmail(emailData, hotel.correo_contacto);
             }
           }
@@ -970,7 +985,7 @@ async function handleBotResponse(channelId: string, content: string) {
     // Obtener historial de mensajes para contexto
     const { data: history } = await supabaseAdmin
       .from('chat_messages')
-      .select('sender_id, content')
+      .select('sender_id, content, sender_name')
       .eq('channel_id', channelId)
       .order('created_at', { ascending: false })
       .limit(10);
@@ -1496,6 +1511,386 @@ router.get('/tarifa-habitacion', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/public/quotes/:id — Obtener cotización por UUID de forma pública
+router.get('/quotes/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'ID de cotización es requerido.' });
+    
+    const { data: quote, error: quoteErr } = await db()
+      .from('cotizaciones')
+      .select('*, hoteles(nombre_hotel, ciudad, direccion, telefono, correo_contacto, logo_url, color_primario, configuracion_hotelera(porcentaje_impuesto, tasa_turistica)), cotizacion_items(*)')
+      .eq('id_cotizacion', id)
+      .maybeSingle();
+
+    if (quoteErr) return res.status(500).json({ error: quoteErr.message });
+    if (!quote) return res.status(404).json({ error: 'Cotización no encontrada.' });
+
+    return res.json(quote);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Aplica la decisión (Aceptar/Rechazar) sobre una cotización: sincroniza
+// las reservas de cupo, actualiza el estado y notifica a recepción por
+// socket. Compartido por el endpoint PATCH (JSON) y el de un solo clic
+// desde el correo (GET con página de confirmación en HTML).
+async function applyQuoteDecision(id: string, estado: 'Aceptada' | 'Rechazada') {
+  const { data: quote, error: getErr } = await db()
+    .from('cotizaciones')
+    .select('*, cotizacion_items(*), hoteles(nombre_hotel, correo_contacto)')
+    .eq('id_cotizacion', id)
+    .maybeSingle();
+
+  if (getErr) return { success: false as const, status: 500, error: getErr.message };
+  if (!quote) return { success: false as const, status: 404, error: 'Cotización no encontrada.' };
+
+  // Si ya fue procesada (p.ej. el cliente ya hizo clic, o un escáner de
+  // correo precargó el enlace), no reprocesar para evitar dobles reservas.
+  if (quote.estado === 'Aceptada' || quote.estado === 'Rechazada') {
+    return { success: true as const, alreadyProcessed: true, quote };
+  }
+
+  const syncRes = await syncQuoteReservations(
+    id,
+    quote.id_hotel,
+    estado,
+    {
+      cliente_nombre: quote.cliente_nombre,
+      cliente_correo: quote.cliente_correo,
+      cliente_telefono: quote.cliente_telefono,
+      cliente_identificacion: quote.cliente_identificacion,
+      id_huesped: quote.id_huesped,
+      id_empresa: quote.id_empresa,
+      check_in: quote.check_in,
+      check_out: quote.check_out,
+      adultos: quote.adultos,
+      ninos: quote.ninos,
+      moneda: quote.moneda,
+      numero_cotizacion: quote.numero_cotizacion,
+      notas: quote.notas,
+      userId: null
+    },
+    quote.cotizacion_items || []
+  );
+
+  if (!syncRes.success) {
+    return { success: false as const, status: 400, error: syncRes.error };
+  }
+
+  const { data: updatedQuote, error: updateErr } = await db()
+    .from('cotizaciones')
+    .update({ estado, updated_at: new Date().toISOString() })
+    .eq('id_cotizacion', id)
+    .select('*, hoteles(nombre_hotel, correo_contacto)')
+    .single();
+
+  if (updateErr) return { success: false as const, status: 500, error: updateErr.message };
+
+  const io = getIO();
+  if (io) {
+    if (estado === 'Aceptada') {
+      io.emit('nueva_solicitud_reserva', {
+        mensaje: `Cotización ${updatedQuote.numero_cotizacion} aceptada por el cliente ${updatedQuote.cliente_nombre}`
+      });
+    } else {
+      io.emit('nueva_solicitud_reserva', {
+        mensaje: `Cotización ${updatedQuote.numero_cotizacion} rechazada por el cliente ${updatedQuote.cliente_nombre}. Habitaciones liberadas.`
+      });
+    }
+  }
+
+  return { success: true as const, alreadyProcessed: false, quote: updatedQuote };
+}
+
+// Página HTML autocontenida que confirma el resultado de la decisión.
+// No depende del frontend — el cliente nunca ve datos editables, solo
+// este mensaje de confirmación.
+function renderDecisionPage(opts: {
+  ok: boolean;
+  estado?: 'Aceptada' | 'Rechazada';
+  numero?: string;
+  hotelName?: string;
+  alreadyProcessed?: boolean;
+  message?: string;
+}) {
+  const { ok, estado, numero, hotelName, alreadyProcessed, message } = opts;
+
+  let status = 'Aviso';
+  let title = 'No fue posible procesar la solicitud';
+  let body = message || 'Ocurrió un error al registrar su decisión. Por favor, comuníquese directamente con el hotel.';
+  let accent = '#94a3b8';
+
+  if (ok && estado === 'Aceptada') {
+    status = 'Cotización aceptada';
+    title = alreadyProcessed ? 'Esta cotización ya había sido aceptada' : 'Cotización aceptada';
+    body = `Su decisión sobre la cotización ${numero ? `<strong>${numero}</strong>` : ''}${hotelName ? ` de <strong>${hotelName}</strong>` : ''} ha quedado registrada. El hotel ha sido notificado y se pondrá en contacto con usted para confirmar los detalles de su estancia.`;
+    accent = '#1d4ed8';
+  } else if (ok && estado === 'Rechazada') {
+    status = 'Cotización rechazada';
+    title = alreadyProcessed ? 'Esta cotización ya había sido rechazada' : 'Cotización rechazada';
+    body = `Su decisión sobre la cotización ${numero ? `<strong>${numero}</strong>` : ''}${hotelName ? ` de <strong>${hotelName}</strong>` : ''} ha quedado registrada y las fechas reservadas fueron liberadas. Si desea ajustar algún detalle, no dude en contactarnos.`;
+    accent = '#475569';
+  }
+
+  return `
+  <!DOCTYPE html>
+  <html lang="es">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+    <style>
+      body {
+        margin: 0; padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        color: #1e293b;
+        min-height: 100vh;
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px; box-sizing: border-box;
+      }
+      .card {
+        max-width: 460px; width: 100%;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-top: 3px solid ${accent};
+        border-radius: 8px;
+        padding: 40px 36px;
+        text-align: left;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+      }
+      .status-tag {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: ${accent};
+        border: 1px solid ${accent};
+        border-radius: 4px;
+        padding: 5px 10px;
+        margin-bottom: 18px;
+      }
+      h1 { font-size: 19px; margin: 0 0 12px; color: #0f172a; font-weight: 700; }
+      p { font-size: 14px; line-height: 1.7; color: #64748b; margin: 0; }
+      strong { color: #0f172a; }
+      .footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; color: #94a3b8; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <span class="status-tag">${status}</span>
+      <h1>${title}</h1>
+      <p>${body}</p>
+      <div class="footer">Solarys &middot; Plataforma de gestión hotelera</div>
+    </div>
+  </body>
+  </html>
+  `;
+}
+
+// Página intermedia de CONFIRMACIÓN: no modifica nada en la base de datos.
+// Es necesaria porque los enlaces de "aceptar"/"rechazar" del correo son GET,
+// y muchos clientes de correo (Outlook Safe Links, Gmail, antivirus, etc.)
+// precargan automáticamente esos enlaces para escanearlos en busca de
+// malware ANTES de que el cliente real lo abra. Si el GET aplicara la
+// decisión directamente, el escáner la dejaría "ya procesada" y el cliente
+// vería un mensaje confuso al hacer clic. Por eso el GET solo muestra esta
+// pantalla, y la decisión real solo se aplica cuando el cliente envía el
+// formulario (POST), algo que los escáneres automáticos no hacen.
+function renderConfirmPage(opts: {
+  estado: 'Aceptada' | 'Rechazada';
+  id: string;
+  accion: string;
+  numero?: string;
+  hotelName?: string;
+}) {
+  const { estado, id, accion, numero, hotelName } = opts;
+  const isAccept = estado === 'Aceptada';
+  const accent = isAccept ? '#1d4ed8' : '#475569';
+  const status = isAccept ? 'Confirmar aceptación' : 'Confirmar rechazo';
+  const title = isAccept
+    ? '¿Confirma que desea aceptar esta cotización?'
+    : '¿Confirma que desea rechazar esta cotización?';
+  const body = `Está a punto de ${isAccept ? 'aceptar' : 'rechazar'} la cotización ${numero ? `<strong>${numero}</strong>` : ''}${hotelName ? ` de <strong>${hotelName}</strong>` : ''}. Esta acción quedará registrada y el hotel será notificado de inmediato. Pulse el botón para confirmar su decisión.`;
+  const btnLabel = isAccept ? 'Sí, aceptar cotización' : 'Sí, rechazar cotización';
+  const btnBg = isAccept ? '#0f172a' : '#ffffff';
+  const btnColor = isAccept ? '#ffffff' : '#0f172a';
+  const btnBorder = isAccept ? '#0f172a' : '#cbd5e1';
+
+  return `
+  <!DOCTYPE html>
+  <html lang="es">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+    <style>
+      body {
+        margin: 0; padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        color: #1e293b;
+        min-height: 100vh;
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px; box-sizing: border-box;
+      }
+      .card {
+        max-width: 460px; width: 100%;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-top: 3px solid ${accent};
+        border-radius: 8px;
+        padding: 40px 36px;
+        text-align: left;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+      }
+      .status-tag {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: ${accent};
+        border: 1px solid ${accent};
+        border-radius: 4px;
+        padding: 5px 10px;
+        margin-bottom: 18px;
+      }
+      h1 { font-size: 19px; margin: 0 0 12px; color: #0f172a; font-weight: 700; }
+      p { font-size: 14px; line-height: 1.7; color: #64748b; margin: 0; }
+      strong { color: #0f172a; }
+      button {
+        width: 100%;
+        margin-top: 24px;
+        padding: 13px 20px;
+        background: ${btnBg};
+        color: ${btnColor};
+        border: 1px solid ${btnBorder};
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; color: #94a3b8; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <span class="status-tag">${status}</span>
+      <h1>${title}</h1>
+      <p>${body}</p>
+      <form method="POST" action="/api/public/quotes/${id}/decision">
+        <input type="hidden" name="accion" value="${accion}">
+        <button type="submit">${btnLabel}</button>
+      </form>
+      <div class="footer">Solarys &middot; Plataforma de gestión hotelera</div>
+    </div>
+  </body>
+  </html>
+  `;
+}
+
+// PATCH /api/public/quotes/:id/status — Aceptar o rechazar cotización (JSON)
+router.patch('/quotes/:id/status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { estado } = req.body; // 'Aceptada' o 'Rechazada'
+    if (!['Aceptada', 'Rechazada'].includes(estado)) {
+      return res.status(400).json({ error: 'Estado inválido. Debe ser Aceptada o Rechazada.' });
+    }
+
+    const result = await applyQuoteDecision(id, estado);
+    if (!result.success) {
+      return res.status(result.status).json({ error: result.error });
+    }
+
+    return res.json({ success: true, quote: result.quote });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/public/quotes/:id/decision?accion=aceptar|rechazar
+// Enlace usado por los botones del correo. A propósito NO modifica nada:
+// solo muestra una pantalla de confirmación (o el resultado, si la
+// cotización ya fue decidida antes). La decisión real se aplica únicamente
+// con el POST que dispara el botón de esa pantalla — ver renderConfirmPage
+// para la justificación de este flujo en dos pasos.
+router.get('/quotes/:id/decision', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const accion = String(req.query.accion || '').toLowerCase();
+    const estado = accion === 'aceptar' ? 'Aceptada' : accion === 'rechazar' ? 'Rechazada' : null;
+
+    if (!estado) {
+      return res.status(400).send(renderDecisionPage({ ok: false, message: 'El enlace no es válido.' }));
+    }
+
+    const { data: quote, error: getErr } = await db()
+      .from('cotizaciones')
+      .select('estado, numero_cotizacion, hoteles(nombre_hotel)')
+      .eq('id_cotizacion', id)
+      .maybeSingle();
+
+    if (getErr) return res.status(500).send(renderDecisionPage({ ok: false, message: getErr.message }));
+    if (!quote) return res.status(404).send(renderDecisionPage({ ok: false, message: 'Cotización no encontrada.' }));
+
+    if (quote.estado === 'Aceptada' || quote.estado === 'Rechazada') {
+      return res.send(renderDecisionPage({
+        ok: true,
+        estado: quote.estado as 'Aceptada' | 'Rechazada',
+        numero: quote.numero_cotizacion,
+        hotelName: (quote.hoteles as any)?.nombre_hotel,
+        alreadyProcessed: true
+      }));
+    }
+
+    return res.send(renderConfirmPage({
+      estado,
+      id,
+      accion,
+      numero: quote.numero_cotizacion,
+      hotelName: (quote.hoteles as any)?.nombre_hotel
+    }));
+  } catch (err: any) {
+    return res.status(500).send(renderDecisionPage({ ok: false, message: err.message }));
+  }
+});
+
+// POST /api/public/quotes/:id/decision — aplica la decisión real.
+// Solo se llega aquí cuando el cliente envía el formulario de la pantalla
+// de confirmación (acción explícita), nunca por precarga automática de enlaces.
+router.post('/quotes/:id/decision', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const accion = String(req.body?.accion || '').toLowerCase();
+    const estado = accion === 'aceptar' ? 'Aceptada' : accion === 'rechazar' ? 'Rechazada' : null;
+
+    if (!estado) {
+      return res.status(400).send(renderDecisionPage({ ok: false, message: 'El enlace no es válido.' }));
+    }
+
+    const result = await applyQuoteDecision(id, estado);
+    if (!result.success) {
+      return res.status(result.status).send(renderDecisionPage({ ok: false, message: result.error }));
+    }
+
+    return res.send(renderDecisionPage({
+      ok: true,
+      estado,
+      numero: result.quote.numero_cotizacion,
+      hotelName: (result.quote.hoteles as any)?.nombre_hotel,
+      alreadyProcessed: result.alreadyProcessed
+    }));
+  } catch (err: any) {
+    return res.status(500).send(renderDecisionPage({ ok: false, message: err.message }));
   }
 });
 

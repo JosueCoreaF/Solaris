@@ -38,6 +38,7 @@ import {
 } from '../../api/bookingsService';
 import { obtenerConfigHotelera } from '../../api/configService';
 import { obtenerTarifasVigentes, type Tarifa } from '../../api/tarifasService';
+import { EmailStudioModal } from '../../components/EmailStudioModal';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -210,6 +211,9 @@ export const Bookings: React.FC = () => {
   const [splitStayState, setSplitStayState] = useState<{ reserva: Reserva } | null>(null);
   const [selectedSplitDate, setSelectedSplitDate] = useState<string>('');
   const [savingSplit, setSavingSplit] = useState(false);
+
+  // ── Email Studio ──
+  const [emailStudioReserva, setEmailStudioReserva] = useState<Reserva | null>(null);
 
   // ── Toast ──
   const showToast = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {
@@ -455,14 +459,20 @@ export const Bookings: React.FC = () => {
     const pricePerNoche = form.tarifaManual > 0 ? form.tarifaManual : precioBase;
     const totalBruto = pricePerNoche * form.noches;
     const discountBruto = form.aplicarDescuento ? totalBruto * discountRate : 0;
-    const total = +(totalBruto - discountBruto).toFixed(2);
+
+    const capacidadBase = selectedHabitacion?.capacidad_base ?? 2;
+    const cargoExtraRate = hotelConfig?.cargo_persona_extra ?? 0;
+    const personasExtra = ((form.adultos ?? 1) + (form.ninos ?? 0)) > capacidadBase ? 1 : 0;
+    const cargoPersonaExtra = +(personasExtra * cargoExtraRate * form.noches).toFixed(2);
+
+    const total = +(totalBruto - discountBruto + cargoPersonaExtra).toFixed(2);
     const subtotalBruto = +(totalBruto / taxFactor).toFixed(2);
     const discount = +(discountBruto / taxFactor).toFixed(2);
     const subtotal = +(total / taxFactor).toFixed(2);
     const isv = +(subtotal * isvRate).toFixed(2);
     const tasaTuristica = +(total - subtotal - isv).toFixed(2);
-    return { subtotalBruto, discount, subtotal, isv, tasaTuristica, total, isvRate, turisticaRate, discountRate };
-  }, [form.tarifaManual, form.aplicarDescuento, form.noches, form.esCortesia, form.tipoReserva, precioBase, hotelConfig]);
+    return { subtotalBruto, discount, subtotal, isv, tasaTuristica, total, isvRate, turisticaRate, discountRate, cargoPersonaExtra, personasExtra, capacidadBase };
+  }, [form.tarifaManual, form.aplicarDescuento, form.noches, form.esCortesia, form.tipoReserva, form.adultos, form.ninos, precioBase, hotelConfig, selectedHabitacion]);
 
   const totalEstimado = useMemo(() => {
     return rates.total;
@@ -495,6 +505,11 @@ export const Bookings: React.FC = () => {
 
     // Crédito y cortesía tienen prioridad sobre cualquier valor de la BD
     if (reserva.estado === 'cancelada') return 'cancelada';
+
+    // Bloqueo temporal generado por una cotización aún sin confirmar: se
+    // muestra distinto de "Pendiente" como referencia visual, y no admite
+    // pagos hasta que el cliente la acepte o el hotel la confirme.
+    if (reserva.id_cotizacion && reserva.estado === 'pendiente') return 'cotizacion';
     if (reserva.es_cortesia || reserva.estado_pago === 'cortesia') return 'cortesia';
     if (reserva.id_empresa || reserva.estado_pago === 'credito') return 'credito';
 
@@ -536,13 +551,21 @@ export const Bookings: React.FC = () => {
     if (reserva.tipo_reserva === 'hora') {
       if (dateStr !== checkInStr) return null;
     } else {
-      if (dateStr < checkInStr || dateStr >= checkOutStr) {
-        return null;
+      if (checkInStr === checkOutStr) {
+        if (dateStr !== checkInStr) return null;
+      } else {
+        if (dateStr < checkInStr || dateStr >= checkOutStr) {
+          return null;
+        }
       }
     }
 
     if (reserva.estado === 'cancelada') {
       return { status: 'cancelada' as DisplayStatus, isCheckIn: false, isCheckOut: false };
+    }
+
+    if (reserva.id_cotizacion && reserva.estado === 'pendiente') {
+      return { status: 'cotizacion' as DisplayStatus, isCheckIn: false, isCheckOut: false };
     }
 
     // Generar todas las noches de la reserva
@@ -552,9 +575,13 @@ export const Bookings: React.FC = () => {
     } else {
       const cur = new Date(checkInStr + 'T12:00:00');
       const end = new Date(checkOutStr + 'T12:00:00');
-      while (cur < end) {
-        allNights.push(toDateKey(cur));
-        cur.setDate(cur.getDate() + 1);
+      if (checkInStr === checkOutStr) {
+        allNights.push(checkInStr);
+      } else {
+        while (cur < end) {
+          allNights.push(toDateKey(cur));
+          cur.setDate(cur.getDate() + 1);
+        }
       }
     }
 
@@ -583,11 +610,27 @@ export const Bookings: React.FC = () => {
 
     if (reserva.estado === 'check_out') {
       // Si la reserva ya completó check-out, las noches consumidas (anteriores al check-out)
-      // se muestran como completada. Las noches a partir del check-out son por_confirmar.
+      // o el mismo día si coinciden check-in y check-out se muestran según su estado de facturación.
+      // Las noches a partir del check-out son por_confirmar.
       if (reserva.tipo_reserva === 'hora') {
         status = 'completada';
       } else {
-        status = dateStr < checkOutStr ? 'completada' : 'por_confirmar';
+        const isNightBeforeCheckOut = dateStr < checkOutStr || checkInStr === checkOutStr;
+        if (isNightBeforeCheckOut) {
+          if (isCortesia) {
+            status = 'cortesia';
+          } else if (isCredito) {
+            status = isFullyPaid ? 'completada' : 'credito';
+          } else if (isFullyPaid) {
+            status = 'completada';
+          } else if (hasPartialPayment) {
+            status = 'abonada';
+          } else {
+            status = 'pendiente';
+          }
+        } else {
+          status = 'por_confirmar';
+        }
       }
     } else if (isCortesia) {
       status = 'cortesia';
@@ -643,7 +686,7 @@ export const Bookings: React.FC = () => {
           if (rv.tipo_reserva === 'hora') {
             return dayKey === ci;
           } else {
-            return dayKey >= ci && dayKey < co;
+            return dayKey >= ci && (ci === co ? dayKey === ci : dayKey < co);
           }
         });
 
@@ -715,8 +758,8 @@ export const Bookings: React.FC = () => {
     const todayStr = toDateKey(new Date());
 
     if (nuevoEstado === 'check_in') {
-      if (getOnlyDate(res.check_in) !== todayStr) {
-        showToast(`El check-in solo se puede registrar en la fecha de entrada programada (${getOnlyDate(res.check_in)}).`, 'err');
+      if (getOnlyDate(res.check_in) > todayStr) {
+        showToast(`El check-in no se puede registrar antes de la fecha de entrada programada (${getOnlyDate(res.check_in)}).`, 'err');
         return;
       }
     }
@@ -1166,8 +1209,8 @@ export const Bookings: React.FC = () => {
 
       if (form.estado === 'check_in' && (!editingReserva || editingReserva.estado !== 'check_in')) {
         const todayStr = toDateKey(new Date());
-        if (getOnlyDate(finalCheckIn) !== todayStr) {
-          showToast(`El check-in solo se puede registrar si la fecha de entrada es el día de hoy (${todayStr}).`, 'err');
+        if (getOnlyDate(finalCheckIn) > todayStr) {
+          showToast(`El check-in no se puede registrar antes de la fecha de entrada programada (${getOnlyDate(finalCheckIn)}).`, 'err');
           setSaving(false);
           return;
         }
@@ -1422,7 +1465,7 @@ export const Bookings: React.FC = () => {
 
       {/* ── Legend ── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, padding: '6px 20px', borderBottom: '1px solid #f1f5f9', flexShrink: 0, alignItems: 'center' }}>
-        {(['reservada', 'confirmada', 'check_in', 'pagada', 'abonada', 'cortesia', 'completada', 'cancelada'] as DisplayStatus[]).map(s => (
+        {(['cotizacion', 'reservada', 'confirmada', 'check_in', 'pagada', 'abonada', 'cortesia', 'completada', 'cancelada'] as DisplayStatus[]).map(s => (
           <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#64748b' }}>
             <div style={{ width: 10, height: 10, borderRadius: 2, background: getStatusColor(s) + '55', border: `1.5px solid ${getStatusColor(s)}` }} />
             {getStatusLabel(s)}
@@ -2003,6 +2046,7 @@ export const Bookings: React.FC = () => {
         const isCanceled = status === 'cancelada';
         const isCortesia = status === 'cortesia' || !!r.es_cortesia || r.estado_pago === 'cortesia';
         const isCredito = status === 'credito';
+        const isQuotePending = !!r.id_cotizacion && r.estado === 'pendiente';
         const isCheckIn = status === 'check_in';
         const isCheckOut = status === 'check_out';
         const pagado = (r.pagos ?? []).filter(p => p.estado !== 'anulado').reduce((s, p) => s + p.monto, 0);
@@ -2289,11 +2333,17 @@ export const Bookings: React.FC = () => {
                   Cerrar
                 </button>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {!isCanceled && !isCortesia && !isCredito && saldo > 0 && (
+                  {!isCanceled && !isCortesia && !isCredito && !isQuotePending && saldo > 0 && (
                     <button
                       onClick={() => { setDetailReserva(null); navigate(`/pagos?reserva=${r.id_reserva_hotel}`); }}
                       style={{ padding: '7px 14px', fontSize: 13, background: '#22c55e', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}
                     >Registrar pago</button>
+                  )}
+                  {isQuotePending && (
+                    <span
+                      title="Esta reserva proviene de una cotización pendiente de confirmación. El cliente debe aceptarla o el hotel debe confirmar la reserva manualmente para poder registrar pagos."
+                      style={{ padding: '7px 14px', fontSize: 12, background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', borderRadius: 8, fontWeight: 600 }}
+                    >Pendiente de confirmar cotización</span>
                   )}
                   {!isCanceled && (
                     <button
@@ -2439,7 +2489,12 @@ export const Bookings: React.FC = () => {
                         <span style={{ fontSize: 15, fontWeight: 700, minWidth: 22, textAlign: 'center', color: isPastReserva ? '#94a3b8' : '#000' }}>{form[field]}</span>
                         <button
                           type="button"
-                          disabled={isPastReserva}
+                          disabled={isPastReserva || (() => {
+                            const maxTotal = rates.capacidadBase + 1;
+                            const nextAdultos = field === 'adultos' ? form.adultos + 1 : form.adultos;
+                            const nextNinos = field === 'ninos' ? form.ninos + 1 : form.ninos;
+                            return (nextAdultos + nextNinos) > maxTotal;
+                          })()}
                           onClick={() => setForm(f => ({ ...f, [field]: f[field] + 1 }))}
                           style={{ border: '1px solid #e2e8f0', borderRadius: 6, width: 30, height: 30, cursor: isPastReserva ? 'not-allowed' : 'pointer', background: isPastReserva ? '#f1f5f9' : '#fff', color: isPastReserva ? '#94a3b8' : '#000', fontSize: 16, flexShrink: 0 }}
                         >+</button>
@@ -3138,7 +3193,16 @@ export const Bookings: React.FC = () => {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <button type="button" onClick={() => setForm(f => ({ ...f, [field]: Math.max(field === 'adultos' ? 1 : 0, f[field] - 1) }))} style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}>−</button>
                           <span style={{ fontSize: 15, fontWeight: 700, minWidth: 24, textAlign: 'center' }}>{form[field]}</span>
-                          <button type="button" onClick={() => setForm(f => ({ ...f, [field]: f[field] + 1 }))} style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}>+</button>
+                          <button
+                            type="button"
+                            disabled={(() => {
+                              const maxTotal = rates.capacidadBase + 1;
+                              const nextAdultos = field === 'adultos' ? form.adultos + 1 : form.adultos;
+                              const nextNinos = field === 'ninos' ? form.ninos + 1 : form.ninos;
+                              return (nextAdultos + nextNinos) > maxTotal;
+                            })()}
+                            onClick={() => setForm(f => ({ ...f, [field]: f[field] + 1 }))}
+                            style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16, opacity: (() => { const max = rates.capacidadBase + 1; const nA = field === 'adultos' ? form.adultos + 1 : form.adultos; const nN = field === 'ninos' ? form.ninos + 1 : form.ninos; return (nA + nN) > max ? 0.35 : 1; })() }}>+</button>
                         </div>
                       </div>
                     ))}
@@ -3338,6 +3402,7 @@ export const Bookings: React.FC = () => {
                           {[
                             { label: form.tipoReserva === 'hora' ? 'Subtotal por horas' : form.tipoReserva === 'pasadia' ? 'Subtotal pasadía' : `Subtotal (${form.noches} noche${form.noches !== 1 ? 's' : ''})`, value: `L ${rates.subtotalBruto.toFixed(2)}` },
                             form.aplicarDescuento && form.tipoReserva === 'noche' ? { label: `Descuento 3ª edad (${Math.round((hotelConfig?.descuento_tercera_edad ?? 25))}%)`, value: `− L ${rates.discount.toFixed(2)}`, color: '#16a34a' } : null,
+                            form.tipoReserva === 'noche' && (rates.cargoPersonaExtra ?? 0) > 0 ? { label: `Persona extra (cap. base: ${rates.capacidadBase})`, value: `L ${(rates.cargoPersonaExtra ?? 0).toFixed(2)}`, color: '#b45309' } : null,
                             { label: `ISV (${(rates.isvRate * 100).toFixed(0)}%)`, value: `L ${rates.isv.toFixed(2)}` },
                             { label: `Tasa Turística (${(rates.turisticaRate * 100).toFixed(0)}%)`, value: `L ${rates.tasaTuristica.toFixed(2)}` },
                           ].filter(Boolean).map((row, i) => (
@@ -3746,6 +3811,20 @@ export const Bookings: React.FC = () => {
           hoteles={hoteles}
           habitaciones={habitaciones}
           onImportComplete={() => { void load(); }}
+        />
+      )}
+
+      {/* ── Modal: Email Studio ── */}
+      {emailStudioReserva && (
+        <EmailStudioModal
+          isOpen={!!emailStudioReserva}
+          onClose={() => setEmailStudioReserva(null)}
+          bookingId={emailStudioReserva.id_reserva_hotel}
+          defaultType={
+            emailStudioReserva.estado === 'cancelada'
+              ? 'cancellation'
+              : 'confirmation'
+          }
         />
       )}
     </div>

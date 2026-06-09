@@ -39,17 +39,21 @@ async function resolveHotelContext(req: Request): Promise<{
   return { ownerId, hotelId, hotelIds: resolvedHotelIds };
 }
 
+function toISO(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
+
 function rangoPeriodo(periodo: string): { desde: string; hasta: string } {
   const ahora = new Date();
-  const hasta = ahora.toLocaleDateString('en-CA');
+  const hasta = toISO(ahora);
   const desde = new Date(ahora);
 
-  if (periodo === 'semana') desde.setDate(ahora.getDate() - 7);
+  if (periodo === 'semana')    desde.setDate(ahora.getDate() - 7);
   else if (periodo === 'trimestre') desde.setDate(ahora.getDate() - 90);
-  else if (periodo === 'aÃ±o') desde.setFullYear(ahora.getFullYear() - 1);
-  else desde.setDate(ahora.getDate() - 30); // mes por defecto
+  else if (periodo === 'año')  desde.setFullYear(ahora.getFullYear() - 1);
+  else                         desde.setDate(ahora.getDate() - 30); // mes
 
-  return { desde: desde.toLocaleDateString('en-CA'), hasta };
+  return { desde: toISO(desde), hasta };
 }
 
 // GET /api/finanzas/resumen
@@ -556,7 +560,7 @@ router.post('/facturas', async (req: Request, res: Response) => {
       .from('facturas')
       .insert({
         id_hotel:             resolvedHotelId,
-        fecha:                fecha || new Date().toLocaleDateString('en-CA'),
+        fecha:                fecha || toISO(new Date()),
         proveedor,
         no_factura:           no_factura || null,
         rtn_proveedor:        rtn_proveedor || null,
@@ -569,6 +573,7 @@ router.post('/facturas', async (req: Request, res: Response) => {
         isv_18:               Number(isv_18) || 0,
         monto_total:          Number(monto_total),
         imagen_url:           imagen_url || null,
+        desglose:             Array.isArray(desglose) && desglose.length > 0 ? desglose : [],
       })
       .select()
       .single();

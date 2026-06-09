@@ -48,6 +48,7 @@ router.get('/hotelera', async (req: Request, res: Response) => {
         horas_anticipacion_reserva: Number(item.horas_anticipacion_reserva ?? 14),
         umbral_ocupacion: Number(item.umbral_ocupacion ?? 85),
         orientacion_calendario: item.orientacion_calendario || 'vertical',
+        cargo_persona_extra: Number(item.cargo_persona_extra ?? 0),
       }));
 
       return res.json({ data: normalized });
@@ -117,6 +118,7 @@ router.get('/hotelera', async (req: Request, res: Response) => {
       horas_anticipacion_reserva: Number(data.horas_anticipacion_reserva ?? 14),
       umbral_ocupacion: Number(data.umbral_ocupacion ?? 85),
       orientacion_calendario: data.orientacion_calendario || 'vertical',
+      cargo_persona_extra: Number(data.cargo_persona_extra ?? 0),
     } : null;
 
     return res.json({ data: normalized });
@@ -145,7 +147,8 @@ router.put('/hotelera', async (req: Request, res: Response) => {
       horas_anticipacion_reserva,
       umbral_ocupacion,
       orientacion_calendario,
-      ciudad_base
+      ciudad_base,
+      cargo_persona_extra,
     } = req.body;
     
     const hotelId = req.headers['x-hotel-id'];
@@ -204,6 +207,9 @@ router.put('/hotelera', async (req: Request, res: Response) => {
     }
     if (ciudad_base !== undefined) {
       updateData.ciudad_base = ciudad_base;
+    }
+    if (cargo_persona_extra !== undefined) {
+      updateData.cargo_persona_extra = parseFloat(cargo_persona_extra);
     }
 
     if (!supabaseAdmin) {
@@ -274,6 +280,7 @@ router.get('/tipos-habitacion', async (req: Request, res: Response) => {
       nombre: x.nombre_tipo,
       descripcion: x.descripcion,
       precio_base: parseFloat(x.tarifa_base || 0),
+      capacidad_base: Number(x.capacidad_base ?? 2),
       estado: x.estado
     }));
 

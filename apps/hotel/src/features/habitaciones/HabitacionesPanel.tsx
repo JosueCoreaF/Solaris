@@ -1173,7 +1173,7 @@ export const HabitacionesPanel: React.FC = () => {
                         <div className="text-xs text-amber-600 p-3 bg-amber-50 rounded-xl border border-amber-200 mt-1">Sin tipos. Crea en la pestaña Tipos.</div>
                       ) : (
                         <select className={inp} value={form.tipo}
-                          onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
+                          onChange={e => setForm(f => ({ ...f, tipo: e.target.value, id_tarifa_default: '', tarifa_noche: 0 }))}>
                           {tiposHabitacion.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
                         </select>
                       )}
@@ -1216,6 +1216,62 @@ export const HabitacionesPanel: React.FC = () => {
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tarifas</span>
                     <div className="flex-1 h-px bg-slate-100" />
+                  </div>
+
+                  {/* Selector de tarifa del sistema — radio buttons siempre visibles */}
+                  <div className="mb-4">
+                    <span style={lbl}>Tarifa del sistema</span>
+                    {loadingTarifas ? (
+                      <p className="text-xs text-slate-400 py-1">Cargando tarifas...</p>
+                    ) : tarifasDisponibles.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">
+                        {form.tipo ? 'Sin tarifas configuradas para este tipo.' : 'Selecciona un tipo de habitación.'}
+                      </p>
+                    ) : (
+                      <div className="flex flex-col gap-1.5 mt-1">
+                        {/* Opción "Ninguna" */}
+                        <button
+                          type="button"
+                          onClick={() => setForm(f => ({ ...f, id_tarifa_default: '', tarifa_noche: 0 }))}
+                          className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-left w-full transition-all"
+                          style={{
+                            background: !form.id_tarifa_default ? 'rgba(100,116,139,.07)' : '#f8fafc',
+                            border: `1.5px solid ${!form.id_tarifa_default ? '#94a3b8' : '#e2e8f0'}`,
+                          }}
+                        >
+                          <span className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                            style={{ borderColor: !form.id_tarifa_default ? '#64748b' : '#cbd5e1' }}>
+                            {!form.id_tarifa_default && <span className="w-2 h-2 rounded-full bg-slate-500" />}
+                          </span>
+                          <span className="text-sm text-slate-500 italic">Ninguna (manual)</span>
+                        </button>
+
+                        {(tarifasDisponibles as any[]).map((t: any) => {
+                          const activa = form.id_tarifa_default === t.id_tarifa;
+                          return (
+                            <button
+                              key={t.id_tarifa}
+                              type="button"
+                              onClick={() => setForm(f => ({ ...f, id_tarifa_default: t.id_tarifa, tarifa_noche: t.tarifa_noche }))}
+                              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left w-full transition-all"
+                              style={{
+                                background: activa ? 'rgba(124,58,237,.07)' : '#f8fafc',
+                                border: `1.5px solid ${activa ? '#7c3aed' : '#e2e8f0'}`,
+                              }}
+                            >
+                              <span className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                                style={{ borderColor: activa ? '#7c3aed' : '#cbd5e1', background: 'white' }}>
+                                {activa && <span className="w-2 h-2 rounded-full bg-violet-600" />}
+                              </span>
+                              <span className="text-sm font-semibold text-slate-700 flex-1">{t.categoria || 'Sin categoría'}</span>
+                              <span className="text-sm font-bold" style={{ color: activa ? '#7c3aed' : '#334155' }}>
+                                L {Number(t.tarifa_noche).toLocaleString('es-HN', { minimumFractionDigits: 2 })}/noche
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   {/* Tarifas por período (solo edición) */}

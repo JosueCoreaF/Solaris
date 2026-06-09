@@ -60,6 +60,7 @@ export async function actualizarConfigHotelera(config: {
   umbral_ocupacion?: number;
   orientacion_calendario?: string;
   ciudad_base?: string;
+  cargo_persona_extra?: number;
 }, hotelId?: string) {
   try {
     const headers: Record<string, string> = {};

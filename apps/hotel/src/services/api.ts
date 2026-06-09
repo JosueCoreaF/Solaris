@@ -34,7 +34,7 @@ axiosInstance.interceptors.response.use(
   },
   (error) => {
     const code = error.response?.data?.error;
-    if (code === 'ACCOUNT_SUSPENDED' || code === 'ACCOUNT_INACTIVE') {
+    if (code === 'ACCOUNT_SUSPENDED' || code === 'ACCOUNT_INACTIVE' || code === 'MODULE_SUSPENDED') {
       window.dispatchEvent(new CustomEvent('solarys:account-blocked', {
         detail: { reason: code, message: error.response?.data?.message ?? '' },
       }));
@@ -103,11 +103,11 @@ export const habitacionesService = {
 };
 
 const apiClient = {
-  get: <T = any>(endpoint: string) => axiosInstance.get<T>(endpoint).then(res => res.data),
-  post: <T = any>(endpoint: string, data?: any) => axiosInstance.post<T>(endpoint, data).then(res => res.data),
-  put: <T = any>(endpoint: string, data?: any) => axiosInstance.put<T>(endpoint, data).then(res => res.data),
-  patch: <T = any>(endpoint: string, data?: any) => axiosInstance.patch<T>(endpoint, data).then(res => res.data),
-  delete: <T = any>(endpoint: string) => axiosInstance.delete<T>(endpoint).then(res => res.data),
+  get: <T = any>(endpoint: string, config?: any) => axiosInstance.get<T>(endpoint, config).then(res => res.data),
+  post: <T = any>(endpoint: string, data?: any, config?: any) => axiosInstance.post<T>(endpoint, data, config).then(res => res.data),
+  put: <T = any>(endpoint: string, data?: any, config?: any) => axiosInstance.put<T>(endpoint, data, config).then(res => res.data),
+  patch: <T = any>(endpoint: string, data?: any, config?: any) => axiosInstance.patch<T>(endpoint, data, config).then(res => res.data),
+  delete: <T = any>(endpoint: string, config?: any) => axiosInstance.delete<T>(endpoint, config).then(res => res.data),
 };
 
 export default apiClient;

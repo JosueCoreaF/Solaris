@@ -70,6 +70,16 @@ const IconChat = () => (
   </svg>
 );
 
+const IconQuotes = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="16" y1="13" x2="8" y2="13" />
+    <line x1="16" y1="17" x2="8" y2="17" />
+    <polyline points="10 9 9 9 8 9" />
+  </svg>
+);
+
 const IconClients = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" fill="currentColor" />
@@ -91,6 +101,12 @@ const IconSparkles = () => (
     <path d="M12 3l1.88 5.76L20 10l-5.76 1.88L12 18l-1.88-5.76L4 10l5.76-1.88z" />
     <path d="M5 3l.94 2.88L9 7l-2.88.94L5 11l-.94-2.88L1 7l2.88-.94z" strokeWidth="1.4" />
     <path d="M19 17l.94 2.88L23 21l-2.88.94L19 25" strokeWidth="1.4" />
+  </svg>
+);
+const IconMail = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+    <polyline points="22,6 12,13 2,6" />
   </svg>
 );
 const IconShield = () => (
@@ -132,6 +148,7 @@ const getSidebarSections = (role: string) => {
           { to: '/pagos', label: 'Pagos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/clientes', label: 'Clientes', icon: IconClients, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/empresas', label: 'Empresas', icon: IconBuilding, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
+          { to: '/cotizaciones', label: 'Cotizaciones', icon: IconQuotes, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/estado-cuenta', label: 'Estado de Cuenta', icon: IconWallet, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/chat', label: 'Chat', icon: IconChat, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'] },
         ],
@@ -144,6 +161,7 @@ const getSidebarSections = (role: string) => {
           { to: '/exportar', label: 'Exportar Datos', icon: IconExport, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
           { to: '/importar-reservas', label: 'Importar', icon: IconUploadCloud, roles: ['PROPIETARIO', 'ADMIN'] },
           { to: '/config', label: 'Configuración', icon: IconSettings, roles: ['PROPIETARIO', 'ADMIN'] },
+          { to: '/plantillas-correo', label: 'Plantillas Correo', icon: IconMail, roles: ['PROPIETARIO', 'ADMIN'] },
           { to: '/gestionar-roles', label: 'Roles y Permisos', icon: IconUsers, roles: ['PROPIETARIO'] },
           { to: '/auditoria', label: 'Auditoría', icon: IconShield, roles: ['PROPIETARIO', 'ADMIN'] },
         ],

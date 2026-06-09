@@ -1,5 +1,11 @@
 import express from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
+import {
+  sendModuleSuspendedEmail,
+  sendSubscriptionConfirmationEmail,
+  sendSubscriptionExpiredEmail,
+  sendSubscriptionExpiringEmail,
+} from '../utils/emailService.js';
 
 const router = express.Router();
 const db = () => supabaseAdmin!;
@@ -314,11 +320,29 @@ router.patch('/owners/:id/subscription', async (req, res) => {
   try {
     const { id_plan, estado, trial_end } = req.body;
 
+    // Pre-fetch owner + plan name para emails de notificación
+    const notifyEstados = ['activa', 'trial', 'cancelada', 'impaga', 'inactiva'];
+    let ownerEmailData: { email_contacto: string; nombre_empresa: string } | null = null;
+    let planName: string | undefined;
+
+    if (estado && notifyEstados.includes(estado)) {
+      const [{ data: ownerData }, { data: planData }] = await Promise.all([
+        db().from('owners').select('email_contacto, nombre_empresa').eq('id_owner', req.params.id).maybeSingle(),
+        id_plan
+          ? db().from('planes_suscripcion').select('nombre').eq('id_plan', id_plan).maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+      ownerEmailData = ownerData;
+      planName = planData?.nombre ?? undefined;
+    }
+
     const { data: existing } = await db()
       .from('suscripciones_owner')
       .select('id_suscripcion')
       .eq('owner_id', req.params.id)
       .maybeSingle();
+
+    let resultData: any;
 
     if (existing) {
       const update: Record<string, any> = { updated_at: new Date().toISOString() };
@@ -336,32 +360,54 @@ router.patch('/owners/:id/subscription', async (req, res) => {
         console.error('[PATCH subscription] DB error:', error.message, error.details);
         throw error;
       }
-      return res.json(data ?? existing);
+      resultData = data ?? existing;
+    } else {
+      // No existe suscripción: crear
+      const { data: plan } = await db()
+        .from('planes_suscripcion')
+        .select('tipo_modulo')
+        .eq('id_plan', id_plan)
+        .maybeSingle();
+
+      const { data, error } = await db()
+        .from('suscripciones_owner')
+        .insert({
+          owner_id:    req.params.id,
+          id_plan,
+          tipo_modulo: plan?.tipo_modulo ?? 'hotel',
+          estado:      estado ?? 'activa',
+          trial_end:   trial_end || null,
+        })
+        .select('id_suscripcion, id_plan, estado, trial_end')
+        .maybeSingle();
+      if (error) {
+        console.error('[PATCH subscription INSERT] DB error:', error.message, error.details);
+        throw error;
+      }
+      resultData = data;
     }
 
-    // No existe suscripción: crear
-    const { data: plan } = await db()
-      .from('planes_suscripcion')
-      .select('tipo_modulo')
-      .eq('id_plan', id_plan)
-      .maybeSingle();
-
-    const { data, error } = await db()
-      .from('suscripciones_owner')
-      .insert({
-        owner_id:    req.params.id,
-        id_plan,
-        tipo_modulo: plan?.tipo_modulo ?? 'hotel',
-        estado:      estado ?? 'activa',
-        trial_end:   trial_end || null,
-      })
-      .select('id_suscripcion, id_plan, estado, trial_end')
-      .maybeSingle();
-    if (error) {
-      console.error('[PATCH subscription INSERT] DB error:', error.message, error.details);
-      throw error;
+    // Enviar email de notificación según el estado
+    if (ownerEmailData?.email_contacto) {
+      const effectiveEstado = estado ?? 'activa';
+      if (effectiveEstado === 'activa' || effectiveEstado === 'trial') {
+        void sendSubscriptionConfirmationEmail({
+          ownerEmail: ownerEmailData.email_contacto,
+          ownerName:  ownerEmailData.nombre_empresa,
+          planName,
+          trialEnd:   trial_end || undefined,
+        });
+      } else if (['cancelada', 'impaga', 'inactiva'].includes(effectiveEstado)) {
+        void sendSubscriptionExpiredEmail({
+          ownerEmail: ownerEmailData.email_contacto,
+          ownerName:  ownerEmailData.nombre_empresa,
+          planName,
+          reason:     effectiveEstado as any,
+        });
+      }
     }
-    return res.json(data);
+
+    return res.json(resultData);
   } catch (err: any) {
     console.error('[PATCH subscription] fatal:', err.message);
     return res.status(500).json({ error: err.message });
@@ -376,6 +422,18 @@ router.patch('/modules/:moduleId', async (req, res) => {
     if (typeof is_active !== 'boolean') {
       return res.status(400).json({ error: 'is_active debe ser boolean' });
     }
+
+    // Obtener datos del módulo + owner para email (solo si se va a suspender)
+    let moduleOwnerInfo: any = null;
+    if (!is_active) {
+      const { data: mi } = await db()
+        .from('business_modules')
+        .select('tipo_modulo, nombre_modulo, owner_id, owners(email_contacto, nombre_empresa)')
+        .eq('id_module', req.params.moduleId)
+        .maybeSingle();
+      moduleOwnerInfo = mi;
+    }
+
     const { data, error } = await db()
       .from('business_modules')
       .update({ is_active })
@@ -387,6 +445,21 @@ router.patch('/modules/:moduleId', async (req, res) => {
       throw error;
     }
     if (!data) return res.status(404).json({ error: 'Módulo no encontrado' });
+
+    if (!is_active && moduleOwnerInfo) {
+      const owner = Array.isArray(moduleOwnerInfo.owners)
+        ? moduleOwnerInfo.owners[0]
+        : moduleOwnerInfo.owners;
+      if (owner?.email_contacto) {
+        void sendModuleSuspendedEmail({
+          ownerEmail:  owner.email_contacto,
+          ownerName:   owner.nombre_empresa,
+          moduleType:  moduleOwnerInfo.tipo_modulo,
+          moduleName:  moduleOwnerInfo.nombre_modulo || undefined,
+        });
+      }
+    }
+
     return res.json(data);
   } catch (err: any) {
     console.error('[PATCH modules] fatal:', err.message);
@@ -422,6 +495,22 @@ router.post('/owners/:id/bulk-modules', async (req, res) => {
       action:      action === 'suspend' ? 'bulk_suspend_modules' : 'bulk_activate_modules',
       meta:        { modules_affected: data?.length ?? 0 },
     });
+
+    if (action === 'suspend' && data && data.length > 0) {
+      const { data: ownerData } = await db()
+        .from('owners')
+        .select('email_contacto, nombre_empresa')
+        .eq('id_owner', req.params.id)
+        .maybeSingle();
+      if (ownerData?.email_contacto) {
+        void sendModuleSuspendedEmail({
+          ownerEmail: ownerData.email_contacto,
+          ownerName:  ownerData.nombre_empresa,
+          moduleType: 'todos',
+          moduleName: 'Todos los módulos',
+        });
+      }
+    }
 
     return res.json({ updated: data?.length ?? 0, modules: data ?? [] });
   } catch (err: any) {
@@ -476,6 +565,12 @@ router.post('/owners/:id/deactivate', async (req, res) => {
       target_id:   ownerId,
       action:      'deactivate_account',
       meta:        { nombre_empresa: owner.nombre_empresa },
+    });
+
+    void sendSubscriptionExpiredEmail({
+      ownerEmail: owner.email_contacto,
+      ownerName:  owner.nombre_empresa,
+      reason:     'cuenta_desactivada',
     });
 
     return res.json({ success: true, owner: updated });
@@ -552,6 +647,190 @@ router.delete('/owners/:id', async (req, res) => {
   }
 });
 
+// ─── DELETE /hub/admin/hoteles/:id_hotel ─────────────────────────────────────
+// Eliminación permanente de un hotel y todas sus dependencias en cascada manual.
+router.delete('/hoteles/:id_hotel', async (req, res) => {
+  try {
+    const hotelId = req.params.id_hotel;
+
+    // 1. Verificar que el hotel existe y obtener su id_module
+    const { data: hotel, error: hotelErr } = await db()
+      .from('hoteles')
+      .select('id_hotel, nombre_hotel, id_module')
+      .eq('id_hotel', hotelId)
+      .maybeSingle();
+
+    if (hotelErr || !hotel) {
+      return res.status(404).json({ error: 'Hotel no encontrado' });
+    }
+
+    // 2. Audit log entries matching this hotel
+    await db().from('audit_log').delete().eq('id_hotel', hotelId);
+
+    // 3. Roles
+    await db().from('usuarios_roles').delete().eq('id_hotel', hotelId);
+
+    // 4. Invitaciones
+    await db().from('invitaciones').delete().eq('id_hotel', hotelId);
+
+    // 5. Pagos, reserva_comodidades, reserva_servicios, creditos_empresa
+    const { data: reservas } = await db()
+      .from('reservas_hotel')
+      .select('id_reserva_hotel')
+      .eq('id_hotel', hotelId);
+    
+    const reservaIds = (reservas || []).map((r: any) => r.id_reserva_hotel);
+
+    if (reservaIds.length > 0) {
+      await db().from('pagos_hotel').delete().in('id_reserva_hotel', reservaIds);
+      await db().from('reserva_comodidades').delete().in('id_reserva_hotel', reservaIds);
+      await db().from('reserva_servicios').delete().in('id_reserva_hotel', reservaIds);
+      await db().from('creditos_empresa').delete().in('id_reserva_hotel', reservaIds);
+    }
+
+    // 6. Créditos empresa vinculados directamente a empresas del hotel
+    const { data: empresas } = await db()
+      .from('empresas')
+      .select('id_empresa')
+      .eq('id_hotel', hotelId);
+    const empresaIds = (empresas || []).map((e: any) => e.id_empresa);
+
+    if (empresaIds.length > 0) {
+      await db().from('creditos_empresa').delete().in('id_empresa', empresaIds);
+    }
+
+    // 7. Saldos clientes de huéspedes del hotel
+    const { data: huespedes } = await db()
+      .from('huespedes')
+      .select('id_huesped')
+      .eq('id_hotel', hotelId);
+    const huespedIds = (huespedes || []).map((h: any) => h.id_huesped);
+
+    if (huespedIds.length > 0) {
+      await db().from('saldos_clientes').delete().in('id_huesped', huespedIds);
+    }
+
+    // 8. Facturas y cierres diarios
+    await db().from('facturas').delete().eq('id_hotel', hotelId);
+    await db().from('cierres_diarios').delete().eq('id_hotel', hotelId);
+
+    // 9. Reservas
+    await db().from('reservas_hotel').delete().eq('id_hotel', hotelId);
+
+    // 10. Habitaciones id_tarifa_default reset (to avoid blocking when deleting tarifas)
+    await db().from('habitaciones').update({ id_tarifa_default: null }).eq('id_hotel', hotelId);
+
+    // 11. Tarifas y habitacion_tarifas_periodo
+    const { data: tiposHab } = await db()
+      .from('tipos_habitacion')
+      .select('id_tipo_habitacion')
+      .eq('id_hotel', hotelId);
+    const tipoHabIds = (tiposHab || []).map((t: any) => t.id_tipo_habitacion);
+
+    if (tipoHabIds.length > 0) {
+      const { data: tarifas } = await db().from('tarifas').select('id_tarifa').in('id_tipo_habitacion', tipoHabIds);
+      const tarifaIds = (tarifas || []).map((t: any) => t.id_tarifa);
+      if (tarifaIds.length > 0) {
+        await db().from('habitacion_tarifas_periodo').delete().in('id_tarifa', tarifaIds);
+      }
+      await db().from('tarifas').delete().in('id_tipo_habitacion', tipoHabIds);
+    }
+
+    // 12. Cotización items y cotizaciones
+    const { data: cotizaciones } = await db()
+      .from('cotizaciones')
+      .select('id_cotizacion')
+      .eq('id_hotel', hotelId);
+    const cotizacionIds = (cotizaciones || []).map((c: any) => c.id_cotizacion);
+    if (cotizacionIds.length > 0) {
+      await db().from('cotizacion_items').delete().in('id_cotizacion', cotizacionIds);
+      await db().from('cotizaciones').delete().eq('id_hotel', hotelId);
+    }
+
+    // 13. Plantillas de correo, comodidades del hotel, servicios adicionales
+    await db().from('plantillas_correo').delete().eq('id_hotel', hotelId);
+    await db().from('comodidades_hotel').delete().eq('id_hotel', hotelId);
+    await db().from('servicios_adicionales').delete().eq('id_hotel', hotelId);
+
+    // 14. Habitacion comodidades, imagenes, bloqueos
+    const { data: habitaciones } = await db()
+      .from('habitaciones')
+      .select('id_habitacion')
+      .eq('id_hotel', hotelId);
+    const habitacionIds = (habitaciones || []).map((hab: any) => hab.id_habitacion);
+
+    if (habitacionIds.length > 0) {
+      await db().from('habitacion_comodidades').delete().in('id_habitacion', habitacionIds);
+      await db().from('habitacion_imagenes').delete().in('id_habitacion', habitacionIds);
+      await db().from('bloqueos_habitacion').delete().in('id_habitacion', habitacionIds);
+      await db().from('habitacion_tarifas_periodo').delete().in('id_habitacion', habitacionIds);
+    }
+
+    // 15. Habitaciones, tipos_habitacion, categorias_tarifa
+    await db().from('habitaciones').delete().eq('id_hotel', hotelId);
+    await db().from('tipos_habitacion').delete().eq('id_hotel', hotelId);
+    await db().from('categorias_tarifa').delete().eq('id_hotel', hotelId);
+
+    // 16. Empresa colaboradores, empresa creditos, empresas, huespedes
+    if (huespedIds.length > 0) {
+      await db().from('empresa_colaboradores').delete().in('id_huesped', huespedIds);
+    }
+    await db().from('empresa_creditos').delete().eq('id_hotel', hotelId);
+    await db().from('empresas').delete().eq('id_hotel', hotelId);
+    await db().from('huespedes').delete().eq('id_hotel', hotelId);
+
+    // 17. Chat read status, messages, channels
+    const { data: channels } = await db()
+      .from('chat_channels')
+      .select('id')
+      .eq('id_hotel', hotelId);
+    const channelIds = (channels || []).map((ch: any) => ch.id);
+    if (channelIds.length > 0) {
+      await db().from('chat_read_status').delete().in('channel_id', channelIds);
+      await db().from('chat_messages').delete().in('channel_id', channelIds);
+    }
+    await db().from('chat_channels').delete().eq('id_hotel', hotelId);
+
+    // 18. Tareas mantenimiento
+    await db().from('tareas_mantenimiento').delete().eq('id_hotel', hotelId);
+
+    // 19. Finalmente el hotel
+    const { error: delHotelErr } = await db()
+      .from('hoteles')
+      .delete()
+      .eq('id_hotel', hotelId);
+
+    if (delHotelErr) throw delHotelErr;
+
+    // 20. Si ya no hay hoteles en ese business_module y es tipo 'hotel', podemos considerar eliminar el modulo
+    if (hotel.id_module) {
+      const { data: otherHotels } = await db()
+        .from('hoteles')
+        .select('id_hotel')
+        .eq('id_module', hotel.id_module);
+      if (!otherHotels || otherHotels.length === 0) {
+        await db().from('business_modules').delete().eq('id_module', hotel.id_module);
+      }
+    }
+
+    // Registrar en auditoría
+    db().from('audit_log').insert({
+      actor_id: (req as any).adminUserId,
+      target_type: 'hotel',
+      target_id: hotelId,
+      action: 'DELETE',
+      meta: { nombre_hotel: hotel.nombre_hotel },
+    }).then(({ error: auditErr }) => {
+      if (auditErr) console.warn('[DELETE hotel] audit_log error:', auditErr.message);
+    });
+
+    return res.json({ success: true, deleted: hotelId });
+  } catch (err: any) {
+    console.error('[DELETE hotel] error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── POST /hub/admin/impersonate/:ownerId ────────────────────────────────────
 
 router.post('/impersonate/:ownerId', async (req, res) => {
@@ -592,6 +871,59 @@ router.post('/impersonate/:ownerId', async (req, res) => {
       email: owner.email_contacto,
       empresa: owner.nombre_empresa,
     });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /hub/admin/send-expiry-warnings ────────────────────────────────────
+// Envía avisos por correo a owners con trial que vence en ≤ 7 días.
+// Invocar desde un cron externo (p.ej. Vercel Cron o Supabase Edge Function).
+
+router.post('/send-expiry-warnings', async (_req, res) => {
+  try {
+    const now     = new Date();
+    const in7days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const { data: subs, error } = await db()
+      .from('suscripciones_owner')
+      .select(`
+        id_suscripcion, owner_id, id_plan, trial_end,
+        owners ( email_contacto, nombre_empresa ),
+        planes_suscripcion ( nombre )
+      `)
+      .eq('estado', 'trial')
+      .not('trial_end', 'is', null)
+      .lte('trial_end', in7days.toISOString())
+      .gte('trial_end', now.toISOString());
+
+    if (error) throw error;
+
+    const results: { owner_id: string; email: string; sent: boolean }[] = [];
+
+    for (const sub of subs ?? []) {
+      const owner = Array.isArray((sub as any).owners) ? (sub as any).owners[0] : (sub as any).owners;
+      const plan  = Array.isArray((sub as any).planes_suscripcion)
+        ? (sub as any).planes_suscripcion[0]
+        : (sub as any).planes_suscripcion;
+
+      if (!owner?.email_contacto) continue;
+
+      const trialEnd = new Date((sub as any).trial_end);
+      const daysLeft = Math.max(0, Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+
+      const result = await sendSubscriptionExpiringEmail({
+        ownerEmail: owner.email_contacto,
+        ownerName:  owner.nombre_empresa,
+        planName:   plan?.nombre ?? undefined,
+        trialEnd:   (sub as any).trial_end,
+        daysLeft,
+      });
+
+      results.push({ owner_id: (sub as any).owner_id, email: owner.email_contacto, sent: !!(result as any).success });
+    }
+
+    return res.json({ processed: results.length, results });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

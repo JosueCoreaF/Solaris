@@ -10,6 +10,8 @@ import publicHotelRouter from './public.js';
 import habitacionesRouter from './habitaciones.js';
 import exportsRouter from './exports.js';
 import mantenimientoRouter from './mantenimiento.js';
+import quotesRouter from './quotes.js';
+import usuariosRouter from './users.js';
 import { syncContext } from '../../controllers/hotel/contexto.controller.js';
 import { checkAccountStatus, getAuthUser } from '../../utils/tenantHelper.js';
 import { supabaseAdmin } from '../../config/supabase.js';
@@ -22,16 +24,18 @@ router.get('/account-status', async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'INVALID_SESSION', message: 'Sesión inválida.' });
 
+    let ownerId: string | null = null;
     let estado: string | null = null;
     let nombre_empresa: string | null = null;
 
     const { data: owner } = await supabaseAdmin!
       .from('owners')
-      .select('estado, nombre_empresa')
+      .select('id_owner, estado, nombre_empresa')
       .eq('id_owner', user.id)
       .maybeSingle();
 
     if (owner) {
+      ownerId = owner.id_owner;
       estado = owner.estado;
       nombre_empresa = owner.nombre_empresa;
     } else {
@@ -44,6 +48,7 @@ router.get('/account-status', async (req, res) => {
         .maybeSingle();
 
       if (role?.owner_id) {
+        ownerId = role.owner_id;
         const { data: ownerData } = await supabaseAdmin!
           .from('owners')
           .select('estado, nombre_empresa')
@@ -69,14 +74,31 @@ router.get('/account-status', async (req, res) => {
       });
     }
 
+    if (ownerId) {
+      const { data: module } = await supabaseAdmin!
+        .from('business_modules')
+        .select('is_active, estado')
+        .eq('owner_id', ownerId)
+        .eq('tipo_modulo', 'hotel')
+        .maybeSingle();
+
+      if (module && (module.is_active === false || module.estado === 'inactivo')) {
+        return res.status(403).json({
+          error: 'MODULE_SUSPENDED',
+          message: 'Este negocio ha sido suspendido. Contacta con soporte.',
+          nombre_empresa,
+        });
+      }
+    }
+
     return res.json({ status: 'active', nombre_empresa });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-// Todos los demás endpoints del hotel requieren cuenta activa
-router.use(checkAccountStatus);
+// Todos los demás endpoints del hotel requieren cuenta activa y módulo activo
+router.use(checkAccountStatus('hotel'));
 
 router.get('/sync-context', syncContext);
 router.use('/config', configRouter);
@@ -90,6 +112,8 @@ router.use('/public', publicHotelRouter);
 router.use('/habitaciones', habitacionesRouter);
 router.use('/exports', exportsRouter);
 router.use('/mantenimiento', mantenimientoRouter);
+router.use('/quotes', quotesRouter);
+router.use('/usuarios', usuariosRouter);
 
 export { chatRouter };
 export default router;

@@ -22,6 +22,13 @@ const CONFIG = {
     body: 'Tu cuenta ha sido desactivada. Los datos de tu negocio se conservan pero el acceso ha sido revocado.',
     action: 'Contacta con soporte si crees que esto es un error.',
   },
+  MODULE_SUSPENDED: {
+    icon: ShieldOff,
+    color: 'amber',
+    title: 'Negocio suspendido',
+    body: 'Este negocio ha sido suspendido temporalmente desde la administración. El resto de tu cuenta y otros negocios no se ven afectados.',
+    action: 'Contacta con soporte para restablecer el acceso a este negocio.',
+  },
   INVALID_SESSION: {
     icon: ShieldOff,
     color: 'slate',
@@ -83,7 +90,8 @@ export const AccountBlockedScreen: React.FC<Props> = ({ reason, onSignOut }) => 
             <div>
               <span className={`text-xs font-semibold uppercase tracking-wide ${colors.badge} px-2 py-0.5 rounded-full`}>
                 {reason === 'ACCOUNT_SUSPENDED' ? 'Acceso restringido' :
-                 reason === 'ACCOUNT_INACTIVE'  ? 'Cuenta inactiva'   : 'Sesión expirada'}
+                 reason === 'ACCOUNT_INACTIVE'  ? 'Cuenta inactiva'   :
+                 reason === 'MODULE_SUSPENDED'  ? 'Negocio suspendido' : 'Sesión expirada'}
               </span>
               <h1 className={`text-lg font-bold mt-1 ${colors.title}`}>{cfg.title}</h1>
             </div>

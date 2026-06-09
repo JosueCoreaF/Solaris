@@ -31,6 +31,8 @@ export default defineConfig(({ mode }) => {
         JSON.stringify(process.env.VITE_MEDIA_BUCKET || 'solaris-media'),
       'import.meta.env.VITE_HUB_URL':
         JSON.stringify(process.env.VITE_HUB_URL || 'http://localhost:5174'),
+      'import.meta.env.VITE_GEMINI_API_KEY':
+        JSON.stringify(backendEnv.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || ''),
     },
   };
 });

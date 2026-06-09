@@ -14,6 +14,7 @@ import { HabitacionesPanel } from './features/habitaciones/HabitacionesPanel';
 import { Pagos } from './features/bookings/Pagos';
 import { Finance } from './features/finance/Finance';
 import { Config } from './features/admin/Config';
+import { EmailTemplatesPage } from './features/admin/EmailTemplatesPage';
 import { Tarifas } from './features/admin/Tarifas';
 import { RoleManagement } from './features/admin/RoleManagement';
 import { Reportes } from './features/admin/Reportes';
@@ -32,6 +33,10 @@ import ChatOperativo from './components/ChatOperativo';
 import { FinanceAIProvider, FloatingAIProgressWidget } from './context/FinanceAIContext';
 import apiClient from './services/api';
 import { ROUTE_ROLES } from './config/rbac';
+
+import { QuotesPanel } from './features/quotes/QuotesPanel';
+import { QuoteForm } from './features/quotes/QuoteForm';
+import { QuoteDetail } from './features/quotes/QuoteDetail';
 
 // Shorthand para no repetir <RoleGuard requiredRoles={ROUTE_ROLES[path]}>
 const Guarded: React.FC<{ path: string; children: React.ReactNode }> = ({ path, children }) => (
@@ -95,6 +100,18 @@ const AppContent: React.FC = () => {
                   <Route path="/reservas" element={
                     <Guarded path="/reservas"><Bookings /></Guarded>
                   } />
+                  <Route path="/cotizaciones" element={
+                    <Guarded path="/cotizaciones"><QuotesPanel /></Guarded>
+                  } />
+                  <Route path="/cotizaciones/nueva" element={
+                    <Guarded path="/cotizaciones"><QuoteForm /></Guarded>
+                  } />
+                  <Route path="/cotizaciones/editar/:id" element={
+                    <Guarded path="/cotizaciones"><QuoteForm /></Guarded>
+                  } />
+                  <Route path="/cotizaciones/:id" element={
+                    <Guarded path="/cotizaciones"><QuoteDetail /></Guarded>
+                  } />
                   <Route path="/pagos" element={
                     <Guarded path="/pagos"><Pagos /></Guarded>
                   } />
@@ -127,6 +144,9 @@ const AppContent: React.FC = () => {
                   } />
                   <Route path="/config" element={
                     <Guarded path="/config"><Config /></Guarded>
+                  } />
+                  <Route path="/plantillas-correo" element={
+                    <Guarded path="/plantillas-correo"><EmailTemplatesPage /></Guarded>
                   } />
                   <Route path="/gestionar-roles" element={
                     <Guarded path="/gestionar-roles"><RoleManagement /></Guarded>

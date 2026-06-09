@@ -286,6 +286,8 @@ interface MonthGridProps {
   hoverDate?: Date | null;
   minDate?: Date | null;
   maxDate?: Date | null;
+  /** Fechas puntuales (YYYY-MM-DD) que no se pueden seleccionar, p.ej. noches sin disponibilidad */
+  disabledDates?: Set<string>;
   onSelect: (d: Date) => void;
   onHover?: (d: Date | null) => void;
   direction?: 'left' | 'right' | null;
@@ -293,7 +295,7 @@ interface MonthGridProps {
 
 const MonthGrid: React.FC<MonthGridProps> = ({
   year, month, selected, rangeFrom, rangeTo, hoverDate,
-  minDate, maxDate, onSelect, onHover, direction,
+  minDate, maxDate, disabledDates, onSelect, onHover, direction,
 }) => {
   const offset = firstDayOffset(year, month);
   const total  = daysInMonth(year, month);
@@ -318,7 +320,7 @@ const MonthGrid: React.FC<MonthGridProps> = ({
         const ymd    = toYMD(d);
         const isSelected = selected ? sameDay(d, selected) : false;
         const isToday    = sameDay(d, today);
-        const isDisabled = (minDate && d < minDate) || (maxDate && d > maxDate);
+        const isDisabled = !!((minDate && d < minDate) || (maxDate && d > maxDate) || disabledDates?.has(ymd));
 
         // Range logic
         const isRangeFrom  = rangeFrom ? sameDay(d, rangeFrom) : false;
@@ -475,6 +477,8 @@ export interface DatePickerProps {
   onChange?: (value: string) => void;
   min?: string;
   max?: string;
+  /** Fechas puntuales (YYYY-MM-DD) deshabilitadas, p.ej. noches sin disponibilidad */
+  disabledDates?: Set<string>;
   disabled?: boolean;
   placeholder?: string;
   className?: string;
@@ -486,6 +490,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   onChange,
   min,
   max,
+  disabledDates,
   disabled = false,
   placeholder = 'Seleccionar fecha',
   className,
@@ -579,6 +584,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
               selected={selected}
               minDate={minDate}
               maxDate={maxDate}
+              disabledDates={disabledDates}
               onSelect={handleSelect}
               direction={dir}
             />
@@ -598,6 +604,8 @@ export interface DateRangePickerProps {
   onFromChange?: (value: string) => void;
   onToChange?: (value: string) => void;
   minFrom?: string;
+  /** Fechas puntuales (YYYY-MM-DD) deshabilitadas, p.ej. noches sin disponibilidad */
+  disabledDates?: Set<string>;
   /** If true, minTo auto-locks to `from` date */
   autoMinTo?: boolean;
   disabledFrom?: boolean;
@@ -617,6 +625,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   onFromChange,
   onToChange,
   minFrom,
+  disabledDates,
   autoMinTo = true,
   disabledFrom = false,
   disabledTo = false,
@@ -786,6 +795,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
               rangeTo={toDate}
               hoverDate={activeField === 'to' ? hoverDate : null}
               minDate={activeField === 'to' ? minToD : minFromD}
+              disabledDates={disabledDates}
               onSelect={handleSelect}
               onHover={setHoverDate}
               direction={dir}

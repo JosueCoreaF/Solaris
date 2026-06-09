@@ -16,48 +16,39 @@ const generarCodigo = (): string => {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 };
 
-// Crear invitación (id_hotel puede ser opcional inicialmente)
+// Crear invitación y enviar correo vía backend (incluye envío de email automático)
 export const crearInvitacion = async (email: string, id_hotel: string | null, rol_sugerido: string): Promise<Invitacion | null> => {
-  const session = (await supabase.auth.getSession()).data.session;
-  const ownerId = session?.user.id;
-  if (!ownerId) {
-    console.error('No se pudo determinar el propietario activo');
+  try {
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session) {
+      console.error('No se pudo determinar la sesión activa');
+      return null;
+    }
+
+    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+    };
+    if (id_hotel) headers['x-hotel-id'] = id_hotel;
+
+    const res = await fetch(`${base}/hotel/usuarios/invitar`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ email, rol_sugerido }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.error('Error al crear invitación:', err);
+      return null;
+    }
+
+    return await res.json();
+  } catch (err) {
+    console.error('Error al crear invitación:', err);
     return null;
   }
-
-  // Validar que no exista una invitación activa para este email
-  const { data: existentes, error: errCheck } = await supabase
-    .from('invitaciones')
-    .select('*')
-    .eq('email', email)
-    .eq('usado', false);
-
-  if (!errCheck && existentes && existentes.length > 0) {
-    console.error('Ya existe una invitación activa para este email');
-    return null;
-  }
-
-  const codigo = generarCodigo();
-  
-  const { data, error } = await supabase
-    .from('invitaciones')
-    .insert([{ 
-      email, 
-      codigo_unico: codigo, 
-      id_hotel: id_hotel || null, 
-      rol_sugerido,
-      usado: false,
-      owner_id: ownerId
-    }])
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error al crear invitación:', error);
-    return null;
-  }
-
-  return data;
 };
 
 // Obtener invitaciones por hotel

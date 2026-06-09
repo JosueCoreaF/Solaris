@@ -42,7 +42,14 @@ const io = new SocketIOServer(server, {
 setIO(io);
 
 // Middleware
+// El propio backend sirve páginas públicas (p.ej. la confirmación de
+// aceptar/rechazar cotización) cuyo formulario hace POST a sí mismo: el
+// navegador envía el header Origin con la URL del backend, así que ese
+// origen debe estar permitido aunque no figure entre los del frontend.
 const allowedOrigins = config_env.corsOrigin.split(',').map((o: string) => o.trim());
+for (const ownOrigin of [`http://localhost:${config_env.port}`, process.env.BACKEND_PUBLIC_URL]) {
+  if (ownOrigin && !allowedOrigins.includes(ownOrigin)) allowedOrigins.push(ownOrigin);
+}
 app.use(cors({
   origin: (origin, callback) => {
     // Permite sin origin (curl, Postman) o cualquiera de los orígenes configurados
