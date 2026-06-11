@@ -73,11 +73,11 @@
 
     const menuItems = [
         { to: '/dashboard', label: 'Dashboard', icon: '📊' },
-        { to: '/reportes/ingresos', label: 'Ingresos', icon: '💰' },
+        { to: '/reportes/ingresos', label: 'Ventas', icon: '💰' },
         { to: '/inventarios', label: 'Inventarios', icon: '📦' },
         { to: '/productos', label: 'Productos', icon: '🍽️' },
-        { to: '/categoria', label: 'Platos', icon: '👨‍🍳' },
-        { to: '/reportes/promocion', label: 'Promociones', icon: '🎉' },
+        { to: '/categoria', label: 'Platillos', icon: '👨‍🍳' },
+        { to: '/reportes/promocion', label: 'Menu', icon: '🎉' },
     ];
 
     return (

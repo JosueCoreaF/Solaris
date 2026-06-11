@@ -6,6 +6,7 @@ import Inventario from './pages/Inventarios'
 import Productos from './pages/Productos'
 
 
+
 const Welcome = () => (
   <main className="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center p-6">
     <div className="max-w-3xl rounded-3xl border border-slate-700 bg-slate-900/90 p-10 shadow-2xl shadow-slate-950/30">
