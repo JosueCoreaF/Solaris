@@ -1,6 +1,97 @@
 import express from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 
+/**
+ * Middleware factory: bloquea el acceso si el owner tiene estado 'suspendido'/'inactivo',
+ * o si el módulo de negocio específico (tipoModulo) fue desactivado individualmente
+ * desde el panel admin (business_modules.is_active = false).
+ * También bloquea a usuarios cuyo token fue revocado (usuario eliminado → 401).
+ */
+export function checkAccountStatus(tipoModulo?: 'hotel' | 'restaurant' | 'gym' | 'store') {
+  return async function (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) {
+    const user = await getAuthUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    // Buscar el owner_id y estado: primero como propietario directo, luego como staff
+    let ownerId: string | null = null;
+    let estado: string | null = null;
+
+    const { data: owner } = await supabaseAdmin!
+      .from('owners')
+      .select('id_owner, estado')
+      .eq('id_owner', user.id)
+      .maybeSingle();
+
+    if (owner?.id_owner) {
+      ownerId = owner.id_owner;
+      estado = owner.estado;
+    } else {
+      const { data: role } = await supabaseAdmin!
+        .from('usuarios_roles')
+        .select('owner_id')
+        .eq('user_id', user.id)
+        .eq('estado', 'activo')
+        .limit(1)
+        .maybeSingle();
+
+      if (role?.owner_id) {
+        ownerId = role.owner_id;
+        const { data: ownerData } = await supabaseAdmin!
+          .from('owners')
+          .select('estado')
+          .eq('id_owner', role.owner_id)
+          .maybeSingle();
+        estado = ownerData?.estado ?? null;
+      }
+    }
+
+    if (estado === 'suspendido') {
+      res.status(403).json({
+        error: 'ACCOUNT_SUSPENDED',
+        message: 'Tu cuenta ha sido suspendida. Contacta con soporte para más información.',
+      });
+      return;
+    }
+
+    if (estado === 'inactivo') {
+      res.status(403).json({
+        error: 'ACCOUNT_INACTIVE',
+        message: 'Tu cuenta está inactiva.',
+      });
+      return;
+    }
+
+    // Bloqueo a nivel de negocio individual: el owner está activo pero
+    // este módulo específico fue suspendido/desactivado desde el panel admin.
+    if (tipoModulo && ownerId) {
+      const { data: module } = await supabaseAdmin!
+        .from('business_modules')
+        .select('is_active, estado')
+        .eq('owner_id', ownerId)
+        .eq('tipo_modulo', tipoModulo)
+        .maybeSingle();
+
+      if (module && (module.is_active === false || module.estado === 'inactivo')) {
+        res.status(403).json({
+          error: 'MODULE_SUSPENDED',
+          message: 'Este negocio ha sido suspendido. Contacta con soporte para más información.',
+        });
+        return;
+      }
+    }
+
+    (req as any).authUser = user;
+    next();
+  };
+}
+
 export async function getAuthUser(req: express.Request) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) return null;

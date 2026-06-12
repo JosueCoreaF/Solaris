@@ -7,7 +7,19 @@ import os from 'os';
 import { crearClienteUsuario, supabaseAdmin, supabase } from '../../config/supabase.js';
 import { extractToken, getInfoFromToken, patchAuditUser } from '../../utils/auditHelper.js';
 import { getAuthUser, getOwnerHotelIdsForUser, getOwnerIdsFromHotelId } from '../../utils/tenantHelper.js';
-import { sendBookingConfirmation, sendHotelNotificationEmail } from '../../utils/emailService.js';
+import {
+  sendBookingConfirmation,
+  sendHotelNotificationEmail,
+  sendBookingCancelledEmail,
+  sendBookingUpdatedEmail,
+  sendCustomEmail,
+  getBookingConfirmationTemplate,
+  getBookingCancelledTemplate,
+  getBookingUpdatedTemplate,
+  getQuoteEmailTemplate,
+  compileCustomTemplate,
+  getCustomTemplate
+} from '../../utils/emailService.js';
 
 const router = express.Router();
 const db = () => supabaseAdmin ?? supabase;
@@ -505,6 +517,7 @@ router.get('/habitaciones', async (req, res) => {
       tipo,
       capacidad,
       tarifa_noche,
+      id_tarifa_default,
       estado,
       piso,
       numero_camas,
@@ -522,10 +535,26 @@ router.get('/habitaciones', async (req, res) => {
   const { data, error } = await query.order('nombre_habitacion');
   if (error) return res.status(500).json({ error: error.message });
 
-  // tarifa_noche ya viene resuelta desde la vista habitaciones_con_detalles
-  // (base de habitacion_tarifas_periodo > campo estático)
+  // Obtener capacidad_base por habitación (via tipos_habitacion)
+  const roomIds = (data ?? []).map((h: any) => h.id_habitacion);
+  let capacidadMap: Record<string, { id_tipo_habitacion: string; capacidad_base: number }> = {};
+  if (roomIds.length > 0) {
+    const { data: habTipos } = await db()
+      .from('habitaciones')
+      .select('id_habitacion, id_tipo_habitacion, tipos_habitacion(capacidad_base)')
+      .in('id_habitacion', roomIds);
+    for (const ht of (habTipos || [])) {
+      capacidadMap[ht.id_habitacion] = {
+        id_tipo_habitacion: ht.id_tipo_habitacion,
+        capacidad_base: Number((ht.tipos_habitacion as any)?.capacidad_base ?? 2),
+      };
+    }
+  }
+
   const result = (data ?? []).map((h: any) => ({
     ...h,
+    id_tipo_habitacion: capacidadMap[h.id_habitacion]?.id_tipo_habitacion ?? h.id_tipo_habitacion,
+    capacidad_base: capacidadMap[h.id_habitacion]?.capacidad_base ?? 2,
     hotel: h.hoteles?.nombre_hotel ?? '',
     hoteles: undefined,
   }));
@@ -894,6 +923,20 @@ router.get('/reservas', async (req, res) => {
   }
 
   try {
+    // Auto check-out reservations that are in 'check_in' and check_out is in the past
+    const nowIso = new Date().toISOString();
+    let autoCheckOutQuery = db()
+      .from('reservas_hotel')
+      .update({ estado: 'check_out', updated_at: nowIso })
+      .eq('estado', 'check_in')
+      .lte('check_out', nowIso);
+
+    const hotelId = req.headers['x-hotel-id'];
+    if (hotelId && hotelId !== 'all') {
+      autoCheckOutQuery = autoCheckOutQuery.eq('id_hotel', hotelId);
+    }
+    await autoCheckOutQuery;
+
     let query = db()
       .from('reservas_hotel')
       .select(`
@@ -902,6 +945,7 @@ router.get('/reservas', async (req, res) => {
         id_habitacion,
         id_hotel,
         id_empresa,
+        id_cotizacion,
         check_in,
         check_out,
         adultos,
@@ -924,7 +968,6 @@ router.get('/reservas', async (req, res) => {
       .lt('check_in', hasta)
       .gt('check_out', desde);
 
-    const hotelId = req.headers['x-hotel-id'];
     if (hotelId && hotelId !== 'all') {
       query = query.eq('id_hotel', hotelId);
     }
@@ -1112,8 +1155,8 @@ router.post('/reservas', async (req, res) => {
 
   const token = extractToken(req);
   if (token && id_reserva_hotel) {
-    const { email } = getInfoFromToken(token);
-    if (email) patchAuditUser(id_reserva_hotel, email);
+    const { email, userId } = getInfoFromToken(token);
+    if (email && userId) patchAuditUser('reservas_hotel', userId, email);
   }
 
   // Crear crédito empresarial automáticamente cuando la reserva tiene empresa
@@ -1163,9 +1206,12 @@ router.post('/reservas', async (req, res) => {
             adults:      reservaData.adultos,
             children:    reservaData.ninos,
             services:    servicios,
+            id_hotel:    id_hotel,
           };
           if (huesped?.correo) await sendBookingConfirmation(emailData);
-          if (hotel.correo_contacto) await sendHotelNotificationEmail(emailData, hotel.correo_contacto);
+          if (hotel.correo_contacto && hotel.correo_contacto !== huesped?.correo) {
+            await sendHotelNotificationEmail(emailData, hotel.correo_contacto);
+          }
         }
       } catch (err) {
         console.error('Error enviando correo post-reserva:', err);
@@ -1191,7 +1237,7 @@ router.patch('/reservas/:id', async (req, res) => {
   // Obtener los datos existentes de la reserva
   const { data: reservaExistente } = await db()
     .from('reservas_hotel')
-    .select('check_in, check_out, estado, id_habitacion, es_cortesia, id_empresa, monto_total')
+    .select('check_in, check_out, estado, id_habitacion, es_cortesia, id_empresa, total_reserva')
     .eq('id_reserva_hotel', id)
     .single();
 
@@ -1199,19 +1245,50 @@ router.patch('/reservas/:id', async (req, res) => {
     return res.status(404).json({ error: 'Reserva no encontrada' });
   }
 
-  // Validar si es una reserva del pasado
+  // Validar si es una reserva del pasado o activa
   const hoyServer = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
   const existingCi = reservaExistente.check_in.split(/[T ]/)[0];
   const existingCo = reservaExistente.check_out.split(/[T ]/)[0];
-  const isPast = reservaExistente.estado === 'check_in' ||
-    reservaExistente.estado === 'check_out' ||
-    reservaExistente.estado === 'cancelada' ||
-    existingCi < hoyServer ||
-    existingCo < hoyServer;
 
-  if (isPast) {
-    const tryingToChangeDates = (updates.check_in !== undefined && updates.check_in !== reservaExistente.check_in) ||
-      (updates.check_out !== undefined && updates.check_out !== reservaExistente.check_out);
+  const datesEqual = (d1: any, d2: any) => {
+    if (d1 === d2) return true;
+    if (!d1 || !d2) return false;
+    try {
+      return new Date(d1).getTime() === new Date(d2).getTime();
+    } catch {
+      return false;
+    }
+  };
+
+  const isFinalized = reservaExistente.estado === 'check_out' ||
+    reservaExistente.estado === 'cancelada' ||
+    reservaExistente.estado === 'no_show';
+
+  // Si está finalizada, no se puede cambiar nada de fechas ni habitación
+  if (isFinalized) {
+    const tryingToChangeDates = (updates.check_in !== undefined && !datesEqual(updates.check_in, reservaExistente.check_in)) ||
+      (updates.check_out !== undefined && !datesEqual(updates.check_out, reservaExistente.check_out));
+    const tryingToChangeRoom = (updates.id_habitacion !== undefined && updates.id_habitacion !== reservaExistente.id_habitacion);
+
+    if (tryingToChangeDates || tryingToChangeRoom) {
+      return res.status(400).json({ error: 'No se pueden modificar las fechas ni la habitación de una reserva finalizada.' });
+    }
+  }
+
+  // Si está en check_in, no se puede cambiar la fecha de check_in ni la habitación (excepto por split), pero SÍ se puede cambiar la de check_out (extensiones o check-out temprano)
+  if (reservaExistente.estado === 'check_in') {
+    const tryingToChangeCheckIn = (updates.check_in !== undefined && !datesEqual(updates.check_in, reservaExistente.check_in));
+    const tryingToChangeRoom = (updates.id_habitacion !== undefined && updates.id_habitacion !== reservaExistente.id_habitacion);
+
+    if (tryingToChangeCheckIn || tryingToChangeRoom) {
+      return res.status(400).json({ error: 'No se puede modificar la fecha de entrada ni la habitación de una reserva activa (check-in).' });
+    }
+  }
+
+  // Si la fecha de salida ya pasó y no está en check_in, es una reserva del pasado
+  if (reservaExistente.estado !== 'check_in' && existingCo < hoyServer) {
+    const tryingToChangeDates = (updates.check_in !== undefined && !datesEqual(updates.check_in, reservaExistente.check_in)) ||
+      (updates.check_out !== undefined && !datesEqual(updates.check_out, reservaExistente.check_out));
     const tryingToChangeRoom = (updates.id_habitacion !== undefined && updates.id_habitacion !== reservaExistente.id_habitacion);
 
     if (tryingToChangeDates || tryingToChangeRoom) {
@@ -1334,7 +1411,48 @@ router.patch('/reservas/:id', async (req, res) => {
   }
 
   const token = extractToken(req);
-  if (token) { const { email } = getInfoFromToken(token); if (email) patchAuditUser(id, email); }
+  if (token) { const { email, userId } = getInfoFromToken(token); if (email && userId) patchAuditUser('reservas_hotel', userId, email); }
+
+  // Correo de actualización de reserva (fire-and-forget)
+  void (async () => {
+    try {
+      const dateChanged  = (updates.check_in  !== undefined && updates.check_in  !== reservaExistente.check_in)  ||
+                           (updates.check_out !== undefined && updates.check_out !== reservaExistente.check_out);
+      const roomChanged  = updates.id_habitacion !== undefined && updates.id_habitacion !== reservaExistente.id_habitacion;
+      if (!dateChanged && !roomChanged) return;
+
+      const { data: reservaFull } = await db()
+        .from('reservas_hotel')
+        .select('id_reserva_hotel, id_hotel, check_in, check_out, total_reserva, moneda, huesped:huespedes(nombre_completo, correo), hotel:hoteles(nombre_hotel), habitacion:habitaciones(nombre_habitacion)')
+        .eq('id_reserva_hotel', id)
+        .maybeSingle();
+
+      if (!reservaFull) return;
+      const guestObj = Array.isArray(reservaFull.huesped) ? reservaFull.huesped[0] : reservaFull.huesped;
+      const guestEmail: string = (guestObj as any)?.correo ?? '';
+      if (!guestEmail || guestEmail.includes('@partnercentral.local')) return;
+
+      const changes: string[] = [];
+      if (dateChanged) changes.push('Fechas de estadía actualizadas');
+      if (roomChanged) changes.push('Habitación modificada');
+
+      await sendBookingUpdatedEmail({
+        guestEmail,
+        guestName:   (guestObj as any)?.nombre_completo ?? 'Huésped',
+        bookingId:   id,
+        checkIn:     (reservaFull.check_in  ?? '').split('T')[0],
+        checkOut:    (reservaFull.check_out ?? '').split('T')[0],
+        hotelName:   (reservaFull.hotel as any)?.nombre_hotel ?? 'Hotel',
+        roomName:    (reservaFull.habitacion as any)?.nombre_habitacion,
+        changes,
+        id_hotel:    reservaFull.id_hotel || (req.headers['x-hotel-id'] as string),
+        totalAmount: reservaFull.total_reserva ?? undefined,
+        currency:    reservaFull.moneda ?? undefined,
+      });
+    } catch (err) {
+      console.error('Error al enviar correo de actualización de reserva:', err);
+    }
+  })();
 
   // Auto-crear crédito cuando se asigna empresa por primera vez en edición
   const nuevaEmpresa = updates.id_empresa;
@@ -1360,7 +1478,7 @@ router.patch('/reservas/:id', async (req, res) => {
           const diasV = emp?.dias_credito ?? 30;
           const checkOutDate = (updates.check_out ?? (reservaExistente as any).check_out ?? '').substring(0, 10);
           const vencimiento = new Date(new Date(checkOutDate).getTime() + diasV * 86400000).toISOString().substring(0, 10);
-          const totalFinal = updates.monto_total ?? (reservaExistente as any).monto_total ?? 0;
+          const totalFinal = updates.total_reserva ?? (reservaExistente as any).total_reserva ?? 0;
           if (totalFinal > 0 && checkOutDate) {
             await db().from('empresa_creditos').insert({
               id_empresa: nuevaEmpresa,
@@ -1407,7 +1525,38 @@ router.delete('/reservas/:id', async (req, res) => {
       return res.status(status).json({ error: msg });
     }
 
-    if (token) { if (emailUsuario) patchAuditUser(id, emailUsuario); }
+    if (token) { const { userId } = getInfoFromToken(token); if (emailUsuario && userId) patchAuditUser('reservas_hotel', userId, emailUsuario); }
+
+    // Correo de cancelación (fire-and-forget)
+    void (async () => {
+      try {
+        const { data: reservaFull } = await db()
+          .from('reservas_hotel')
+          .select('id_reserva_hotel, id_hotel, check_in, check_out, total_reserva, moneda, huesped:huespedes(nombre_completo, correo), hotel:hoteles(nombre_hotel), habitacion:habitaciones(nombre_habitacion)')
+          .eq('id_reserva_hotel', id)
+          .maybeSingle();
+
+        if (!reservaFull) return;
+        const guestObj = Array.isArray(reservaFull.huesped) ? reservaFull.huesped[0] : reservaFull.huesped;
+        const guestEmail: string = (guestObj as any)?.correo ?? '';
+        if (!guestEmail || guestEmail.includes('@partnercentral.local')) return;
+
+        await sendBookingCancelledEmail({
+          guestEmail,
+          guestName:    (guestObj as any)?.nombre_completo ?? 'Huésped',
+          bookingId:    id,
+          checkIn:      (reservaFull.check_in  ?? '').split('T')[0],
+          checkOut:     (reservaFull.check_out ?? '').split('T')[0],
+          hotelName:    (reservaFull.hotel as any)?.nombre_hotel ?? 'Hotel',
+          roomName:     (reservaFull.habitacion as any)?.nombre_habitacion,
+          totalAmount:  reservaFull.total_reserva ?? undefined,
+          currency:     reservaFull.moneda ?? undefined,
+          id_hotel:     reservaFull.id_hotel || (req.headers['x-hotel-id'] as string),
+        });
+      } catch (err) {
+        console.error('Error al enviar correo de cancelación de reserva:', err);
+      }
+    })();
 
     return res.json(rpcResult ?? { success: true });
   } catch (e) {
@@ -1833,6 +1982,26 @@ router.post('/pagos', async (req, res) => {
   const { ownerId } = await getOwnerIdAndRole(req);
   if (!ownerId) return res.status(401).json({ error: 'No autorizado' });
 
+  // Si la reserva proviene de una cotización aún no confirmada (estado
+  // 'pendiente' + id_cotizacion presente), bloqueamos el registro de pagos:
+  // el cliente debe aceptar la cotización (lo que la pasa a 'confirmada'
+  // automáticamente) o el hotel debe confirmarla manualmente desde la reserva.
+  const { data: bookingCheck, error: bookingCheckErr } = await db()
+    .from('reservas_hotel')
+    .select('estado, id_cotizacion, cotizaciones(numero_cotizacion)')
+    .eq('id_reserva_hotel', id_reserva_hotel)
+    .maybeSingle();
+
+  if (bookingCheckErr) return res.status(500).json({ error: bookingCheckErr.message });
+  if (!bookingCheck) return res.status(404).json({ error: 'Reserva no encontrada' });
+
+  if (bookingCheck.estado === 'pendiente' && bookingCheck.id_cotizacion) {
+    const numero = (bookingCheck.cotizaciones as any)?.numero_cotizacion;
+    return res.status(400).json({
+      error: `Esta reserva proviene de la cotización${numero ? ` ${numero}` : ''}, que aún no ha sido confirmada. El cliente debe aceptarla o el hotel debe confirmar la reserva manualmente antes de registrar pagos.`
+    });
+  }
+
   // Operación atómica: inserta pago + recalcula estado_pago + convierte moneda
   const { data: rpcResult, error: rpcError } = await db()
     .rpc('fn_registrar_pago', {
@@ -1856,6 +2025,9 @@ router.post('/pagos', async (req, res) => {
   const { data: nuevoPago } = id_pago
     ? await db().from('pagos_hotel').select('*').eq('id_pago_hotel', id_pago).single()
     : { data: rpcResult };
+
+  const tokenPago = extractToken(req);
+  if (tokenPago) { const { email, userId } = getInfoFromToken(tokenPago); if (email && userId) patchAuditUser('pagos_hotel', userId, email); }
 
   return res.status(201).json(nuevoPago ?? rpcResult);
 });
@@ -1889,6 +2061,8 @@ router.patch('/pagos/:id', async (req, res) => {
     .update({ monto, moneda, metodo_pago, referencia, fecha_pago, estado, notas })
     .eq('id_pago_hotel', id);
   if (error) return res.status(500).json({ error: error.message });
+  const tokenPatch = extractToken(req);
+  if (tokenPatch) { const { email, userId } = getInfoFromToken(tokenPatch); if (email && userId) patchAuditUser('pagos_hotel', userId, email); }
   return res.json({ success: true });
 });
 
@@ -1924,13 +2098,15 @@ router.delete('/pagos/:id', async (req, res) => {
 // ─── KPIs Dashboard ────────────────────────────────────────────────────────────
 
 // GET /api/bookings/kpis/ocupacion-actual
-// GET /api/bookings/kpis/ocupacion-actual
 router.get('/kpis/ocupacion-actual', async (req, res) => {
   try {
     const hotelId = req.headers['x-hotel-id'];
 
-    // 1. Obtener habitaciones (filtrando por hotel si aplica)
-    let queryHab = db().from('habitaciones').select('estado');
+    // Total de habitaciones del hotel (excluye las que están en mantenimiento)
+    let queryHab = db()
+      .from('habitaciones')
+      .select('id_habitacion')
+      .neq('estado', 'mantenimiento');
     if (hotelId && hotelId !== 'all') {
       queryHab = queryHab.eq('id_hotel', hotelId);
     }
@@ -1938,12 +2114,25 @@ router.get('/kpis/ocupacion-actual', async (req, res) => {
     if (habError) throw habError;
 
     const totalHabitaciones = habs?.length || 0;
-    const ocupadas = habs?.filter(h => h.estado === 'ocupada').length || 0;
+    if (totalHabitaciones === 0) return res.json({ ocupacion: 0 });
 
-    const ocupacion = totalHabitaciones && totalHabitaciones > 0
-      ? Math.round((ocupadas / totalHabitaciones) * 100)
-      : 0;
+    // Reservas actualmente en check_in (huésped físicamente en el hotel)
+    let queryRes = db()
+      .from('reservas_hotel')
+      .select('id_habitacion, habitaciones!inner(id_hotel)')
+      .eq('estado', 'check_in');
+    if (hotelId && hotelId !== 'all') {
+      queryRes = (queryRes as any).eq('habitaciones.id_hotel', hotelId);
+    }
+    const { data: reservasActivas, error: resError } = await queryRes;
+    if (resError) throw resError;
 
+    // Habitaciones únicas ocupadas (una reserva = una habitación)
+    const habitacionesOcupadas = new Set(
+      (reservasActivas ?? []).map((r: any) => r.id_habitacion)
+    ).size;
+
+    const ocupacion = Math.round((habitacionesOcupadas / totalHabitaciones) * 100);
     return res.json({ ocupacion });
   } catch (e) {
     console.error('Error calculando ocupación:', e instanceof Error ? e.message : e);
@@ -2447,6 +2636,327 @@ router.delete('/habitaciones/:id/tarifas-periodo/:pid', async (req, res) => {
     return res.json({ ok: true });
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/bookings/reservas/:id/email-preview
+ * Genera el asunto y el HTML de vista previa del correo según la reserva y el tipo deseado.
+ */
+router.post('/reservas/:id/email-preview', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type, changes } = req.body; // type: 'confirmation' | 'update' | 'cancellation'
+
+    const { data: reservaFull } = await db()
+      .from('reservas_hotel')
+      .select(`
+        id_reserva_hotel,
+        check_in,
+        check_out,
+        total_reserva,
+        moneda,
+        adultos,
+        ninos,
+        huesped:huespedes(nombre_completo, correo),
+        hotel:hoteles(nombre_hotel),
+        habitacion:habitaciones(nombre_habitacion, tipos_habitacion(nombre_tipo))
+      `)
+      .eq('id_reserva_hotel', id)
+      .maybeSingle();
+
+    if (!reservaFull) return res.status(404).json({ error: 'Reserva no encontrada' });
+
+    const guestObj = Array.isArray(reservaFull.huesped) ? reservaFull.huesped[0] : reservaFull.huesped;
+    const guestEmail = (guestObj as any)?.correo ?? '';
+    const guestName = (guestObj as any)?.nombre_completo ?? 'Huésped';
+    const hotelName = (reservaFull.hotel as any)?.nombre_hotel ?? 'Hotel';
+    const roomName = (reservaFull.habitacion as any)?.nombre_habitacion ?? 'Habitación';
+    const roomTypeName = ((reservaFull.habitacion as any)?.tipos_habitacion as any)?.nombre_tipo ?? 'Habitación';
+
+    let subject = '';
+    let html = '';
+
+    if (type === 'confirmation') {
+      subject = `Confirmación de Reserva - ${hotelName}`;
+      html = getBookingConfirmationTemplate({
+        guestName,
+        guestEmail,
+        bookingId: id,
+        checkIn: (reservaFull.check_in ?? '').split('T')[0],
+        checkOut: (reservaFull.check_out ?? '').split('T')[0],
+        totalAmount: Number(reservaFull.total_reserva ?? 0),
+        currency: reservaFull.moneda ?? 'HNL',
+        hotelName,
+        roomType: roomTypeName,
+        adults: reservaFull.adultos,
+        children: reservaFull.ninos,
+      });
+    } else if (type === 'cancellation') {
+      subject = `Reserva cancelada — ${hotelName}`;
+      html = getBookingCancelledTemplate({
+        guestEmail,
+        guestName,
+        bookingId: id,
+        checkIn: (reservaFull.check_in ?? '').split('T')[0],
+        checkOut: (reservaFull.check_out ?? '').split('T')[0],
+        hotelName,
+        roomName,
+        totalAmount: Number(reservaFull.total_reserva ?? 0),
+        currency: reservaFull.moneda ?? 'HNL',
+      });
+    } else {
+      // default: update
+      subject = `Reserva actualizada — ${hotelName}`;
+      html = getBookingUpdatedTemplate({
+        guestEmail,
+        guestName,
+        bookingId: id,
+        checkIn: (reservaFull.check_in ?? '').split('T')[0],
+        checkOut: (reservaFull.check_out ?? '').split('T')[0],
+        hotelName,
+        roomName,
+        changes: changes || ['Cambios generales en los detalles de la reserva'],
+      });
+    }
+
+    return res.json({
+      subject,
+      html,
+      guestEmail,
+      guestName,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/bookings/reservas/:id/send-custom-email
+ * Envía un correo con asunto y HTML personalizados redactados por el usuario.
+ */
+router.post('/reservas/:id/send-custom-email', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { to, subject, html } = req.body;
+
+    if (!to || !subject || !html) {
+      return res.status(400).json({ error: 'Faltan parámetros requeridos (to, subject, html)' });
+    }
+
+    const { data: reservaFull } = await db()
+      .from('reservas_hotel')
+      .select('hotel:hoteles(nombre_hotel)')
+      .eq('id_reserva_hotel', id)
+      .maybeSingle();
+
+    const hotelName = (reservaFull?.hotel as any)?.nombre_hotel ?? 'Solaris';
+
+    const sendRes = await sendCustomEmail({
+      to,
+      subject,
+      html,
+      hotelName,
+    });
+
+    if (!sendRes.success) {
+      return res.status(500).json({ error: sendRes.error || 'Error al enviar el correo' });
+    }
+
+    return res.json({ success: true, data: sendRes.data });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/bookings/plantillas
+ * Obtiene todas las plantillas de correo del hotel activo.
+ */
+router.get('/plantillas', async (req, res) => {
+  try {
+    const hotelId = req.headers['x-hotel-id'] as string;
+    if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
+
+    const { data, error } = await dbUser(req)
+      .from('plantillas_correo')
+      .select('*')
+      .eq('id_hotel', hotelId);
+
+    if (error) return res.status(400).json({ error: error.message });
+    return res.json(data ?? []);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/bookings/plantillas/:tipo
+ * Obtiene la plantilla del tipo indicado para el hotel activo.
+ */
+router.get('/plantillas/:tipo', async (req, res) => {
+  try {
+    const { tipo } = req.params;
+    const hotelId = req.headers['x-hotel-id'] as string;
+    if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
+
+    const { data, error } = await dbUser(req)
+      .from('plantillas_correo')
+      .select('*')
+      .eq('id_hotel', hotelId)
+      .eq('tipo_plantilla', tipo)
+      .maybeSingle();
+
+    if (error) return res.status(400).json({ error: error.message });
+    return res.json(data || null);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/bookings/plantillas
+ * Crea o actualiza la configuración de una plantilla de correo (UPSERT).
+ */
+router.post('/plantillas', async (req, res) => {
+  try {
+    const hotelId = req.headers['x-hotel-id'] as string;
+    if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
+
+    const { tipo_plantilla, asunto, cuerpo_personalizado, estilos } = req.body;
+    if (!tipo_plantilla || !asunto) {
+      return res.status(400).json({ error: 'tipo_plantilla y asunto son requeridos' });
+    }
+
+    const { data, error } = await dbUser(req)
+      .from('plantillas_correo')
+      .upsert({
+        id_hotel: hotelId,
+        tipo_plantilla,
+        asunto,
+        cuerpo_personalizado: cuerpo_personalizado || null,
+        estilos: estilos || {},
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'id_hotel,tipo_plantilla'
+      })
+      .select()
+      .single();
+
+    if (error) return res.status(400).json({ error: error.message });
+    return res.json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/bookings/plantillas/preview
+ * Genera una previsualización HTML en tiempo real con datos de prueba ficticios.
+ */
+router.post('/plantillas/preview', async (req, res) => {
+  try {
+    const hotelId = req.headers['x-hotel-id'] as string;
+    if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
+
+    const { tipo_plantilla, asunto, cuerpo_personalizado, estilos } = req.body;
+    if (!tipo_plantilla) return res.status(400).json({ error: 'tipo_plantilla es requerido' });
+
+    const { data: hotel } = await db()
+      .from('hoteles')
+      .select('nombre_hotel')
+      .eq('id_hotel', hotelId)
+      .maybeSingle();
+
+    const hotelName = hotel?.nombre_hotel ?? 'Hotel Demo';
+
+    const mockVariables = {
+      huesped: 'Josué Corea',
+      hotel: hotelName,
+      check_in: 'lunes, 8 de junio de 2026',
+      check_out: 'viernes, 12 de junio de 2026',
+      habitacion: 'Habitación Ejecutiva (Doble)',
+      total: 'L 4,500.00',
+      moneda: 'HNL',
+      bookingId: 'MOCK-12345',
+      roomName: 'Habitación 101',
+      roomType: 'Habitación Ejecutiva'
+    };
+
+    let defaultHtml = '';
+    let defaultSubject = asunto || '';
+
+    if (tipo_plantilla === 'confirmacion') {
+      if (!defaultSubject) defaultSubject = `Confirmación de Reserva - ${hotelName}`;
+      defaultHtml = getBookingConfirmationTemplate({
+        guestName: mockVariables.huesped,
+        guestEmail: 'demo@solarys.uk',
+        bookingId: mockVariables.bookingId,
+        checkIn: '2026-06-08',
+        checkOut: '2026-06-12',
+        totalAmount: 4500,
+        currency: 'HNL',
+        hotelName,
+        roomType: mockVariables.roomType,
+        adults: 2,
+        children: 0,
+      });
+    } else if (tipo_plantilla === 'cancelacion') {
+      if (!defaultSubject) defaultSubject = `Reserva cancelada — ${hotelName}`;
+      defaultHtml = getBookingCancelledTemplate({
+        guestEmail: 'demo@solarys.uk',
+        guestName: mockVariables.huesped,
+        bookingId: mockVariables.bookingId,
+        checkIn: '2026-06-08',
+        checkOut: '2026-06-12',
+        hotelName,
+        roomName: mockVariables.roomName,
+        totalAmount: 4500,
+        currency: 'HNL',
+      });
+    } else if (tipo_plantilla === 'actualizacion') {
+      if (!defaultSubject) defaultSubject = `Reserva actualizada — ${hotelName}`;
+      defaultHtml = getBookingUpdatedTemplate({
+        guestEmail: 'demo@solarys.uk',
+        guestName: mockVariables.huesped,
+        bookingId: mockVariables.bookingId,
+        checkIn: '2026-06-08',
+        checkOut: '2026-06-12',
+        hotelName,
+        roomName: mockVariables.roomName,
+        changes: ['Fecha de ingreso cambiada al 8 de junio', 'Habitación asignada: Habitación 101'],
+      });
+    } else if (tipo_plantilla === 'cotizacion') {
+      if (!defaultSubject) defaultSubject = `Cotización de Hospedaje Q-1001 - ${hotelName}`;
+      defaultHtml = getQuoteEmailTemplate({
+        guestName: mockVariables.huesped,
+        guestEmail: 'demo@solarys.uk',
+        quoteNumber: 'Q-1001',
+        checkIn: '2026-06-08',
+        checkOut: '2026-06-12',
+        totalAmount: 4500,
+        currency: 'HNL',
+        hotelName,
+        acceptUrl: '#',
+        rejectUrl: '#',
+      });
+    } else {
+      return res.status(400).json({ error: 'tipo_plantilla inválido' });
+    }
+
+    const compiled = compileCustomTemplate(
+      defaultHtml,
+      defaultSubject,
+      { asunto, cuerpo_personalizado, estilos },
+      mockVariables
+    );
+
+    return res.json({
+      subject: compiled.subject,
+      html: compiled.html
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

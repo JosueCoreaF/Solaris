@@ -143,6 +143,31 @@ router.get('/logs', async (req, res) => {
   return res.json({ data: data ?? [], limit, offset });
 });
 
+// GET /api/hotel/audit/logs/my-activity — cualquier usuario autenticado ve solo su propia actividad
+router.get('/logs/my-activity', async (req, res) => {
+  const user = await getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'No autenticado' });
+
+  const hotelId = req.headers['x-hotel-id'] as string;
+  const limit  = parseInt(req.query.limit  as string) || 30;
+  const offset = parseInt(req.query.offset as string) || 0;
+
+  let query = db()
+    .from('vw_audit_log_legible')
+    .select('*')
+    .eq('usuario_email', user.email)
+    .order('created_at_iso', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (hotelId && hotelId !== 'all') {
+    query = query.eq('id_hotel', hotelId);
+  }
+
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ data: data ?? [], limit, offset });
+});
+
 // GET /api/hotel/audit/logs/:id  (detalle de un log)
 router.get('/logs/:id', async (req, res) => {
   const ctx = await verificarAcceso(req, res);

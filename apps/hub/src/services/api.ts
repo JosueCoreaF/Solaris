@@ -38,6 +38,7 @@ const apiClient = {
   get: <T = any>(endpoint: string) => axiosInstance.get<T>(endpoint).then(res => res.data),
   post: <T = any>(endpoint: string, data?: any) => axiosInstance.post<T>(endpoint, data).then(res => res.data),
   put: <T = any>(endpoint: string, data?: any) => axiosInstance.put<T>(endpoint, data).then(res => res.data),
+  patch: <T = any>(endpoint: string, data?: any) => axiosInstance.patch<T>(endpoint, data).then(res => res.data),
   delete: <T = any>(endpoint: string) => axiosInstance.delete<T>(endpoint).then(res => res.data),
 };
 

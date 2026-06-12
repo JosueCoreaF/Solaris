@@ -22,7 +22,7 @@ const BUCKET = 'solaris-media';
  * Body: multipart/form-data  { file, folder? }
  * Responde: { url: string }
  */
-router.post('/upload', upload.single('file'), async (req, res) => {
+router.post('/upload', upload.single('file') as any, async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No se recibió ningún archivo.' });
     if (!supabaseAdmin)  return res.status(500).json({ error: 'Storage admin no disponible.' });

@@ -124,6 +124,7 @@ export const Config: React.FC = () => {
   const [umbralOcupacion, setUmbralOcupacion] = useState(85);
   const [orientacionCalendario, setOrientacionCalendario] = useState('vertical');
   const [ciudadBase, setCiudadBase] = useState('');
+  const [cargoPersonaExtra, setCargoPersonaExtra] = useState(0);
 
   // Estados para Formulario de Habitación
   const [showRoomModal, setShowRoomModal] = useState(false);
@@ -216,6 +217,7 @@ export const Config: React.FC = () => {
         setUmbralOcupacion(Number(configData.umbral_ocupacion ?? 85));
         setOrientacionCalendario(configData.orientacion_calendario || 'vertical');
         setCiudadBase(configData.ciudad_base || '');
+        setCargoPersonaExtra(Number(configData.cargo_persona_extra ?? 0));
 
         if (configData.hora_checkin) setHoraCheckin(configData.hora_checkin.substring(0, 5));
         if (configData.hora_checkout) setHoraCheckout(configData.hora_checkout.substring(0, 5));
@@ -292,7 +294,8 @@ export const Config: React.FC = () => {
           horas_anticipacion_reserva: Number(horasAnticipacion),
           umbral_ocupacion: Number(umbralOcupacion),
           orientacion_calendario: orientacionCalendario,
-          ciudad_base: ciudadBase
+          ciudad_base: ciudadBase,
+          cargo_persona_extra: Number(cargoPersonaExtra),
         }, selectedHotelId);
 
         if (updatedConfig) {
@@ -958,14 +961,35 @@ export const Config: React.FC = () => {
                     <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>Tasa de Impuesto Turístico</label>
                     <div style={{ position: 'relative' }}>
                       <Percent size={14} style={{ position: 'absolute', left: 12, top: 13, color: '#94a3b8' }} />
-                      <input 
-                        type="number" 
-                        step="0.1" 
-                        required 
-                        value={tasaTuristica} 
-                        onChange={e => setTasaTuristica(parseFloat(e.target.value) || 0)} 
-                        style={{ ...inputStyle, paddingLeft: 34 }} 
+                      <input
+                        type="number"
+                        step="0.1"
+                        required
+                        value={tasaTuristica}
+                        onChange={e => setTasaTuristica(parseFloat(e.target.value) || 0)}
+                        style={{ ...inputStyle, paddingLeft: 34 }}
                         placeholder="Ej. 4"
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
+                      Cargo por Persona Extra (por noche)
+                    </label>
+                    <p style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
+                      Monto adicional por noche cuando el número de huéspedes supera la capacidad base del tipo de habitación. Ingresa 0 para no aplicar cargo.
+                    </p>
+                    <div style={{ position: 'relative', maxWidth: 260 }}>
+                      <DollarSign size={14} style={{ position: 'absolute', left: 12, top: 13, color: '#94a3b8' }} />
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={cargoPersonaExtra}
+                        onChange={e => setCargoPersonaExtra(parseFloat(e.target.value) || 0)}
+                        style={{ ...inputStyle, paddingLeft: 34 }}
+                        placeholder="Ej. 200"
                       />
                     </div>
                   </div>

@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { SyncProvider } from './context/SyncContext';
+import { AccountBlockedScreen } from './components/AccountBlockedScreen';
 import { AuthGuard, GuestGuard } from './components/AuthGuard';
 import { RoleGuard } from './components/RoleGuard';
 import { Layout } from './components/Layout';
@@ -13,6 +14,7 @@ import { HabitacionesPanel } from './features/habitaciones/HabitacionesPanel';
 import { Pagos } from './features/bookings/Pagos';
 import { Finance } from './features/finance/Finance';
 import { Config } from './features/admin/Config';
+import { EmailTemplatesPage } from './features/admin/EmailTemplatesPage';
 import { Tarifas } from './features/admin/Tarifas';
 import { RoleManagement } from './features/admin/RoleManagement';
 import { Reportes } from './features/admin/Reportes';
@@ -32,6 +34,10 @@ import { FinanceAIProvider, FloatingAIProgressWidget } from './context/FinanceAI
 import apiClient from './services/api';
 import { ROUTE_ROLES } from './config/rbac';
 
+import { QuotesPanel } from './features/quotes/QuotesPanel';
+import { QuoteForm } from './features/quotes/QuoteForm';
+import { QuoteDetail } from './features/quotes/QuoteDetail';
+
 // Shorthand para no repetir <RoleGuard requiredRoles={ROUTE_ROLES[path]}>
 const Guarded: React.FC<{ path: string; children: React.ReactNode }> = ({ path, children }) => (
   <RoleGuard requiredRoles={ROUTE_ROLES[path] ?? ['PROPIETARIO']}>
@@ -39,19 +45,35 @@ const Guarded: React.FC<{ path: string; children: React.ReactNode }> = ({ path, 
   </RoleGuard>
 );
 
-export const App: React.FC = () => {
+// Contenido interno del app — separado para poder usar useAuth() dentro de AuthProvider
+const AppContent: React.FC = () => {
+  const { accountBlocked, loading, signOut } = useAuth();
+
   useEffect(() => {
     apiClient.get('/health-check')
       .then(res => console.log('[Health Check]:', res))
       .catch(err => console.error('[Health Check Error]:', err));
   }, []);
 
+  // Esperar a que la sesión esté lista antes de montar el resto de la app.
+  // Evita que SyncContext y otros hagan requests antes de que el JWT esté disponible.
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (accountBlocked) {
+    return <AccountBlockedScreen reason={accountBlocked} onSignOut={signOut} />;
+  }
+
   return (
-    <AuthProvider>
-      <SyncProvider>
-        <FinanceAIProvider>
-          <ToastProvider>
-            <Router>
+    <SyncProvider>
+      <FinanceAIProvider>
+        <ToastProvider>
+          <Router>
               <Routes>
                 {/* Rutas públicas */}
                 <Route path="/login"    element={<GuestGuard><Login /></GuestGuard>} />
@@ -77,6 +99,18 @@ export const App: React.FC = () => {
                   } />
                   <Route path="/reservas" element={
                     <Guarded path="/reservas"><Bookings /></Guarded>
+                  } />
+                  <Route path="/cotizaciones" element={
+                    <Guarded path="/cotizaciones"><QuotesPanel /></Guarded>
+                  } />
+                  <Route path="/cotizaciones/nueva" element={
+                    <Guarded path="/cotizaciones"><QuoteForm /></Guarded>
+                  } />
+                  <Route path="/cotizaciones/editar/:id" element={
+                    <Guarded path="/cotizaciones"><QuoteForm /></Guarded>
+                  } />
+                  <Route path="/cotizaciones/:id" element={
+                    <Guarded path="/cotizaciones"><QuoteDetail /></Guarded>
                   } />
                   <Route path="/pagos" element={
                     <Guarded path="/pagos"><Pagos /></Guarded>
@@ -111,6 +145,9 @@ export const App: React.FC = () => {
                   <Route path="/config" element={
                     <Guarded path="/config"><Config /></Guarded>
                   } />
+                  <Route path="/plantillas-correo" element={
+                    <Guarded path="/plantillas-correo"><EmailTemplatesPage /></Guarded>
+                  } />
                   <Route path="/gestionar-roles" element={
                     <Guarded path="/gestionar-roles"><RoleManagement /></Guarded>
                   } />
@@ -128,6 +165,11 @@ export const App: React.FC = () => {
           </ToastProvider>
         </FinanceAIProvider>
       </SyncProvider>
-    </AuthProvider>
   );
 };
+
+export const App: React.FC = () => (
+  <AuthProvider>
+    <AppContent />
+  </AuthProvider>
+);

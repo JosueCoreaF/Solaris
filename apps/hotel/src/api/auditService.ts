@@ -91,6 +91,11 @@ class AuditService {
     );
   }
 
+  async obtenerMiActividad(limit = 30, offset = 0): Promise<AuditLogsResponse> {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    return apiFetch<AuditLogsResponse>(`${PREFIX}/my-activity?${params}`);
+  }
+
   async exportarCSV(fecha_desde?: string, fecha_hasta?: string): Promise<Blob> {
     const headers = await getHeaders();
     const params = new URLSearchParams();
