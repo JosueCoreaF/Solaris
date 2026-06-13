@@ -9,6 +9,7 @@ const features = [
 ];
 
 export default function LandingPage() {
+  const hubBase = `${window.location.protocol}//${window.location.hostname}:5174`;
   return (
     <div className="min-h-screen bg-[#fafaf9] flex flex-col font-sans overflow-hidden">
 
@@ -23,9 +24,12 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-sm text-stone-500 font-semibold hidden sm:block">Portal de Reservas</span>
-            <button className="bg-stone-100 hover:bg-stone-200 text-stone-700 text-sm font-bold px-4 py-2 rounded-full transition-colors hidden md:block">
-              Acceso Hoteleros
-            </button>
+            <div className="flex items-center gap-2">
+              <a href={`${hubBase}/landing/gym`} target="_blank" rel="noopener" className="bg-white border border-stone-200 hover:bg-stone-50 text-stone-800 text-sm font-bold px-3 py-2 rounded-full transition-colors hidden sm:inline-flex">Ir a Gym</a>
+              <a href={`${hubBase}/landing/restaurant`} target="_blank" rel="noopener" className="bg-white border border-stone-200 hover:bg-stone-50 text-stone-800 text-sm font-bold px-3 py-2 rounded-full transition-colors hidden sm:inline-flex">Ir a Restaurante</a>
+              <a href={`${hubBase}/landing/hotel`} target="_blank" rel="noopener" className="bg-white border border-stone-200 hover:bg-stone-50 text-stone-800 text-sm font-bold px-3 py-2 rounded-full transition-colors hidden sm:inline-flex">Ir a Hotel</a>
+              <button className="bg-stone-100 hover:bg-stone-200 text-stone-700 text-sm font-bold px-4 py-2 rounded-full transition-colors hidden md:block">Acceso Hoteleros</button>
+            </div>
           </div>
         </div>
       </nav>
