@@ -1,6 +1,11 @@
 import express from 'express';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import {
+  sendSubscriptionConfirmationEmail,
+  sendSubscriptionCancelScheduledEmail,
+  sendSubscriptionReactivatedEmail,
+} from '../utils/emailService.js';
 
 const router = express.Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock', {
@@ -31,6 +36,18 @@ async function resolveOwnerId(userId: string): Promise<string | null> {
     .eq('user_id', userId).eq('estado', 'activo')
     .not('owner_id', 'is', null).limit(1).maybeSingle();
   return role?.owner_id ?? null;
+}
+
+// Cuenta los negocios activos de un owner para un módulo, usado para validar
+// degradaciones de plan y la eliminación de cupos extra.
+async function countActiveBusinesses(owner_id: string, tipo_modulo: string): Promise<number> {
+  const { count } = await supabaseAdmin
+    .from('business_modules')
+    .select('id_module', { count: 'exact', head: true })
+    .eq('owner_id', owner_id)
+    .eq('tipo_modulo', tipo_modulo)
+    .eq('estado', 'activo');
+  return count || 0;
 }
 
 // Map the UI plan id to Stripe Price ID (you should add these to your .env or DB)
@@ -139,6 +156,7 @@ router.get('/status', async (req, res) => {
         trial_end,
         current_period_end,
         negocios_extra,
+        cancel_at_period_end,
         planes_suscripcion (
           nombre,
           limite_negocios,
@@ -314,10 +332,10 @@ router.post('/upgrade', express.json(), async (req, res) => {
     const owner_id = await resolveOwnerId(user.id);
     if (!owner_id) return res.status(400).json({ error: 'Owner no encontrado' });
 
-    // Obtener precio del plan para el historial
+    // Obtener precio y límite del plan para el historial y la validación de downgrade
     const { data: planData } = await supabaseAdmin
       .from('planes_suscripcion')
-      .select('precio_mensual')
+      .select('nombre, precio_mensual, limite_negocios')
       .eq('id_plan', plan_id)
       .single();
     const monto = planData?.precio_mensual || 0;
@@ -329,10 +347,23 @@ router.post('/upgrade', express.json(), async (req, res) => {
     // Verificamos si ya existe una suscripción para hacer UPDATE o INSERT
     const { data: existingSub } = await supabaseAdmin
       .from('suscripciones_owner')
-      .select('id_suscripcion')
+      .select('id_suscripcion, negocios_extra')
       .eq('owner_id', owner_id)
       .eq('tipo_modulo', tipo_modulo)
       .maybeSingle();
+
+    // Si ya tiene negocios activos, validar que el plan destino los soporte (downgrade)
+    if (existingSub) {
+      const targetCapacity = (planData?.limite_negocios || 1) + (existingSub.negocios_extra || 0);
+      const activeCount = await countActiveBusinesses(owner_id, tipo_modulo);
+      if (activeCount > targetCapacity) {
+        return res.status(400).json({
+          error: 'DOWNGRADE_BLOCKED',
+          active: activeCount,
+          limite: targetCapacity,
+        });
+      }
+    }
 
     // Intentar recuperar el stripe_customer_id del owner para no perder métodos de pago
     const { data: anySubWithStripe } = await supabaseAdmin
@@ -352,6 +383,7 @@ router.post('/upgrade', express.json(), async (req, res) => {
           id_plan: plan_id,
           estado: 'activa',
           current_period_end: endDate.toISOString(),
+          cancel_at_period_end: false,
           // Actualizamos también por si aca no lo tenía
           ...(stripeCustomerId ? { stripe_customer_id: stripeCustomerId } : {})
         })
@@ -366,6 +398,7 @@ router.post('/upgrade', express.json(), async (req, res) => {
           id_plan: plan_id,
           estado: 'activa',
           current_period_end: endDate.toISOString(),
+          cancel_at_period_end: false,
           stripe_customer_id: stripeCustomerId
         });
       updateErr = error;
@@ -396,9 +429,117 @@ router.post('/upgrade', express.json(), async (req, res) => {
       return res.status(500).json({ error: updateErr.message });
     }
 
+    // Notificar por correo (cubre actualizar, degradar y renovar plan)
+    const { data: ownerEmailData } = await supabaseAdmin
+      .from('owners')
+      .select('email_contacto, nombre_empresa')
+      .eq('id_owner', owner_id)
+      .maybeSingle();
+
+    if (ownerEmailData?.email_contacto) {
+      void sendSubscriptionConfirmationEmail({
+        ownerEmail: ownerEmailData.email_contacto,
+        ownerName: ownerEmailData.nombre_empresa,
+        planName: planData?.nombre,
+      });
+    }
+
     res.json({ success: true });
   } catch (err: any) {
     console.error('[Upgrade Error] Exception:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/hub/billing/cancel
+// Cancela la suscripción al final del período actual (el acceso se mantiene
+// hasta current_period_end, igual que Stripe).
+router.post('/cancel', express.json(), async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+
+    const { tipo_modulo = 'hotel' } = req.body;
+    const owner_id = await resolveOwnerId(user.id);
+    if (!owner_id) return res.status(400).json({ error: 'Owner no encontrado' });
+
+    const { data: sub } = await supabaseAdmin
+      .from('suscripciones_owner')
+      .select('id_suscripcion, estado, current_period_end, id_plan')
+      .eq('owner_id', owner_id)
+      .eq('tipo_modulo', tipo_modulo)
+      .maybeSingle();
+
+    if (!sub) return res.status(404).json({ error: 'Suscripción no encontrada' });
+    if (sub.estado !== 'activa' && sub.estado !== 'trial') {
+      return res.status(400).json({ error: 'No se puede cancelar una suscripción en este estado' });
+    }
+
+    await supabaseAdmin
+      .from('suscripciones_owner')
+      .update({ cancel_at_period_end: true })
+      .eq('id_suscripcion', sub.id_suscripcion);
+
+    const [{ data: ownerEmailData }, { data: planData }] = await Promise.all([
+      supabaseAdmin.from('owners').select('email_contacto, nombre_empresa').eq('id_owner', owner_id).maybeSingle(),
+      supabaseAdmin.from('planes_suscripcion').select('nombre').eq('id_plan', sub.id_plan).maybeSingle(),
+    ]);
+
+    if (ownerEmailData?.email_contacto) {
+      void sendSubscriptionCancelScheduledEmail({
+        ownerEmail: ownerEmailData.email_contacto,
+        ownerName: ownerEmailData.nombre_empresa,
+        planName: planData?.nombre,
+        periodEnd: sub.current_period_end || undefined,
+      });
+    }
+
+    res.json({ success: true, cancel_at_period_end: true, current_period_end: sub.current_period_end });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/hub/billing/reactivate
+// Deshace una cancelación programada (cancel_at_period_end -> false).
+router.post('/reactivate', express.json(), async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+
+    const { tipo_modulo = 'hotel' } = req.body;
+    const owner_id = await resolveOwnerId(user.id);
+    if (!owner_id) return res.status(400).json({ error: 'Owner no encontrado' });
+
+    const { data: sub } = await supabaseAdmin
+      .from('suscripciones_owner')
+      .select('id_suscripcion, id_plan')
+      .eq('owner_id', owner_id)
+      .eq('tipo_modulo', tipo_modulo)
+      .maybeSingle();
+
+    if (!sub) return res.status(404).json({ error: 'Suscripción no encontrada' });
+
+    await supabaseAdmin
+      .from('suscripciones_owner')
+      .update({ cancel_at_period_end: false })
+      .eq('id_suscripcion', sub.id_suscripcion);
+
+    const [{ data: ownerEmailData }, { data: planData }] = await Promise.all([
+      supabaseAdmin.from('owners').select('email_contacto, nombre_empresa').eq('id_owner', owner_id).maybeSingle(),
+      supabaseAdmin.from('planes_suscripcion').select('nombre').eq('id_plan', sub.id_plan).maybeSingle(),
+    ]);
+
+    if (ownerEmailData?.email_contacto) {
+      void sendSubscriptionReactivatedEmail({
+        ownerEmail: ownerEmailData.email_contacto,
+        ownerName: ownerEmailData.nombre_empresa,
+        planName: planData?.nombre,
+      });
+    }
+
+    res.json({ success: true, cancel_at_period_end: false });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -460,6 +601,53 @@ router.post('/addon', express.json(), async (req, res) => {
     });
 
     res.json({ success: true, negocios_extra: currentExtras + 1 });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/hub/billing/addon/remove
+// Quita un cupo extra, validando que el plan siga cubriendo los negocios activos.
+router.post('/addon/remove', express.json(), async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+
+    const { tipo_modulo = 'hotel' } = req.body;
+    const owner_id = await resolveOwnerId(user.id);
+    if (!owner_id) return res.status(400).json({ error: 'Owner no encontrado' });
+
+    const { data: sub } = await supabaseAdmin
+      .from('suscripciones_owner')
+      .select('id_suscripcion, negocios_extra, id_plan')
+      .eq('owner_id', owner_id)
+      .eq('tipo_modulo', tipo_modulo)
+      .maybeSingle();
+
+    if (!sub || (sub.negocios_extra || 0) <= 0) {
+      return res.status(400).json({ error: 'NO_EXTRA_SLOTS' });
+    }
+
+    const { data: planData } = await supabaseAdmin
+      .from('planes_suscripcion')
+      .select('limite_negocios')
+      .eq('id_plan', sub.id_plan)
+      .maybeSingle();
+
+    const newExtra = sub.negocios_extra - 1;
+    const capacity = (planData?.limite_negocios || 1) + newExtra;
+    const activeCount = await countActiveBusinesses(owner_id, tipo_modulo);
+
+    if (activeCount > capacity) {
+      return res.status(400).json({ error: 'ADDON_REMOVE_BLOCKED', active: activeCount, limite: capacity });
+    }
+
+    await supabaseAdmin
+      .from('suscripciones_owner')
+      .update({ negocios_extra: newExtra })
+      .eq('id_suscripcion', sub.id_suscripcion);
+
+    res.json({ success: true, negocios_extra: newExtra });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

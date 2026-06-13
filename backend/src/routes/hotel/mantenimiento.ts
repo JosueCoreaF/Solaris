@@ -11,7 +11,7 @@ router.get('/tareas', async (req: Request, res: Response) => {
     const hotelId = req.headers['x-hotel-id'] as string;
     if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'Hotel requerido' });
 
-    const { estado, prioridad } = req.query;
+    const { estado, prioridad, id_habitacion } = req.query;
 
     let query = db()
       .from('tareas_mantenimiento')
@@ -24,6 +24,7 @@ router.get('/tareas', async (req: Request, res: Response) => {
 
     if (estado) query = query.eq('estado', estado as string);
     if (prioridad) query = query.eq('prioridad', prioridad as string);
+    if (id_habitacion) query = query.eq('id_habitacion', id_habitacion as string);
 
     const { data, error } = await query;
     if (error) return res.status(400).json({ error: error.message });

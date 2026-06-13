@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import {
   Search, CheckCircle2, Ban, Clock, ChevronRight, Loader2, RefreshCw,
   Building2, Package, ExternalLink, Copy, Check, Cpu, Zap, Pencil, X,
-  PowerOff, Trash2, ToggleLeft, ToggleRight, AlertTriangle,
+  PowerOff, Trash2, ToggleLeft, ToggleRight, AlertTriangle, Receipt,
+  Dumbbell, UtensilsCrossed, Plus, CreditCard, CalendarClock,
 } from 'lucide-react';
 import { AdminLayout } from './AdminLayout';
 import apiClient from '../../services/api';
@@ -32,7 +33,10 @@ interface Owner {
   estado: 'activo' | 'suspendido' | 'inactivo';
   is_solarys_admin: boolean;
   created_at: string;
-  suscripciones_owner: Array<{ id_plan: string; estado: string; trial_end: string | null }>;
+  suscripciones_owner: Array<{
+    id_plan: string; tipo_modulo?: string; estado: string; trial_end: string | null;
+    negocios_extra?: number; current_period_end?: string | null; cancel_at_period_end?: boolean;
+  }>;
   business_modules: Module[];
 }
 
@@ -43,12 +47,22 @@ interface Plan {
   precio_mensual: number;
   precio_anual: number;
   activo: boolean;
+  limite_negocios: number;
 }
 
 interface Subscription {
+  tipo_modulo: string;
   id_plan: string;
   estado: string;
   trial_end: string | null;
+}
+
+interface Payment {
+  id_pago: string;
+  concepto: string;
+  monto: number;
+  estado: string;
+  created_at: string;
 }
 
 interface AIUsage {
@@ -79,6 +93,24 @@ const SUB_ALERTA: Record<string, { label: string; cls: string }> = {
   cancelada: { label: 'Cancelada', cls: 'bg-slate-200 text-slate-600' },
   inactiva:  { label: 'Inactiva',  cls: 'bg-amber-100 text-amber-700' },
 };
+
+const SUB_ESTADO_CONFIG: Record<string, { label: string; cls: string }> = {
+  activa:    { label: 'Activa',    cls: 'bg-emerald-100 text-emerald-700' },
+  trial:     { label: 'Trial',     cls: 'bg-sky-100 text-sky-700' },
+  impaga:    { label: 'Impaga',    cls: 'bg-rose-100 text-rose-700' },
+  inactiva:  { label: 'Inactiva',  cls: 'bg-amber-100 text-amber-700' },
+  cancelada: { label: 'Cancelada', cls: 'bg-slate-200 text-slate-600' },
+};
+
+const MODULO_CONFIG: Record<string, { label: string; icon: any; cls: string }> = {
+  hotel:      { label: 'Hotel',      icon: Building2,       cls: 'bg-indigo-100 text-indigo-600' },
+  gym:        { label: 'Gimnasio',   icon: Dumbbell,        cls: 'bg-violet-100 text-violet-600' },
+  restaurant: { label: 'Restaurante', icon: UtensilsCrossed, cls: 'bg-orange-100 text-orange-600' },
+};
+
+function moduloCfg(tipo?: string) {
+  return MODULO_CONFIG[tipo ?? ''] ?? { label: tipo ?? 'Módulo', icon: Package, cls: 'bg-slate-100 text-slate-600' };
+}
 
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -113,16 +145,23 @@ export default function AdminOwners() {
   const [aiUsage, setAIUsage]     = useState<AIUsage | null>(null);
   const [aiLoading, setAILoading] = useState(false);
 
+  const [payments, setPayments]         = useState<Payment[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+
   // Suscripción
   const [plans, setPlans]         = useState<Plan[]>([]);
-  const [editSub, setEditSub]     = useState(false);
-  const [subForm, setSubForm]     = useState<Subscription>({ id_plan: '', estado: 'activa', trial_end: null });
+  // null = ninguna en edición, 'new' = agregando módulo nuevo, o el tipo_modulo que se está editando
+  const [editingSub, setEditingSub] = useState<string | null>(null);
+  const [subForm, setSubForm]     = useState<Subscription>({ tipo_modulo: '', id_plan: '', estado: 'activa', trial_end: null });
   const [patchingSub, setPatchingSub] = useState(false);
 
   // Acciones destructivas
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [confirmText, setConfirmText]     = useState('');
   const [actioning, setActioning]         = useState(false);
+
+  // Modal de suscripciones / estado de cuenta
+  const [subsModalOpen, setSubsModalOpen] = useState(false);
 
   // Eliminación de hotel
   const [selectedHotelToDelete, setSelectedHotelToDelete] = useState<Hotel | null>(null);
@@ -158,23 +197,46 @@ export default function AdminOwners() {
   useEffect(() => { load(0); }, [q, estadoFil]);
 
   useEffect(() => {
-    if (!selected) { setAIUsage(null); setEditSub(false); return; }
+    if (!selected) { setAIUsage(null); setEditingSub(null); setPayments([]); setSubsModalOpen(false); return; }
     setAILoading(true);
     apiClient.get(`/hub/admin/ai-usage?ownerId=${selected.id_owner}`)
       .then((res: any) => setAIUsage(res))
       .catch(() => setAIUsage(null))
       .finally(() => setAILoading(false));
 
-    const currentSub = selected.suscripciones_owner?.[0];
-    setSubForm({
-      id_plan:   currentSub?.id_plan   ?? (plans[0]?.id_plan ?? ''),
-      estado:    currentSub?.estado    ?? 'activa',
-      trial_end: currentSub?.trial_end ?? null,
-    });
-    setEditSub(false);
+    setPaymentsLoading(true);
+    apiClient.get(`/hub/admin/owners/${selected.id_owner}/payments`)
+      .then((res: any) => setPayments(Array.isArray(res) ? res : []))
+      .catch(() => setPayments([]))
+      .finally(() => setPaymentsLoading(false));
+
+    setEditingSub(null);
     setConfirmAction(null);
     setConfirmText('');
   }, [selected?.id_owner]);
+
+  // ── Iniciar edición de una suscripción existente ──
+  const startEditSub = (s: Owner['suscripciones_owner'][number]) => {
+    setSubForm({
+      tipo_modulo: s.tipo_modulo ?? 'hotel',
+      id_plan:     s.id_plan,
+      estado:      s.estado,
+      trial_end:   s.trial_end,
+    });
+    setEditingSub(s.tipo_modulo ?? 'hotel');
+  };
+
+  // ── Iniciar asignación de un módulo/plan nuevo ──
+  const startNewSub = (tipoModulo: string) => {
+    const firstPlan = plans.find(p => p.tipo_modulo === tipoModulo);
+    setSubForm({
+      tipo_modulo: tipoModulo,
+      id_plan:     firstPlan?.id_plan ?? '',
+      estado:      'activa',
+      trial_end:   null,
+    });
+    setEditingSub('new');
+  };
 
   // ── Cambiar estado del owner ──
   const cambiarEstado = async (id: string, estado: string) => {
@@ -234,13 +296,17 @@ export default function AdminOwners() {
       const payload: any = { id_plan: subForm.id_plan, estado: subForm.estado };
       if (subForm.trial_end) payload.trial_end = subForm.trial_end;
       const updated = await apiClient.patch(`/hub/admin/owners/${selected.id_owner}/subscription`, payload);
-      const patchSub = (subs: Owner['suscripciones_owner']) =>
-        subs.length > 0 ? subs.map((s, i) => i === 0 ? { ...s, ...updated } : s) : [updated];
+      const merged = { ...updated, tipo_modulo: subForm.tipo_modulo };
+      const patchSub = (subs: Owner['suscripciones_owner']) => {
+        const idx = subs.findIndex(s => (s.tipo_modulo ?? 'hotel') === subForm.tipo_modulo);
+        if (idx === -1) return [...subs, merged];
+        return subs.map((s, i) => i === idx ? { ...s, ...merged } : s);
+      };
       setSelected(prev => prev ? { ...prev, suscripciones_owner: patchSub(prev.suscripciones_owner) } : prev);
       setOwners(prev => prev.map(o =>
         o.id_owner === selected.id_owner ? { ...o, suscripciones_owner: patchSub(o.suscripciones_owner) } : o
       ));
-      setEditSub(false);
+      setEditingSub(null);
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -588,91 +654,46 @@ export default function AdminOwners() {
               </div>
             </div>
 
-            {/* ── Suscripción ── */}
+            {/* ── Suscripción y facturación (resumen) ── */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-slate-500 uppercase">Suscripción</p>
-                {!editSub && (
-                  <button onClick={() => setEditSub(true)}
-                    className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 transition">
-                    <Pencil size={11} /> Editar
-                  </button>
-                )}
+                <p className="text-xs font-semibold text-slate-500 uppercase">Suscripción y facturación</p>
+                <button onClick={() => setSubsModalOpen(true)}
+                  className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 transition">
+                  <Receipt size={11} /> Gestionar
+                </button>
               </div>
 
-              {editSub ? (
-                <div className="bg-indigo-50 rounded-xl p-3 space-y-3">
-                  <div>
-                    <label className="text-xs text-slate-500 font-medium block mb-1">Plan</label>
-                    <select
-                      value={subForm.id_plan}
-                      onChange={e => setSubForm(f => ({ ...f, id_plan: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    >
-                      {plans.length === 0 && <option value="">Cargando planes...</option>}
-                      {plans.map(p => (
-                        <option key={p.id_plan} value={p.id_plan}>
-                          {p.nombre} — ${p.precio_mensual}/mes
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 font-medium block mb-1">Estado de la suscripción</label>
-                    <select
-                      value={subForm.estado}
-                      onChange={e => setSubForm(f => ({ ...f, estado: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none"
-                    >
-                      <option value="activa">Activa</option>
-                      <option value="trial">Trial</option>
-                      <option value="impaga">Impaga</option>
-                      <option value="inactiva">Inactiva</option>
-                      <option value="cancelada">Cancelada</option>
-                    </select>
-                  </div>
-                  {subForm.estado === 'trial' && (
-                    <div>
-                      <label className="text-xs text-slate-500 font-medium block mb-1">Fin de trial</label>
-                      <input
-                        type="date"
-                        value={subForm.trial_end ? subForm.trial_end.slice(0, 10) : ''}
-                        onChange={e => setSubForm(f => ({ ...f, trial_end: e.target.value ? e.target.value + 'T00:00:00Z' : null }))}
-                        className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none"
-                      />
-                    </div>
-                  )}
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      disabled={patchingSub || !subForm.id_plan}
-                      onClick={updateSubscription}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition disabled:opacity-50"
-                    >
-                      {patchingSub ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                      Guardar
-                    </button>
-                    <button
-                      onClick={() => setEditSub(false)}
-                      className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
+              {selected.suscripciones_owner?.length ? (
+                <div className="space-y-1.5">
+                  {selected.suscripciones_owner.map((s, i) => {
+                    const mc = moduloCfg(s.tipo_modulo);
+                    const ModIcon = mc.icon;
+                    const ec = SUB_ESTADO_CONFIG[s.estado] ?? { label: s.estado, cls: 'bg-slate-100 text-slate-600' };
+                    return (
+                      <div key={i} className="flex items-center gap-2.5 rounded-xl px-3 py-2 bg-slate-50 text-sm">
+                        <div className={`p-1.5 rounded-lg ${mc.cls} shrink-0`}>
+                          <ModIcon size={13} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-slate-800 truncate">{mc.label}</p>
+                          <p className="text-xs text-slate-400 truncate">{s.id_plan}</p>
+                        </div>
+                        <span className={`text-[10px] font-semibold px-2 py-1 rounded-full shrink-0 ${ec.cls}`}>{ec.label}</span>
+                        {s.cancel_at_period_end && (
+                          <span title="Cancelación programada">
+                            <AlertTriangle size={13} className="text-amber-500 shrink-0" />
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
-                selected.suscripciones_owner?.length ? selected.suscripciones_owner.map((s, i) => (
-                  <div key={i} className={`rounded-xl px-3 py-2.5 text-sm ${SUB_ALERTA[s.estado] ? 'bg-amber-50' : 'bg-indigo-50'}`}>
-                    <p className="font-semibold text-slate-800">{s.id_plan}</p>
-                    <p className={`text-xs capitalize ${SUB_ALERTA[s.estado] ? 'text-amber-600' : 'text-indigo-500'}`}>
-                      {s.estado}{s.trial_end ? ` · Trial hasta ${new Date(s.trial_end).toLocaleDateString('es-HN')}` : ''}
-                    </p>
-                  </div>
-                )) : (
-                  <div className="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2.5">
-                    <p className="text-slate-400 text-sm">Sin suscripción</p>
-                    <button onClick={() => setEditSub(true)} className="text-xs text-indigo-600 hover:text-indigo-800">+ Asignar</button>
-                  </div>
-                )
+                <div className="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2.5">
+                  <p className="text-slate-400 text-sm">Sin suscripción</p>
+                  <button onClick={() => setSubsModalOpen(true)} className="text-xs text-indigo-600 hover:text-indigo-800">+ Asignar</button>
+                </div>
               )}
             </div>
 
@@ -764,6 +785,284 @@ export default function AdminOwners() {
               </div>
             </div>
 
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ══ Modal de suscripciones y estado de cuenta ═══════════════════════ */}
+      {selected && subsModalOpen && createPortal(
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between p-5 border-b border-slate-100 sticky top-0 bg-white">
+              <div>
+                <h3 className="font-bold text-slate-900">Suscripciones y facturación</h3>
+                <p className="text-sm text-slate-400 mt-0.5">{selected.nombre_empresa}</p>
+              </div>
+              <button onClick={() => { setSubsModalOpen(false); setEditingSub(null); }}
+                className="text-slate-400 hover:text-slate-700 text-xl font-light leading-none">✕</button>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {/* ── Suscripciones por módulo ── */}
+              <div className="space-y-3">
+                {selected.suscripciones_owner?.length ? selected.suscripciones_owner.map((s, i) => {
+                  const tipo = s.tipo_modulo ?? 'hotel';
+                  const mc = moduloCfg(tipo);
+                  const ModIcon = mc.icon;
+                  const ec = SUB_ESTADO_CONFIG[s.estado] ?? { label: s.estado, cls: 'bg-slate-100 text-slate-600' };
+                  const plan = plans.find(p => p.id_plan === s.id_plan);
+                  const capacity = (plan?.limite_negocios || 1) + (s.negocios_extra || 0);
+                  const activeCount = selected.business_modules.filter(m => m.tipo_modulo === tipo && m.is_active).length;
+                  const usagePct = capacity > 0 ? Math.min(100, Math.round((activeCount / capacity) * 100)) : 0;
+                  const isEditing = editingSub === tipo;
+
+                  return (
+                    <div key={i} className="border border-slate-200 rounded-2xl overflow-hidden">
+                      {/* Header de la card */}
+                      <div className="flex items-center gap-3 p-4">
+                        <div className={`p-2.5 rounded-xl ${mc.cls} shrink-0`}>
+                          <ModIcon size={16} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-slate-800">{mc.label}</p>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${ec.cls}`}>{ec.label}</span>
+                          </div>
+                          <p className="text-sm text-slate-500">
+                            {plan?.nombre ?? s.id_plan}
+                            {s.trial_end ? ` · Trial hasta ${new Date(s.trial_end).toLocaleDateString('es-HN')}` : ''}
+                          </p>
+                        </div>
+                        {!isEditing && (
+                          <button onClick={() => startEditSub(s)}
+                            className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition shrink-0">
+                            <Pencil size={11} /> Editar
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Estado de cuenta del módulo */}
+                      <div className="px-4 pb-4 space-y-2">
+                        <div className="flex items-center justify-between text-xs text-slate-500">
+                          <span>Negocios activos</span>
+                          <span className="font-medium">{activeCount} / {capacity}</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-1.5">
+                          <div className={`h-1.5 rounded-full ${usagePct >= 100 ? 'bg-red-500' : 'bg-indigo-500'}`} style={{ width: `${usagePct}%` }} />
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          {s.current_period_end ? (
+                            <span className="flex items-center gap-1 text-slate-500">
+                              <CalendarClock size={12} />
+                              {s.cancel_at_period_end ? 'Vence (sin renovar)' : 'Próximo cobro'}: {new Date(s.current_period_end).toLocaleDateString('es-HN')}
+                            </span>
+                          ) : <span />}
+                          {s.cancel_at_period_end && (
+                            <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-700 text-xs font-medium px-2 py-1 rounded-full">
+                              <AlertTriangle size={11} /> Cancelación programada
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Form de edición */}
+                      {isEditing && (
+                        <div className="bg-indigo-50 border-t border-indigo-100 p-4 space-y-3">
+                          <div>
+                            <label className="text-xs text-slate-500 font-medium block mb-1">Plan ({mc.label})</label>
+                            <select
+                              value={subForm.id_plan}
+                              onChange={e => setSubForm(f => ({ ...f, id_plan: e.target.value }))}
+                              className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                            >
+                              {plans.filter(p => p.tipo_modulo === tipo).map(p => (
+                                <option key={p.id_plan} value={p.id_plan}>
+                                  {p.nombre} — ${p.precio_mensual}/mes
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs text-slate-500 font-medium block mb-1">Estado de la suscripción</label>
+                            <select
+                              value={subForm.estado}
+                              onChange={e => setSubForm(f => ({ ...f, estado: e.target.value }))}
+                              className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none"
+                            >
+                              <option value="activa">Activa</option>
+                              <option value="trial">Trial</option>
+                              <option value="impaga">Impaga</option>
+                              <option value="inactiva">Inactiva</option>
+                              <option value="cancelada">Cancelada</option>
+                            </select>
+                          </div>
+                          {subForm.estado === 'trial' && (
+                            <div>
+                              <label className="text-xs text-slate-500 font-medium block mb-1">Fin de trial</label>
+                              <input
+                                type="date"
+                                value={subForm.trial_end ? subForm.trial_end.slice(0, 10) : ''}
+                                onChange={e => setSubForm(f => ({ ...f, trial_end: e.target.value ? e.target.value + 'T00:00:00Z' : null }))}
+                                className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none"
+                              />
+                            </div>
+                          )}
+                          <div className="flex gap-2 pt-1">
+                            <button
+                              disabled={patchingSub || !subForm.id_plan}
+                              onClick={updateSubscription}
+                              className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition disabled:opacity-50"
+                            >
+                              {patchingSub ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                              Guardar cambios de {mc.label}
+                            </button>
+                            <button
+                              onClick={() => setEditingSub(null)}
+                              className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }) : (
+                  <p className="text-slate-400 text-sm">Sin suscripciones registradas</p>
+                )}
+              </div>
+
+              {/* ── Agregar módulo nuevo ── */}
+              {(() => {
+                const subscribedModules = new Set((selected.suscripciones_owner ?? []).map(s => s.tipo_modulo ?? 'hotel'));
+                const availableModules = [...new Set(plans.map(p => p.tipo_modulo))].filter(m => !subscribedModules.has(m));
+                if (availableModules.length === 0) return null;
+
+                if (editingSub === 'new') {
+                  return (
+                    <div className="border border-indigo-200 rounded-2xl bg-indigo-50 p-4 space-y-3">
+                      <p className="text-xs font-semibold text-slate-500 uppercase">Asignar nuevo módulo</p>
+                      <div>
+                        <label className="text-xs text-slate-500 font-medium block mb-1">Módulo</label>
+                        <select
+                          value={subForm.tipo_modulo}
+                          onChange={e => {
+                            const tipo = e.target.value;
+                            const firstPlan = plans.find(p => p.tipo_modulo === tipo);
+                            setSubForm(f => ({ ...f, tipo_modulo: tipo, id_plan: firstPlan?.id_plan ?? '' }));
+                          }}
+                          className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                        >
+                          {availableModules.map(m => (
+                            <option key={m} value={m}>{moduloCfg(m).label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 font-medium block mb-1">Plan</label>
+                        <select
+                          value={subForm.id_plan}
+                          onChange={e => setSubForm(f => ({ ...f, id_plan: e.target.value }))}
+                          className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                        >
+                          {plans.filter(p => p.tipo_modulo === subForm.tipo_modulo).map(p => (
+                            <option key={p.id_plan} value={p.id_plan}>
+                              {p.nombre} — ${p.precio_mensual}/mes
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 font-medium block mb-1">Estado de la suscripción</label>
+                        <select
+                          value={subForm.estado}
+                          onChange={e => setSubForm(f => ({ ...f, estado: e.target.value }))}
+                          className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none"
+                        >
+                          <option value="activa">Activa</option>
+                          <option value="trial">Trial</option>
+                          <option value="impaga">Impaga</option>
+                          <option value="inactiva">Inactiva</option>
+                          <option value="cancelada">Cancelada</option>
+                        </select>
+                      </div>
+                      {subForm.estado === 'trial' && (
+                        <div>
+                          <label className="text-xs text-slate-500 font-medium block mb-1">Fin de trial</label>
+                          <input
+                            type="date"
+                            value={subForm.trial_end ? subForm.trial_end.slice(0, 10) : ''}
+                            onChange={e => setSubForm(f => ({ ...f, trial_end: e.target.value ? e.target.value + 'T00:00:00Z' : null }))}
+                            className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none"
+                          />
+                        </div>
+                      )}
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          disabled={patchingSub || !subForm.id_plan}
+                          onClick={updateSubscription}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition disabled:opacity-50"
+                        >
+                          {patchingSub ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                          Asignar módulo
+                        </button>
+                        <button
+                          onClick={() => setEditingSub(null)}
+                          className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <button
+                    onClick={() => startNewSub(availableModules[0])}
+                    className="w-full flex items-center justify-center gap-1.5 py-2.5 border border-dashed border-slate-300 text-slate-500 text-sm font-medium rounded-xl hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50/50 transition"
+                  >
+                    <Plus size={14} /> Asignar otro módulo
+                  </button>
+                );
+              })()}
+
+              {/* ── Historial de pagos ── */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Receipt size={13} className="text-slate-400" />
+                  <p className="text-xs font-semibold text-slate-500 uppercase">Historial de pagos</p>
+                </div>
+                {paymentsLoading ? (
+                  <div className="flex items-center gap-2 text-slate-400 text-sm py-2">
+                    <Loader2 size={13} className="animate-spin" /> Cargando...
+                  </div>
+                ) : payments.length > 0 ? (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                    {payments.map(p => (
+                      <div key={p.id_pago} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2 text-xs">
+                        <div className="min-w-0">
+                          <p className="font-medium text-slate-700 truncate">{p.concepto}</p>
+                          <p className="text-slate-400">{new Date(p.created_at).toLocaleDateString('es-HN')}</p>
+                        </div>
+                        <div className="text-right shrink-0 ml-2 flex items-center gap-2">
+                          <div>
+                            <p className="font-bold text-slate-800">${p.monto}</p>
+                            <p className={`capitalize ${p.estado === 'completado' ? 'text-emerald-600' : p.estado === 'pendiente' ? 'text-amber-600' : 'text-red-600'}`}>
+                              {p.estado}
+                            </p>
+                          </div>
+                          <CreditCard size={13} className="text-slate-300" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-slate-400 text-sm">Sin pagos registrados</p>
+                )}
+              </div>
+            </div>
           </div>
         </div>,
         document.body

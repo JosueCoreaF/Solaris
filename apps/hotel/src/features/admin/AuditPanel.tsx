@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { auditService, AuditLog, AuditStats, AuditLogsResponse } from '../../api/auditService';
+import { auditService, AuditLog, AuditStats, AuditLogsResponse, ETIQUETA_ENTIDAD, ETIQUETA_CAMPO } from '../../api/auditService';
 import { Search, Download, ChevronDown, Filter, RefreshCw, Calendar } from 'lucide-react';
 
 export const AuditPanel: React.FC = () => {
@@ -106,31 +106,9 @@ export const AuditPanel: React.FC = () => {
     return { __html: lines.join('\n') };
   };
 
-  // Etiquetas legibles para campos técnicos
-  const etiquetaCampo: Record<string, string> = {
-    estado: 'Estado', estado_pago: 'Estado de Pago', estado_display: 'Estado (visual)',
-    total_reserva: 'Total Reserva', monto: 'Monto', moneda: 'Moneda',
-    check_in: 'Check-in', check_out: 'Check-out', updated_at: 'Actualizado',
-    created_at: 'Creado', id_huesped: 'Huésped ID', id_habitacion: 'Habitación ID',
-    id_hotel: 'Hotel ID', observaciones: 'Observaciones', origen_reserva: 'Origen',
-    es_cortesia: 'Es Cortesía', metodo_pago: 'Método de Pago', fecha_pago: 'Fecha Pago',
-    rol: 'Rol', email: 'Email', nombre_completo: 'Nombre', tipo: 'Tipo',
-    aplicado: 'Aplicado', detalles_estado: 'Detalles Estado',
-  };
-
-  // Etiquetas legibles para entidades (nombres de tablas)
-  const etiquetaEntidad: Record<string, string> = {
-    reservas_hotel: 'Reservas',
-    pagos_hotel: 'Pagos',
-    huespedes: 'Huéspedes',
-    usuarios_roles: 'Usuarios & Roles',
-    saldos_clientes: 'Saldos de Clientes',
-    habitaciones: 'Habitaciones',
-    empresas: 'Empresas',
-    cotizaciones: 'Cotizaciones',
-    servicios_adicionales: 'Servicios Adicionales',
-    hoteles: 'Hotel',
-  };
+  // Etiquetas legibles para campos técnicos y entidades (nombres de tablas)
+  const etiquetaCampo = ETIQUETA_CAMPO;
+  const etiquetaEntidad = ETIQUETA_ENTIDAD;
 
   const formatValor = (val: unknown): string => {
     if (val === null || val === undefined) return '—';
@@ -241,11 +219,9 @@ export const AuditPanel: React.FC = () => {
                 <span className="text-gray-500">{auditService.formatearFecha(log.created_at_iso)}</span>
               </div>
 
-              {log.cambios_resumidos && (
-                <div className="text-xs text-gray-600 bg-blue-50 px-3 py-1.5 rounded border-l-2 border-blue-300 font-mono">
-                  {log.cambios_resumidos}
-                </div>
-              )}
+              <div className="text-xs text-gray-600 bg-blue-50 px-3 py-1.5 rounded border-l-2 border-blue-300">
+                {auditService.describirCambio(log)}
+              </div>
 
               {log.notas && (
                 <div className="text-sm text-gray-600 mt-1.5 italic">

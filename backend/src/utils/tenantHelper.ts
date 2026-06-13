@@ -172,3 +172,22 @@ export async function getOwnerIdsFromHotelId(hotelId: string) {
   const ownerId = (data as any)?.business_modules?.owner_id;
   return ownerId ? [ownerId] : [];
 }
+
+/**
+ * Verifica si el plan de suscripción del owner de un hotel incluye el
+ * feature flag indicado (planes_suscripcion.feature_flags).
+ */
+export async function hotelHasFeature(hotelId: string, featureKey: string): Promise<boolean> {
+  const [ownerId] = await getOwnerIdsFromHotelId(hotelId);
+  if (!ownerId) return false;
+
+  const { data: sub } = await supabaseAdmin!
+    .from('suscripciones_owner')
+    .select('planes_suscripcion(feature_flags)')
+    .eq('owner_id', ownerId)
+    .eq('tipo_modulo', 'hotel')
+    .maybeSingle();
+
+  const flags: string[] = (sub?.planes_suscripcion as any)?.feature_flags ?? [];
+  return flags.includes(featureKey);
+}

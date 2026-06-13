@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { getSocket, fetchChannels } from '../api/chatService';
 import { useToast } from './Toast';
 import { useAuth } from '../context/AuthContext';
 import { RightSidebarChat } from './RightSidebarChat';
+import { WelcomeAnimation } from './WelcomeAnimation';
 
 export const Layout: React.FC = () => {
   const location = useLocation();
@@ -15,6 +16,17 @@ export const Layout: React.FC = () => {
   const userName = user?.email?.split('@')[0] || 'Personal';
   // Token directo desde el contexto (siempre disponible cuando session existe)
   const accessToken = session?.access_token ?? null;
+
+  // Animación de bienvenida tras un login exitoso. El Login no puede mostrarla
+  // porque el GuestGuard redirige a "/" en cuanto la sesión se actualiza.
+  const [welcomeNombre, setWelcomeNombre] = useState<string | null>(null);
+  useEffect(() => {
+    const pendiente = sessionStorage.getItem('pendingWelcomeNombre');
+    if (pendiente) {
+      sessionStorage.removeItem('pendingWelcomeNombre');
+      setWelcomeNombre(pendiente);
+    }
+  }, []);
 
   useEffect(() => {
     const s = getSocket();
@@ -187,6 +199,12 @@ export const Layout: React.FC = () => {
 
   return (
     <div className="dashboard-root">
+      {welcomeNombre && (
+        <WelcomeAnimation
+          nombre={welcomeNombre}
+          onDone={() => setWelcomeNombre(null)}
+        />
+      )}
       <Sidebar />
       <div className="dashboard-shell" style={isChatPage ? { overflow: 'hidden' } : {}}>
         <div className={isChatPage ? 'chat-route-stage' : 'dashboard-route-stage'}>

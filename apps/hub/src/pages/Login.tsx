@@ -86,11 +86,17 @@ export const Login = () => {
     }
 
     // Si no requiere confirmación de email, la sesión se activa y AuthContext redirige
-    // Si requiere confirmación, mostramos mensaje
+    // Si requiere confirmación, mostramos mensaje y llevamos al usuario al login
     if (data.user && !data.session) {
-      setSuccess('¡Cuenta creada! Revisa tu correo para confirmar tu registro antes de iniciar sesión.');
+      const email = regEmail.trim().toLowerCase();
+      setSuccess(`¡Cuenta creada con éxito! Te enviamos un correo de confirmación a ${email}. Ábrelo y confirma tu cuenta, luego inicia sesión aquí.`);
       setTab('login');
-      setLoginEmail(regEmail.trim().toLowerCase());
+      setLoginEmail(email);
+      setRegNombre('');
+      setRegEmpresa('');
+      setRegEmail('');
+      setRegPassword('');
+      setRegPasswordConfirm('');
     }
     setLoading(false);
   };

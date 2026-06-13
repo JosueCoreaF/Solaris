@@ -6,7 +6,7 @@ const db = () => supabaseAdmin ?? supabase;
 // ──── GET /api/hotel/habitaciones ────────────────────────────────────────────
 export const listarHabitaciones = async (req: Request, res: Response) => {
   try {
-    const businessId = req.headers['x-business-id'] as string;
+    const businessId = (req.headers['x-hotel-id'] || req.headers['x-business-id']) as string;
 
     let query = db()
       .from('habitaciones')
@@ -58,14 +58,14 @@ export const listarHabitaciones = async (req: Request, res: Response) => {
 // ──── POST /api/hotel/habitaciones ───────────────────────────────────────────
 export const crearHabitacion = async (req: Request, res: Response) => {
   try {
-    const businessId = req.headers['x-business-id'] as string;
+    const businessId = (req.headers['x-hotel-id'] || req.headers['x-business-id']) as string;
     const {
       nombre_habitacion, codigo_habitacion, id_tipo_habitacion,
       tarifa_noche, capacidad, estado, piso
     } = req.body;
 
     if (!nombre_habitacion || !businessId) {
-      return res.status(400).json({ error: 'nombre_habitacion y x-business-id son requeridos' });
+      return res.status(400).json({ error: 'nombre_habitacion y x-hotel-id son requeridos' });
     }
 
     const { data, error } = await db()
@@ -94,6 +94,7 @@ export const crearHabitacion = async (req: Request, res: Response) => {
 export const actualizarHabitacion = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const businessId = (req.headers['x-hotel-id'] || req.headers['x-business-id']) as string;
     const {
       nombre_habitacion, codigo_habitacion, id_tipo_habitacion,
       tarifa_noche, capacidad, estado, piso
@@ -108,12 +109,16 @@ export const actualizarHabitacion = async (req: Request, res: Response) => {
     if (estado !== undefined) updatePayload.estado = estado;
     if (piso !== undefined) updatePayload.piso = parseInt(piso);
 
-    const { data, error } = await db()
+    let query = db()
       .from('habitaciones')
       .update(updatePayload)
-      .eq('id_habitacion', id)
-      .select()
-      .single();
+      .eq('id_habitacion', id);
+
+    if (businessId && businessId !== 'all') {
+      query = query.eq('id_hotel', businessId);
+    }
+
+    const { data, error } = await query.select().single();
 
     if (error) return res.status(400).json({ error: error.message });
     res.json({ success: true, data });
@@ -126,10 +131,18 @@ export const actualizarHabitacion = async (req: Request, res: Response) => {
 export const eliminarHabitacion = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { error } = await db()
+    const businessId = (req.headers['x-hotel-id'] || req.headers['x-business-id']) as string;
+
+    let query = db()
       .from('habitaciones')
       .delete()
       .eq('id_habitacion', id);
+
+    if (businessId && businessId !== 'all') {
+      query = query.eq('id_hotel', businessId);
+    }
+
+    const { error } = await query;
 
     if (error) return res.status(400).json({ error: error.message });
     res.json({ success: true, message: 'Habitación eliminada' });

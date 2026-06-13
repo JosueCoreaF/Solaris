@@ -4,6 +4,7 @@ import { getIO, buildBotSystemPrompt, getSimpleAutoResponse, callGeminiChat } fr
 import { verificarCamasExtrasDisponibles, verificarNeveritasDisponibles, verificarPlanchasDisponibles } from './hotel/bookings.js';
 import { sendBookingConfirmation, sendHotelNotificationEmail } from '../utils/emailService.js';
 import { syncQuoteReservations } from '../utils/quoteReservationHelper.js';
+import { crearNotificacion } from '../utils/notificaciones.js';
 
 const router = Router();
 const db = () => supabaseAdmin ?? supabase;
@@ -562,13 +563,21 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
 
     // 4. Emitir evento Socket para notificar a recepción
     const io = getIO();
+    const habNombre = habitacion.nombre_alias || habitacion.nombre_habitacion;
     if (io) {
-      const habNombre = habitacion.nombre_alias || habitacion.nombre_habitacion;
       io.emit('nueva_solicitud_reserva', {
         reserva: nuevaReserva,
         mensaje: `Nueva solicitud web: ${nombre} (${habNombre})`
       });
     }
+
+    await crearNotificacion({
+      hotelId: habitacion.id_hotel,
+      tipo: 'reserva_web',
+      titulo: 'Nueva solicitud de reserva',
+      mensaje: `${nombre} solicitó ${habNombre} (${noches} noche${noches === 1 ? '' : 's'})`,
+      link: '/reservas',
+    });
 
     // 5. Enviar correo de confirmación de forma asíncrona
     if (nuevaReserva?.id_reserva_hotel) {
@@ -856,7 +865,7 @@ async function handleBotResponse(channelId: string, content: string) {
     // 1. Obtener la metadata del canal y el huésped para verificar si el bot está activo o desactivado
     const { data: channel } = await supabaseAdmin
       .from('chat_channels')
-      .select('metadata, id_huesped, channel_type')
+      .select('metadata, id_huesped, channel_type, id_hotel')
       .eq('id', channelId)
       .maybeSingle();
 
@@ -885,6 +894,16 @@ async function handleBotResponse(channelId: string, content: string) {
         io.emit('new_client_chat', {
           channel: { id: channelId, ...channel, metadata: newMetadata },
           mensaje: `🔔 Un cliente solicita hablar con un agente en recepción`
+        });
+      }
+
+      if (channel.id_hotel) {
+        await crearNotificacion({
+          hotelId: channel.id_hotel,
+          tipo: 'mensaje_cliente',
+          titulo: 'Cliente solicita un agente',
+          mensaje: 'Un huésped pidió hablar con recepción en el chat del portal',
+          link: '/chat',
         });
       }
 
@@ -1602,6 +1621,16 @@ async function applyQuoteDecision(id: string, estado: 'Aceptada' | 'Rechazada') 
         mensaje: `Cotización ${updatedQuote.numero_cotizacion} rechazada por el cliente ${updatedQuote.cliente_nombre}. Habitaciones liberadas.`
       });
     }
+  }
+
+  if (estado === 'Aceptada') {
+    await crearNotificacion({
+      hotelId: quote.id_hotel,
+      tipo: 'cotizacion_aceptada',
+      titulo: 'Cotización aceptada',
+      mensaje: `El cliente ${updatedQuote.cliente_nombre} aceptó la cotización ${updatedQuote.numero_cotizacion}`,
+      link: '/cotizaciones',
+    });
   }
 
   return { success: true as const, alreadyProcessed: false, quote: updatedQuote };

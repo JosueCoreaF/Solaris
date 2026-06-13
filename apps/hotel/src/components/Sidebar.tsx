@@ -131,11 +131,18 @@ const IconCheck = () => (
     <polyline points="20 6 9 17 4 12" />
   </svg>
 );
-const getSidebarSections = (role: string) => {
+/* ── Insignia visual del plan de suscripción activo ───────── */
+const PLAN_BADGES: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  hotel_starter: { label: 'Starter', color: '#64748b', bg: 'rgba(100,116,139,.10)', border: 'rgba(100,116,139,.25)' },
+  hotel_pro: { label: 'Estándar', color: '#2563eb', bg: 'rgba(37,99,235,.10)', border: 'rgba(37,99,235,.25)' },
+  hotel_business: { label: 'Premium', color: '#d97706', bg: 'rgba(217,119,6,.10)', border: 'rgba(217,119,6,.25)' },
+};
+
+const getSidebarSections = (role: string, featureFlags: string[]) => {
   // Roles alineados con src/config/rbac.ts ROUTE_ROLES
   const sections: Array<{
     title: string;
-    items: Array<{ to: string; label: string; icon: () => JSX.Element; roles?: string[] }>;
+    items: Array<{ to: string; label: string; icon: () => JSX.Element; roles?: string[]; feature?: string }>;
   }> = [
       {
         title: 'Operativos',
@@ -148,7 +155,7 @@ const getSidebarSections = (role: string) => {
           { to: '/pagos', label: 'Pagos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/clientes', label: 'Clientes', icon: IconClients, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/empresas', label: 'Empresas', icon: IconBuilding, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
-          { to: '/cotizaciones', label: 'Cotizaciones', icon: IconQuotes, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
+          { to: '/cotizaciones', label: 'Cotizaciones', icon: IconQuotes, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'], feature: 'cotizaciones' },
           { to: '/estado-cuenta', label: 'Estado de Cuenta', icon: IconWallet, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/chat', label: 'Chat', icon: IconChat, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'] },
         ],
@@ -158,35 +165,46 @@ const getSidebarSections = (role: string) => {
         items: [
           { to: '/finanzas', label: 'Ingresos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
           { to: '/tarifas', label: 'Tarifas', icon: IconRates, roles: ['PROPIETARIO', 'ADMIN'] },
-          { to: '/exportar', label: 'Exportar Datos', icon: IconExport, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
+          { to: '/exportar', label: 'Exportar Datos', icon: IconExport, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'], feature: 'exportador_datos' },
           { to: '/importar-reservas', label: 'Importar', icon: IconUploadCloud, roles: ['PROPIETARIO', 'ADMIN'] },
           { to: '/config', label: 'Configuración', icon: IconSettings, roles: ['PROPIETARIO', 'ADMIN'] },
-          { to: '/plantillas-correo', label: 'Plantillas Correo', icon: IconMail, roles: ['PROPIETARIO', 'ADMIN'] },
+          { to: '/plantillas-correo', label: 'Plantillas Correo', icon: IconMail, roles: ['PROPIETARIO', 'ADMIN'], feature: 'email_studio' },
           { to: '/gestionar-roles', label: 'Roles y Permisos', icon: IconUsers, roles: ['PROPIETARIO'] },
-          { to: '/auditoria', label: 'Auditoría', icon: IconShield, roles: ['PROPIETARIO', 'ADMIN'] },
+          { to: '/auditoria', label: 'Auditoría', icon: IconShield, roles: ['PROPIETARIO', 'ADMIN'], feature: 'auditoria' },
         ],
       },
       {
         title: 'Reportes',
         items: [
-          { to: '/reportes', label: 'Reportes', icon: IconChart, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
+          { to: '/reportes', label: 'Reportes', icon: IconChart, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'], feature: 'reportes' },
         ],
       },
     ];
 
-  // Filtrar secciones y items según el rol
+  // Filtrar secciones y items según el rol y los feature flags del plan
   return sections
     .map(section => ({
       ...section,
-      items: section.items.filter(item => !item.roles || item.roles.includes(role)),
+      items: section.items.filter(item =>
+        (!item.roles || item.roles.includes(role)) &&
+        (!item.feature || featureFlags.includes(item.feature))
+      ),
     }))
     .filter(section => section.items.length > 0);
 };
 
 /* ── Items para rail (todos los items filtrados) ──────────── */
-const getAllItems = (role: string) => {
-  const sections = getSidebarSections(role);
+const getAllItems = (role: string, featureFlags: string[]) => {
+  const sections = getSidebarSections(role, featureFlags);
   return sections.flatMap(s => s.items);
+};
+
+/* ── Iniciales de un hotel para su avatar (ej. "Hotel Solar" -> "HS") ── */
+const getHotelInitials = (nombre?: string) => {
+  if (!nombre) return 'H';
+  const palabras = nombre.trim().split(/\s+/).filter(Boolean);
+  if (palabras.length === 1) return palabras[0].slice(0, 2).toUpperCase();
+  return (palabras[0][0] + palabras[1][0]).toUpperCase();
 };
 
 /* ── Componente ─────────────────────────────────────────── */
@@ -249,15 +267,33 @@ export const Sidebar: React.FC = () => {
     };
   }, []);
 
-  const sidebarSections = getSidebarSections(role);
-  const allItems = getAllItems(role);
+  const featureFlags = syncHotel?.plan?.feature_flags ?? [];
+  const sidebarSections = getSidebarSections(role, featureFlags);
+  const allItems = getAllItems(role, featureFlags);
 
   return (
     <div className="sidebar-cluster">
       {/* Rail compacto (visible por defecto) */}
       <aside className="sidebar-rail">
         <div className="sidebar-rail-head">
-          <div className="brand-badge" style={{ width: 38, height: 38, fontSize: 11, borderRadius: 12 }}>PC</div>
+          <div style={{ position: 'relative' }}>
+            <div className="brand-badge" style={{ width: 38, height: 38, fontSize: 11, borderRadius: 12 }}>PC</div>
+            {syncHotel?.plan?.id_plan && PLAN_BADGES[syncHotel.plan.id_plan] && (
+              <div
+                title={`Plan ${PLAN_BADGES[syncHotel.plan.id_plan].label}`}
+                style={{
+                  position: 'absolute',
+                  bottom: -3,
+                  right: -3,
+                  width: 12,
+                  height: 12,
+                  borderRadius: '50%',
+                  background: PLAN_BADGES[syncHotel.plan.id_plan].color,
+                  border: '2px solid var(--shell-bg)',
+                }}
+              />
+            )}
+          </div>
           <div
             style={{
               marginTop: 10,
@@ -276,6 +312,7 @@ export const Sidebar: React.FC = () => {
           >
             🏨
           </div>
+
         </div>
 
         <nav className="sidebar-rail-menu">
@@ -346,38 +383,98 @@ export const Sidebar: React.FC = () => {
           <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>
             Propiedad Activa
           </label>
-          <button
-            onClick={() => setModalOpen(true)}
-            style={{
-              width: '100%',
-              padding: '10px 14px',
-              borderRadius: '12px',
-              border: '1px solid var(--shell-border-strong)',
-              backgroundColor: 'rgba(0, 0, 0, 0.03)',
-              color: 'var(--text-h)',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
-            onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--shell-border-strong)'}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {syncHotel ? syncHotel.nombre_hotel : (hoteles.find(h => h.id_hotel === activeHotelId)?.nombre_hotel || 'Cargando...')}
-            </div>
-            <div style={{ color: 'var(--muted)', display: 'flex', flexShrink: 0 }}>
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-            </div>
-          </button>
+          {(() => {
+            const propiedadActiva = syncHotel
+              ? { nombre_hotel: syncHotel.nombre_hotel, ciudad: hoteles.find(h => h.id_hotel === activeHotelId)?.ciudad }
+              : hoteles.find(h => h.id_hotel === activeHotelId);
+            const puedeCambiar = hoteles.length > 1;
+            return (
+              <button
+                onClick={() => puedeCambiar && setModalOpen(true)}
+                title={puedeCambiar ? 'Cambiar de propiedad' : 'Esta es tu única propiedad'}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: '12px',
+                  border: '1px solid var(--shell-border-strong)',
+                  backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                  color: 'var(--text-h)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: puedeCambiar ? 'pointer' : 'default',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 10,
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                }}
+                onMouseEnter={(e) => { if (puedeCambiar) e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--shell-border-strong)'; }}
+              >
+                <div style={{
+                  width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                  background: 'var(--sidebar-item-hover)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 11, fontWeight: 800, color: 'var(--text-h)',
+                }}>
+                  {getHotelInitials(propiedadActiva?.nombre_hotel)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                  <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {propiedadActiva?.nombre_hotel || 'Cargando...'}
+                  </div>
+                  {propiedadActiva?.ciudad && (
+                    <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {propiedadActiva.ciudad}
+                    </div>
+                  )}
+                </div>
+                {puedeCambiar && (
+                  <div style={{ color: 'var(--muted)', display: 'flex', flexShrink: 0 }}>
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                  </div>
+                )}
+              </button>
+            );
+          })()}
         </div>
+
+        {(() => {
+          const planInfo = syncHotel?.plan?.id_plan ? PLAN_BADGES[syncHotel.plan.id_plan] : null;
+          if (!planInfo) return null;
+          const isTopTier = syncHotel?.plan?.id_plan === 'hotel_business';
+          return (
+            <div style={{ padding: '6px 8px 0' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  borderRadius: 12,
+                  background: planInfo.bg,
+                  border: `1px solid ${planInfo.border}`,
+                }}
+              >
+                <span style={{ fontSize: 11, fontWeight: 800, color: planInfo.color, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                  Plan {planInfo.label}
+                </span>
+                {!isTopTier && (
+                  <a
+                    href={`${import.meta.env.VITE_HUB_URL || 'http://localhost:5174'}/upgrade`}
+                    style={{ fontSize: 11, fontWeight: 700, color: planInfo.color, textDecoration: 'none' }}
+                  >
+                    Mejorar →
+                  </a>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         <nav className="menu">
           {sidebarSections.map((section, idx) => (
@@ -532,7 +629,7 @@ export const Sidebar: React.FC = () => {
                   onMouseLeave={(e) => { if (activeHotelId !== h.id_hotel) e.currentTarget.style.backgroundColor = 'transparent' }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '8px', background: 'var(--sidebar-item-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>Htl</div>
+                    <div style={{ width: 40, height: 40, borderRadius: '8px', background: 'var(--sidebar-item-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>{getHotelInitials(h.nombre_hotel)}</div>
                     <div>
                       <div style={{ color: 'var(--text-h)', fontWeight: 600, fontSize: 15 }}>{h.nombre_hotel}</div>
                       <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>{h.ciudad || 'Operación regular'}</div>

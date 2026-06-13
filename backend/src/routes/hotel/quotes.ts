@@ -3,6 +3,7 @@ import { supabaseAdmin, supabase } from '../../config/supabase.js';
 import { getAuthUser, getOwnerIdsFromHotelId } from '../../utils/tenantHelper.js';
 import { sendQuoteEmail } from '../../utils/emailService.js';
 import { getIO } from './chat.js';
+import { crearNotificacion } from '../../utils/notificaciones.js';
 import { 
   allocateRoomsForQuote, 
   syncQuoteReservations 
@@ -349,6 +350,14 @@ router.post('/', async (req: Request, res: Response) => {
           mensaje: `🆕 Cotización ${quote.numero_cotizacion} creada directamente como ACEPTADA!`
         });
       }
+
+      await crearNotificacion({
+        hotelId,
+        tipo: 'cotizacion_aceptada',
+        titulo: 'Cotización aceptada',
+        mensaje: `Cotización ${quote.numero_cotizacion} creada directamente como ACEPTADA`,
+        link: '/cotizaciones',
+      });
     }
 
     return res.status(201).json(quote);
@@ -485,6 +494,14 @@ router.patch('/:id', async (req: Request, res: Response) => {
           mensaje: `🆕 Cotización ${quote.numero_cotizacion} ACEPTADA/CONVERTIDA en reservas confirmadas!`
         });
       }
+
+      await crearNotificacion({
+        hotelId,
+        tipo: 'cotizacion_aceptada',
+        titulo: 'Cotización aceptada',
+        mensaje: `Cotización ${quote.numero_cotizacion} fue aceptada y convertida en reserva`,
+        link: '/cotizaciones',
+      });
     }
 
     return res.json(quote);
@@ -679,6 +696,14 @@ router.post('/:id/convert-booking', async (req: Request, res: Response) => {
         mensaje: `🆕 Cotización ${quote.numero_cotizacion} convertida en ${syncRes.bookings.length} RESERVAS confirmadas!`
       });
     }
+
+    await crearNotificacion({
+      hotelId,
+      tipo: 'cotizacion_aceptada',
+      titulo: 'Cotización aceptada',
+      mensaje: `El cliente aceptó la cotización ${quote.numero_cotizacion} (${syncRes.bookings?.length ?? 0} reserva${(syncRes.bookings?.length ?? 0) === 1 ? '' : 's'})`,
+      link: '/cotizaciones',
+    });
 
     return res.status(201).json({ success: true, bookings: syncRes.bookings });
   } catch (err: any) {

@@ -5,6 +5,7 @@ import { SyncProvider } from './context/SyncContext';
 import { AccountBlockedScreen } from './components/AccountBlockedScreen';
 import { AuthGuard, GuestGuard } from './components/AuthGuard';
 import { RoleGuard } from './components/RoleGuard';
+import { FeatureGuard } from './components/FeatureGuard';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
 import { Login } from './features/auth/Login';
@@ -101,16 +102,16 @@ const AppContent: React.FC = () => {
                     <Guarded path="/reservas"><Bookings /></Guarded>
                   } />
                   <Route path="/cotizaciones" element={
-                    <Guarded path="/cotizaciones"><QuotesPanel /></Guarded>
+                    <Guarded path="/cotizaciones"><FeatureGuard feature="cotizaciones"><QuotesPanel /></FeatureGuard></Guarded>
                   } />
                   <Route path="/cotizaciones/nueva" element={
-                    <Guarded path="/cotizaciones"><QuoteForm /></Guarded>
+                    <Guarded path="/cotizaciones"><FeatureGuard feature="cotizaciones"><QuoteForm /></FeatureGuard></Guarded>
                   } />
                   <Route path="/cotizaciones/editar/:id" element={
-                    <Guarded path="/cotizaciones"><QuoteForm /></Guarded>
+                    <Guarded path="/cotizaciones"><FeatureGuard feature="cotizaciones"><QuoteForm /></FeatureGuard></Guarded>
                   } />
                   <Route path="/cotizaciones/:id" element={
-                    <Guarded path="/cotizaciones"><QuoteDetail /></Guarded>
+                    <Guarded path="/cotizaciones"><FeatureGuard feature="cotizaciones"><QuoteDetail /></FeatureGuard></Guarded>
                   } />
                   <Route path="/pagos" element={
                     <Guarded path="/pagos"><Pagos /></Guarded>
@@ -137,7 +138,7 @@ const AppContent: React.FC = () => {
                     <Guarded path="/tarifas"><Tarifas /></Guarded>
                   } />
                   <Route path="/exportar" element={
-                    <Guarded path="/exportar"><ExportadorDatos /></Guarded>
+                    <Guarded path="/exportar"><FeatureGuard feature="exportador_datos"><ExportadorDatos /></FeatureGuard></Guarded>
                   } />
                   <Route path="/importar-reservas" element={
                     <Guarded path="/importar-reservas"><ImportadorReservasPage /></Guarded>
@@ -146,16 +147,16 @@ const AppContent: React.FC = () => {
                     <Guarded path="/config"><Config /></Guarded>
                   } />
                   <Route path="/plantillas-correo" element={
-                    <Guarded path="/plantillas-correo"><EmailTemplatesPage /></Guarded>
+                    <Guarded path="/plantillas-correo"><FeatureGuard feature="email_studio"><EmailTemplatesPage /></FeatureGuard></Guarded>
                   } />
                   <Route path="/gestionar-roles" element={
                     <Guarded path="/gestionar-roles"><RoleManagement /></Guarded>
                   } />
                   <Route path="/auditoria" element={
-                    <Guarded path="/auditoria"><AuditPanel /></Guarded>
+                    <Guarded path="/auditoria"><FeatureGuard feature="auditoria"><AuditPanel /></FeatureGuard></Guarded>
                   } />
                   <Route path="/reportes" element={
-                    <Guarded path="/reportes"><Reportes /></Guarded>
+                    <Guarded path="/reportes"><FeatureGuard feature="reportes"><Reportes /></FeatureGuard></Guarded>
                   } />
 
                 </Route>

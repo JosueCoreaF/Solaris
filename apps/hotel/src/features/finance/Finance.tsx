@@ -4,6 +4,7 @@ import { obtenerResumen, obtenerFacturas } from '../../api/finanzasService';
 import { RegistrarFactura } from './RegistrarFactura';
 import { ListaFacturas } from './ListaFacturas';
 import { useFinanceAI } from '../../context/FinanceAIContext';
+import { CierreDiarioPanel } from './CierreDiarioPanel';
 
 interface FinanceData {
   ingresoTotal: number;
@@ -63,7 +64,7 @@ export const Finance: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [moneda, setMoneda] = useState<'HNL' | 'USD'>('HNL');
   const [filtro, setFiltro] = useState('mes');
-  const [vistaActiva, setVistaActiva] = useState<'resumen' | 'registrar' | 'historial'>('resumen');
+  const [vistaActiva, setVistaActiva] = useState<'resumen' | 'registrar' | 'historial' | 'cierre'>('resumen');
   const [facturaAEditar, setFacturaAEditar] = useState<any | null>(null);
   const [recargarTrigger, setRecargarTrigger] = useState(0);
 
@@ -202,6 +203,7 @@ export const Finance: React.FC = () => {
           { id: 'resumen',   label: 'Resumen',           icon: <DollarSign size={14} /> },
           { id: 'registrar', label: 'Registrar Factura',  icon: <Receipt size={14} /> },
           { id: 'historial', label: 'Historial Facturas', icon: <List size={14} /> },
+          { id: 'cierre',    label: 'Cierre Diario',     icon: <Zap size={14} /> },
         ] as const).map(tab => (
           <button key={tab.id}
             onClick={() => { setVistaActiva(tab.id); setFacturaAEditar(null); }}
@@ -233,6 +235,11 @@ export const Finance: React.FC = () => {
           recargarTrigger={recargarTrigger}
           onEditarFactura={(f) => { setFacturaAEditar(f); setVistaActiva('registrar'); }}
         />
+      )}
+
+      {/* ── Tab: Cierre Diario ────────────────────────────── */}
+      {vistaActiva === 'cierre' && (
+        <CierreDiarioPanel />
       )}
 
       {/* ── Tab: Resumen ──────────────────────────────────── */}

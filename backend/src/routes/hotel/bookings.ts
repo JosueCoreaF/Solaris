@@ -6,7 +6,8 @@ import path from 'path';
 import os from 'os';
 import { crearClienteUsuario, supabaseAdmin, supabase } from '../../config/supabase.js';
 import { extractToken, getInfoFromToken, patchAuditUser } from '../../utils/auditHelper.js';
-import { getAuthUser, getOwnerHotelIdsForUser, getOwnerIdsFromHotelId } from '../../utils/tenantHelper.js';
+import { getAuthUser, getOwnerHotelIdsForUser, getOwnerIdsFromHotelId, hotelHasFeature } from '../../utils/tenantHelper.js';
+import { requirePlanFeature } from '../../middlewares/requirePlanFeature.js';
 import {
   sendBookingConfirmation,
   sendHotelNotificationEmail,
@@ -1182,9 +1183,12 @@ router.post('/reservas', async (req, res) => {
   }
 
   // Enviar correos de confirmación de forma asíncrona (no bloquea la respuesta)
+  // Beneficio del plan Estándar/Pro y superior (feature flag 'email_confirmaciones').
   if (id_reserva_hotel) {
     (async () => {
       try {
+        if (!(await hotelHasFeature(id_hotel, 'email_confirmaciones'))) return;
+
         const [{ data: huesped }, { data: hotel }, { data: habData }, { data: reservaData }] = await Promise.all([
           db().from('huespedes').select('nombre_completo, correo').eq('id_huesped', id_huesped).single(),
           db().from('hoteles').select('nombre_hotel, correo_contacto').eq('id_hotel', id_hotel).single(),
@@ -1414,6 +1418,7 @@ router.patch('/reservas/:id', async (req, res) => {
   if (token) { const { email, userId } = getInfoFromToken(token); if (email && userId) patchAuditUser('reservas_hotel', userId, email); }
 
   // Correo de actualización de reserva (fire-and-forget)
+  // Beneficio del plan Estándar/Pro y superior (feature flag 'email_confirmaciones').
   void (async () => {
     try {
       const dateChanged  = (updates.check_in  !== undefined && updates.check_in  !== reservaExistente.check_in)  ||
@@ -1428,6 +1433,7 @@ router.patch('/reservas/:id', async (req, res) => {
         .maybeSingle();
 
       if (!reservaFull) return;
+      if (!(await hotelHasFeature(reservaFull.id_hotel, 'email_confirmaciones'))) return;
       const guestObj = Array.isArray(reservaFull.huesped) ? reservaFull.huesped[0] : reservaFull.huesped;
       const guestEmail: string = (guestObj as any)?.correo ?? '';
       if (!guestEmail || guestEmail.includes('@partnercentral.local')) return;
@@ -1528,6 +1534,7 @@ router.delete('/reservas/:id', async (req, res) => {
     if (token) { const { userId } = getInfoFromToken(token); if (emailUsuario && userId) patchAuditUser('reservas_hotel', userId, emailUsuario); }
 
     // Correo de cancelación (fire-and-forget)
+    // Beneficio del plan Estándar/Pro y superior (feature flag 'email_confirmaciones').
     void (async () => {
       try {
         const { data: reservaFull } = await db()
@@ -1537,6 +1544,7 @@ router.delete('/reservas/:id', async (req, res) => {
           .maybeSingle();
 
         if (!reservaFull) return;
+        if (!(await hotelHasFeature(reservaFull.id_hotel, 'email_confirmaciones'))) return;
         const guestObj = Array.isArray(reservaFull.huesped) ? reservaFull.huesped[0] : reservaFull.huesped;
         const guestEmail: string = (guestObj as any)?.correo ?? '';
         if (!guestEmail || guestEmail.includes('@partnercentral.local')) return;
@@ -2643,7 +2651,7 @@ router.delete('/habitaciones/:id/tarifas-periodo/:pid', async (req, res) => {
  * POST /api/bookings/reservas/:id/email-preview
  * Genera el asunto y el HTML de vista previa del correo según la reserva y el tipo deseado.
  */
-router.post('/reservas/:id/email-preview', async (req, res) => {
+router.post('/reservas/:id/email-preview', requirePlanFeature('email_studio'), async (req, res) => {
   try {
     const { id } = req.params;
     const { type, changes } = req.body; // type: 'confirmation' | 'update' | 'cancellation'
@@ -2735,7 +2743,7 @@ router.post('/reservas/:id/email-preview', async (req, res) => {
  * POST /api/bookings/reservas/:id/send-custom-email
  * Envía un correo con asunto y HTML personalizados redactados por el usuario.
  */
-router.post('/reservas/:id/send-custom-email', async (req, res) => {
+router.post('/reservas/:id/send-custom-email', requirePlanFeature('email_studio'), async (req, res) => {
   try {
     const { id } = req.params;
     const { to, subject, html } = req.body;
@@ -2773,7 +2781,7 @@ router.post('/reservas/:id/send-custom-email', async (req, res) => {
  * GET /api/bookings/plantillas
  * Obtiene todas las plantillas de correo del hotel activo.
  */
-router.get('/plantillas', async (req, res) => {
+router.get('/plantillas', requirePlanFeature('email_studio'), async (req, res) => {
   try {
     const hotelId = req.headers['x-hotel-id'] as string;
     if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
@@ -2794,7 +2802,7 @@ router.get('/plantillas', async (req, res) => {
  * GET /api/bookings/plantillas/:tipo
  * Obtiene la plantilla del tipo indicado para el hotel activo.
  */
-router.get('/plantillas/:tipo', async (req, res) => {
+router.get('/plantillas/:tipo', requirePlanFeature('email_studio'), async (req, res) => {
   try {
     const { tipo } = req.params;
     const hotelId = req.headers['x-hotel-id'] as string;
@@ -2818,7 +2826,7 @@ router.get('/plantillas/:tipo', async (req, res) => {
  * POST /api/bookings/plantillas
  * Crea o actualiza la configuración de una plantilla de correo (UPSERT).
  */
-router.post('/plantillas', async (req, res) => {
+router.post('/plantillas', requirePlanFeature('email_studio'), async (req, res) => {
   try {
     const hotelId = req.headers['x-hotel-id'] as string;
     if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });
@@ -2854,7 +2862,7 @@ router.post('/plantillas', async (req, res) => {
  * POST /api/bookings/plantillas/preview
  * Genera una previsualización HTML en tiempo real con datos de prueba ficticios.
  */
-router.post('/plantillas/preview', async (req, res) => {
+router.post('/plantillas/preview', requirePlanFeature('email_studio'), async (req, res) => {
   try {
     const hotelId = req.headers['x-hotel-id'] as string;
     if (!hotelId || hotelId === 'all') return res.status(400).json({ error: 'x-hotel-id requerido' });

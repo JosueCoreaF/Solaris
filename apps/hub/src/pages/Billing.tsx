@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CreditCard, Zap, CheckCircle, ShieldAlert, Loader2, ArrowRight, Wallet, Bitcoin, Smartphone, X } from 'lucide-react';
+import { CreditCard, Zap, CheckCircle, ShieldAlert, Loader2, ArrowRight, Wallet, Bitcoin, Smartphone, X, RefreshCw, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '../components/DashboardLayout';
 
@@ -10,12 +10,14 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000
 
 export default function Billing() {
   const [data, setData] = useState<any>([]);
+  const [businesses, setBusinesses] = useState<any[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<string | null>(null);
   const [simulatingPayment, setSimulatingPayment] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -25,7 +27,7 @@ export default function Billing() {
   const fetchBillingStatus = async () => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-      const [statusRes, historyRes, pmRes] = await Promise.all([
+      const [statusRes, historyRes, pmRes, businessesRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/hub/billing/status`, {
           headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
         }),
@@ -34,11 +36,15 @@ export default function Billing() {
         }),
         axios.get(`${API_BASE_URL}/hub/billing/payment-methods`, {
           headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
+        }),
+        axios.get(`${API_BASE_URL}/hub/businesses`, {
+          headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
         })
       ]);
       setData(statusRes.data || []);
       setHistory(historyRes.data || []);
       setPaymentMethod(pmRes.data?.[0] || null);
+      setBusinesses(Array.isArray(businessesRes.data) ? businessesRes.data : []);
     } catch (err: any) {
       console.error('Error fetching billing status', err);
       // Si el error es 400, probablemente no tiene perfil de owner
@@ -47,6 +53,54 @@ export default function Billing() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const callBillingAction = async (endpoint: string, tipo_modulo: string) => {
+    setActionLoading(`${tipo_modulo}-${endpoint}`);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      await axios.post(`${API_BASE_URL}/hub/billing/${endpoint}`, { tipo_modulo }, {
+        headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
+      });
+      await fetchBillingStatus();
+    } catch (err: any) {
+      if (err.response?.data?.error === 'ADDON_REMOVE_BLOCKED') {
+        const { active, limite } = err.response.data;
+        alert(`No puedes quitar este cupo: tienes ${active} negocio(s) activo(s) y sin él el límite sería ${limite}.`);
+      } else {
+        alert('Ocurrió un error al procesar la solicitud.');
+      }
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCancel = (tipo_modulo: string, periodEnd?: string | null) => {
+    const fecha = periodEnd ? new Date(periodEnd).toLocaleDateString() : 'el final de tu período actual';
+    if (!window.confirm(`Tu plan seguirá activo hasta ${fecha}. Después de esa fecha no se renovará. ¿Deseas continuar?`)) return;
+    callBillingAction('cancel', tipo_modulo);
+  };
+
+  const handleReactivate = (tipo_modulo: string) => callBillingAction('reactivate', tipo_modulo);
+
+  const handleRemoveAddon = (tipo_modulo: string) => {
+    if (!window.confirm('¿Quitar un cupo extra de negocio?')) return;
+    callBillingAction('addon/remove', tipo_modulo);
+  };
+
+  const handleRenew = async (tipo_modulo: string, plan_id: string) => {
+    setActionLoading(`${tipo_modulo}-renew`);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      await axios.post(`${API_BASE_URL}/hub/billing/upgrade`, { plan_id, tipo_modulo }, {
+        headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
+      });
+      await fetchBillingStatus();
+    } catch (err) {
+      alert('Ocurrió un error al renovar el plan.');
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -114,6 +168,10 @@ export default function Billing() {
               daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             }
             const planData = Array.isArray(sub.planes_suscripcion) ? sub.planes_suscripcion[0] : sub.planes_suscripcion;
+            const activeCount = businesses.filter((b: any) => b.tipo_modulo?.toLowerCase() === sub.tipo_modulo?.toLowerCase()).length;
+            const capacity = (planData?.limite_negocios || 1) + (sub.negocios_extra || 0);
+            const usagePct = capacity > 0 ? Math.min(100, Math.round((activeCount / capacity) * 100)) : 0;
+            const isLapsed = ['cancelada', 'inactiva', 'impaga'].includes(sub.estado);
 
             return (
               <motion.div key={sub.id_suscripcion} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }} className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 relative overflow-hidden">
@@ -146,7 +204,7 @@ export default function Billing() {
                         {isExpired ? 'Tu periodo de prueba ha finalizado' : `Estás en tu periodo de prueba (${daysLeft} días restantes)`}
                       </h4>
                       <p className={`text-sm mt-1 ${isExpired ? 'text-red-600' : 'text-amber-700'}`}>
-                        {isExpired 
+                        {isExpired
                           ? 'Para seguir operando o crear nuevos negocios, por favor actualiza tu plan.'
                           : 'Puedes crear negocios y operar sin costo. Agrega tu método de pago antes de que finalice la prueba.'}
                       </p>
@@ -154,30 +212,83 @@ export default function Billing() {
                   </div>
                 )}
 
+                {sub.cancel_at_period_end && (
+                  <div className="p-4 rounded-2xl mb-8 flex items-start gap-3 bg-amber-50 border border-amber-200">
+                    <ShieldAlert className="w-6 h-6 shrink-0 text-amber-500" />
+                    <div className="flex-1">
+                      <h4 className="font-bold text-amber-800">Cancelación programada</h4>
+                      <p className="text-sm mt-1 text-amber-700">
+                        Tu plan seguirá activo hasta el {sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString() : '—'}. Después de esa fecha no se renovará.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleReactivate(sub.tipo_modulo)}
+                      disabled={actionLoading === `${sub.tipo_modulo}-reactivate`}
+                      className="shrink-0 flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      {actionLoading === `${sub.tipo_modulo}-reactivate` ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                      Reactivar
+                    </button>
+                  </div>
+                )}
+
                 <div className="space-y-6">
                   <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Estado de Cuenta</p>
                     <div className="flex justify-between text-sm font-semibold text-slate-700 mb-2">
-                      <span>Límite de Negocios (Base + Extras)</span>
-                      <span>{(planData?.limite_negocios || 1) + (sub.negocios_extra || 0)} Total</span>
+                      <span>Negocios Usados</span>
+                      <span>{activeCount} / {capacity}</span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-3">
-                      <div className="bg-indigo-500 h-3 rounded-full" style={{ width: '100%' }}></div>
+                      <div className={`h-3 rounded-full ${usagePct >= 100 ? 'bg-red-500' : 'bg-indigo-500'}`} style={{ width: `${usagePct}%` }}></div>
                     </div>
                     <p className="text-xs text-slate-500 mt-2">
                       Plan Base: {planData?.limite_negocios || 1} • Cupos Extra: {sub.negocios_extra || 0}
                     </p>
                   </div>
 
-                  <div className="pt-6 border-t border-slate-100 flex gap-4">
-                    <button 
-                      onClick={() => navigate(`/upgrade?module=${sub.tipo_modulo}`)}
-                      className="bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-xl font-bold transition-colors flex items-center gap-2"
-                    >
-                      Mejorar Plan <Zap className="w-4 h-4 text-amber-400" />
-                    </button>
+                  <div className="pt-6 border-t border-slate-100 flex flex-wrap items-center gap-3">
+                    {!isLapsed && (
+                      <button
+                        onClick={() => navigate(`/upgrade?module=${sub.tipo_modulo}`)}
+                        className="bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-xl font-bold transition-colors flex items-center gap-2"
+                      >
+                        Mejorar Plan <Zap className="w-4 h-4 text-amber-400" />
+                      </button>
+                    )}
+                    {isLapsed && (
+                      <button
+                        onClick={() => handleRenew(sub.tipo_modulo, sub.id_plan)}
+                        disabled={actionLoading === `${sub.tipo_modulo}-renew`}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-bold transition-colors flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {actionLoading === `${sub.tipo_modulo}-renew` ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                        Renovar Plan
+                      </button>
+                    )}
                     <button onClick={() => navigate(`/upgrade?module=${sub.tipo_modulo}`)} className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-6 py-3 rounded-xl font-bold transition-colors">
                       Añadir Cupo Extra
                     </button>
+                    {(sub.negocios_extra || 0) > 0 && (
+                      <button
+                        onClick={() => handleRemoveAddon(sub.tipo_modulo)}
+                        disabled={actionLoading === `${sub.tipo_modulo}-addon/remove`}
+                        className="bg-slate-50 hover:bg-slate-100 text-slate-700 px-6 py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center gap-2"
+                      >
+                        {actionLoading === `${sub.tipo_modulo}-addon/remove` && <Loader2 className="w-4 h-4 animate-spin" />}
+                        Quitar Cupo Extra
+                      </button>
+                    )}
+                    {sub.estado === 'activa' && !sub.cancel_at_period_end && (
+                      <button
+                        onClick={() => handleCancel(sub.tipo_modulo, sub.current_period_end)}
+                        disabled={actionLoading === `${sub.tipo_modulo}-cancel`}
+                        className="ml-auto flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                      >
+                        {actionLoading === `${sub.tipo_modulo}-cancel` ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                        Cancelar Plan
+                      </button>
+                    )}
                   </div>
                 </div>
               </motion.div>

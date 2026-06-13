@@ -201,7 +201,10 @@ export const PerfilUsuario: React.FC = () => {
     }
   };
 
-  const handleGuardarPreferencias = async () => {
+  // overrides permite pasar el valor recién cambiado directamente, ya que
+  // el estado de React (tema, loginAutomatico, etc.) aún no se actualiza
+  // en el momento en que se llama esta función desde un onChange.
+  const handleGuardarPreferencias = async (overrides?: Partial<perfilService.UserPreferences>) => {
     try {
       setLoading(true);
       await perfilService.guardarPreferenciasUsuario({
@@ -210,6 +213,7 @@ export const PerfilUsuario: React.FC = () => {
         notificaciones_activas: notificacionesActivas,
         login_automatico: loginAutomatico,
         recordar_dispositivo: recordarDispositivo,
+        ...overrides,
       });
       await cargarPreferencias();
       setSuccessMessage('✅ Preferencias guardadas correctamente');
@@ -520,7 +524,7 @@ export const PerfilUsuario: React.FC = () => {
                         <p className="text-xs text-slate-500 mt-1">Inicia sesión automáticamente si existe un token activo (como Google).</p>
                       </div>
                       <div className="relative">
-                        <input type="checkbox" className="sr-only peer" checked={loginAutomatico} onChange={e => {setLoginAutomatico(e.target.checked); handleGuardarPreferencias();}} />
+                        <input type="checkbox" className="sr-only peer" checked={loginAutomatico} onChange={e => {setLoginAutomatico(e.target.checked); handleGuardarPreferencias({ login_automatico: e.target.checked });}} />
                         <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                       </div>
                     </label>
@@ -531,7 +535,7 @@ export const PerfilUsuario: React.FC = () => {
                         <p className="text-xs text-slate-500 mt-1">Mantener la sesión abierta en este navegador por más tiempo.</p>
                       </div>
                       <div className="relative">
-                        <input type="checkbox" className="sr-only peer" checked={recordarDispositivo} onChange={e => {setRecordarDispositivo(e.target.checked); handleGuardarPreferencias();}} />
+                        <input type="checkbox" className="sr-only peer" checked={recordarDispositivo} onChange={e => {setRecordarDispositivo(e.target.checked); handleGuardarPreferencias({ recordar_dispositivo: e.target.checked });}} />
                         <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                       </div>
                     </label>
@@ -555,7 +559,7 @@ export const PerfilUsuario: React.FC = () => {
                     <div className="relative">
                       <select
                         value={tema}
-                        onChange={e => {setTema(e.target.value as 'claro'|'oscuro'); handleGuardarPreferencias();}}
+                        onChange={e => {setTema(e.target.value as 'claro'|'oscuro'); handleGuardarPreferencias({ tema: e.target.value as 'claro'|'oscuro' });}}
                         className="w-full bg-white border border-slate-200 text-slate-900 text-sm font-semibold rounded-xl focus:ring-2 focus:ring-blue-500 block p-3 outline-none appearance-none cursor-pointer hover:border-blue-300 transition-colors"
                       >
                         <option value="claro">☀️ Tema Claro</option>
@@ -572,7 +576,7 @@ export const PerfilUsuario: React.FC = () => {
                     <div className="relative">
                       <select
                         value={idioma}
-                        onChange={e => {setIdioma(e.target.value as 'es'|'en'); handleGuardarPreferencias();}}
+                        onChange={e => {setIdioma(e.target.value as 'es'|'en'); handleGuardarPreferencias({ idioma: e.target.value as 'es'|'en' });}}
                         className="w-full bg-white border border-slate-200 text-slate-900 text-sm font-semibold rounded-xl focus:ring-2 focus:ring-blue-500 block p-3 outline-none appearance-none cursor-pointer hover:border-blue-300 transition-colors"
                       >
                         <option value="es">🇪🇸 Español (Honduras)</option>
@@ -597,7 +601,7 @@ export const PerfilUsuario: React.FC = () => {
                       <p className="text-xs text-slate-500 mt-1">Recibe alertas importantes sobre tus reservas e ingresos.</p>
                     </div>
                     <div className="relative">
-                      <input type="checkbox" className="sr-only peer" checked={notificacionesActivas} onChange={e => {setNotificacionesActivas(e.target.checked); handleGuardarPreferencias();}} />
+                      <input type="checkbox" className="sr-only peer" checked={notificacionesActivas} onChange={e => {setNotificacionesActivas(e.target.checked); handleGuardarPreferencias({ notificaciones_activas: e.target.checked });}} />
                       <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                     </div>
                   </label>
@@ -673,7 +677,7 @@ export const PerfilUsuario: React.FC = () => {
                               {etiquetaEntidadPerfil[log.entidad] ?? log.entidad?.replace(/_/g, ' ') ?? '—'}
                             </td>
                             <td className="py-4 px-6 text-slate-500 text-xs max-w-xs truncate">
-                              {log.cambios_resumidos || '—'}
+                              {auditService.describirCambio(log)}
                             </td>
                           </tr>
                         ))

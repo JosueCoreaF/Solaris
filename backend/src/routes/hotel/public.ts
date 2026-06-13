@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { supabase, supabaseAdmin } from '../../config/supabase.js';
 import { getIO, buildBotSystemPrompt, getSimpleAutoResponse, callGeminiChat } from './chat.js';
 import { verificarCamasExtrasDisponibles, verificarNeveritasDisponibles, verificarPlanchasDisponibles } from './bookings.js';
+import { crearNotificacion } from '../../utils/notificaciones.js';
 
 const router = Router();
 const db = () => supabaseAdmin ?? supabase;
@@ -407,13 +408,21 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
 
     // 4. Emitir evento Socket para notificar a recepción
     const io = getIO();
+    const habNombre = habitacion.nombre_alias || habitacion.nombre_habitacion;
     if (io) {
-      const habNombre = habitacion.nombre_alias || habitacion.nombre_habitacion;
       io.emit('nueva_solicitud_reserva', {
         reserva: nuevaReserva,
         mensaje: `Nueva solicitud web: ${nombre} (${habNombre})`
       });
     }
+
+    await crearNotificacion({
+      hotelId: habitacion.id_hotel,
+      tipo: 'reserva_web',
+      titulo: 'Nueva solicitud de reserva',
+      mensaje: `${nombre} solicitó ${habNombre} (${noches} noche${noches === 1 ? '' : 's'})`,
+      link: '/reservas',
+    });
 
     return res.status(201).json({ success: true, reserva: nuevaReserva });
   } catch (error: any) {
@@ -672,6 +681,17 @@ async function handleBotResponse(channelId: string, content: string) {
         io.emit('new_client_chat', {
           channel: { id: channelId, ...channel, metadata: newMetadata },
           mensaje: `🔔 Un cliente solicita hablar con un agente en recepción`
+        });
+      }
+
+      const chatHotelId = channel?.metadata?.hotel_id;
+      if (chatHotelId) {
+        await crearNotificacion({
+          hotelId: chatHotelId,
+          tipo: 'mensaje_cliente',
+          titulo: 'Cliente solicita un agente',
+          mensaje: 'Un huésped pidió hablar con recepción en el chat del portal',
+          link: '/chat',
         });
       }
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, Star, Zap, Building2, ChevronLeft, Loader2, CreditCard, Info } from 'lucide-react';
+import { Check, Star, Zap, Building2, ChevronLeft, Loader2, CreditCard, Info, X, Minus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
 import { supabase } from '../services/supabaseClient';
@@ -8,12 +8,25 @@ import { DashboardLayout } from '../components/DashboardLayout';
 
 // Los planes dinámicos se cargarán desde la DB
 
+// Etiquetas legibles para las feature_flags de gating (módulo hotel)
+const FEATURE_LABELS: Record<string, string> = {
+  cotizaciones: 'Cotizaciones',
+  email_studio: 'Email Studio (plantillas de correo)',
+  email_confirmaciones: 'Emails automáticos de confirmación de reserva',
+  ai_asistente: 'Asistente IA',
+  auditoria: 'Auditoría cruzada',
+  multimoneda: 'Multi-moneda',
+  reportes: 'Reportes',
+  exportador_datos: 'Exportador de datos',
+};
+
 export const UpgradePlan = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isAddonModalOpen, setIsAddonModalOpen] = useState(false);
+  const [detailsPlan, setDetailsPlan] = useState<any>(null);
   const [isAnnual, setIsAnnual] = useState(false);
   const [plans, setPlans] = useState<any[]>([]);
   const [currentBilling, setCurrentBilling] = useState<any>(null);
@@ -63,9 +76,14 @@ export const UpgradePlan = () => {
       setTimeout(() => {
         navigate('/billing');
       }, 1500);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error al actualizar plan', err);
-      alert('Ocurrió un error al procesar el pago.');
+      if (err.response?.data?.error === 'DOWNGRADE_BLOCKED') {
+        const { active, limite } = err.response.data;
+        alert(`No puedes cambiar a este plan: tienes ${active} negocio(s) activo(s) y este plan permite hasta ${limite}. Desactiva negocios o reduce cupos extra antes de degradar.`);
+      } else {
+        alert('Ocurrió un error al procesar el pago.');
+      }
       setLoading(false);
     }
   };
@@ -191,17 +209,24 @@ export const UpgradePlan = () => {
                   <Check className="w-5 h-5" /> Tu Plan Actual
                 </div>
               ) : (
-                <button 
+                <button
                   onClick={() => handleSelectPlan(plan)}
                   className={`w-full py-4 rounded-xl font-bold transition-all ${
-                    plan.precio_mensual > 0 
-                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-600/30' 
+                    plan.precio_mensual > 0
+                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-600/30'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
                   }`}
                 >
                   {currentBilling?.estado === 'activa' ? `Cambiar a ${plan.nombre}` : `Seleccionar ${plan.nombre}`}
                 </button>
               )}
+
+              <button
+                onClick={() => setDetailsPlan(plan)}
+                className="w-full mt-3 py-3 rounded-xl font-semibold text-sm text-indigo-600 hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2"
+              >
+                <Info className="w-4 h-4" /> Ver detalles
+              </button>
             </motion.div>
           ))}
         </div>
@@ -370,6 +395,108 @@ export const UpgradePlan = () => {
                   {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirmar Cargo'}
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Plan Details / Comparison Modal */}
+      <AnimatePresence>
+        {detailsPlan && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              onClick={() => setDetailsPlan(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-3xl shadow-2xl p-8 max-w-3xl w-full max-h-[85vh] overflow-y-auto"
+            >
+              <button
+                onClick={() => setDetailsPlan(null)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="mb-6">
+                <h3 className="text-2xl font-bold text-slate-900">Plan {detailsPlan.nombre}</h3>
+                <p className="text-slate-500 text-sm mt-1">{detailsPlan.descripcion}</p>
+              </div>
+
+              <div className="mb-8">
+                <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-3">Beneficios incluidos</h4>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {(detailsPlan.features || []).map((feat: string, i: number) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="bg-emerald-100 p-1 rounded-full text-emerald-600 shrink-0">
+                        <Check className="w-3 h-3" />
+                      </div>
+                      <span className="text-slate-700 font-medium text-sm">{feat}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-3">Comparativa entre planes</h4>
+                <div className="overflow-x-auto -mx-2">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr>
+                        <th className="py-2 px-2 text-xs font-semibold text-slate-500"></th>
+                        {plans.map((p) => (
+                          <th key={p.id_plan} className={`py-2 px-2 text-sm font-bold text-center ${p.id_plan === detailsPlan.id_plan ? 'text-indigo-600' : 'text-slate-900'}`}>
+                            {p.nombre}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      <tr>
+                        <td className="py-2.5 px-2 text-sm font-medium text-slate-700">Negocios activos</td>
+                        {plans.map((p) => (
+                          <td key={p.id_plan} className={`py-2.5 px-2 text-sm text-center font-bold ${p.id_plan === detailsPlan.id_plan ? 'text-indigo-600' : 'text-slate-900'}`}>
+                            {p.limite_negocios}
+                          </td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="py-2.5 px-2 text-sm font-medium text-slate-700">Reservas + Chat operativo</td>
+                        {plans.map((p) => (
+                          <td key={p.id_plan} className="py-2.5 px-2 text-center">
+                            <Check className="w-4 h-4 text-emerald-500 mx-auto" />
+                          </td>
+                        ))}
+                      </tr>
+                      {Object.entries(FEATURE_LABELS).map(([key, label]) => (
+                        <tr key={key}>
+                          <td className="py-2.5 px-2 text-sm font-medium text-slate-700">{label}</td>
+                          {plans.map((p) => (
+                            <td key={p.id_plan} className="py-2.5 px-2 text-center">
+                              {(p.feature_flags || []).includes(key)
+                                ? <Check className="w-4 h-4 text-emerald-500 mx-auto" />
+                                : <Minus className="w-4 h-4 text-slate-300 mx-auto" />}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {!(currentBilling?.estado === 'activa' && currentBilling?.id_plan === detailsPlan.id_plan) && (
+                <button
+                  onClick={() => { handleSelectPlan(detailsPlan); setDetailsPlan(null); }}
+                  className="w-full mt-8 py-4 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-600/30 transition-all"
+                >
+                  {currentBilling?.estado === 'activa' ? `Cambiar a ${detailsPlan.nombre}` : `Seleccionar ${detailsPlan.nombre}`}
+                </button>
+              )}
             </motion.div>
           </div>
         )}

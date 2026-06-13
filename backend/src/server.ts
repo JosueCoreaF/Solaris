@@ -134,6 +134,11 @@ app.get('/api', (req: Request, res: Response) => {
 io.on('connection', (socket) => {
   console.log(`👤 Usuario conectado: ${socket.id}`);
 
+  // Join sala de notificaciones del hotel activo
+  socket.on('join_hotel', (hotelId: string) => {
+    if (hotelId) socket.join(`hotel:${hotelId}`);
+  });
+
   // Join channel
   socket.on('join_channel', (channelId: string) => {
     socket.join(`channel:${channelId}`);
