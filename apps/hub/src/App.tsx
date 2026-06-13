@@ -11,6 +11,7 @@ import './index.css';
 
 import Support from './pages/Support';
 import GymLanding from './pages/landing/GymLanding';
+import RestaurantLanding from './pages/landing/RestaurantLanding';
 import Billing from './pages/Billing';
 import { UpgradePlan } from './pages/UpgradePlan';
 import Notifications from './pages/Notifications';
@@ -27,6 +28,7 @@ const AppRoutes = () => {
   return (
     <Routes>
       <Route path="/landing/gym" element={<GymLanding />} />
+      <Route path="/landing/restaurant" element={<RestaurantLanding />} />
       <Route path="/login" element={session ? <Navigate to="/dashboard" replace /> : <Login />} />
       <Route path="/dashboard" element={session ? <Dashboard /> : <Navigate to="/login" replace />} />
       <Route path="/setup-owner" element={session ? <SetupOwner /> : <Navigate to="/login" replace />} />
