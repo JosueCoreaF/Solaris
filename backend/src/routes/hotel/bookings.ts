@@ -2047,14 +2047,20 @@ router.post('/split', async (req, res) => {
     return res.status(400).json({ error: 'Faltan campos requeridos: id_reserva_hotel, fecha_split' });
   }
 
+  const { ownerId } = await getOwnerIdAndRole(req);
+  if (!ownerId) return res.status(401).json({ error: 'No autorizado' });
+
   const { data, error } = await db()
     .rpc('fn_split_reserva', {
       p_id_reserva_hotel: id_reserva_hotel,
       p_fecha_split: fecha_split,
+      p_owner_id: ownerId,
     });
 
   if (error) {
-    return res.status(500).json({ error: error.message });
+    const msg = error.message ?? '';
+    const status = msg.includes('RESERVA_NO_ENCONTRADA') || msg.includes('ESTADO_INVALIDO') || msg.includes('FECHA_SPLIT_INVALIDA') ? 400 : 500;
+    return res.status(status).json({ error: msg });
   }
 
   return res.json(data);

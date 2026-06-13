@@ -170,7 +170,26 @@ router.post('/registrar-huesped', async (req: Request, res: Response) => {
       .select('id_huesped, nombre_completo, correo, telefono')
       .single();
 
-    if (error) throw error;
+    if (error) {
+      // Carrera entre solicitudes concurrentes: el correo ya fue registrado
+      // justo después de la verificación de "existing" anterior.
+      if (error.code === '23505') {
+        const { data: retry } = await db()
+          .from('huespedes')
+          .select('id_huesped, nombre_completo, correo, telefono')
+          .eq('id_hotel', id_hotel)
+          .ilike('correo', correo.trim())
+          .maybeSingle();
+        if (retry) {
+          return res.json({
+            registrado: false,
+            encontrado: true,
+            huesped: { id: retry.id_huesped, nombre: retry.nombre_completo, correo: retry.correo, telefono: retry.telefono },
+          });
+        }
+      }
+      throw error;
+    }
 
     return res.status(201).json({
       registrado: true,
