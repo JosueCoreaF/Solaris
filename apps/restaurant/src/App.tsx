@@ -1,14 +1,12 @@
-// App.tsx - Versión corregida
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
+
 import Dashboard from '../src/Pages/Dashboard'
-import ReporteComida from '../src/Pages/Reporte_comida'
-import ReportePedido from '../src/Pages/Reporte_pedido'
-import ReporteProductos from '../src/Pages/Reporte_productos'
-import ReportePromocio from '../src/Pages/Reporte_promocio'
-import ReporteIngreso from '../src/Pages/Reporteingreso' 
-
-
+import Inventario from '../src/Pages/inventario'
+import Productos from '../src/Pages/Productos'
+import Categoria from './Pages/Categorias'
+import Menu from "./Pages/menu"; 
+import Ventas from './Pages/Ventas';
 
 const Welcome = () => (
   <main className="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center p-6">
@@ -26,14 +24,19 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/reportes/ingresos" element={<ReporteIngreso />} />
-        <Route path="/reportes/promocion" element={<ReportePromocio />} />
-        <Route path="/reportes/pedidos" element={<ReportePedido />} />
-        <Route path="/reportes/producto" element={<ReporteProductos />} />
-        <Route path="/reportes/plato" element={<ReporteComida />} />
+
         <Route path="/" element={<Welcome />} />
+
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/categoria" element={<Categoria />} />
+        <Route path="/inventarios" element={<Inventario />} />
+        <Route path="/productos" element={<Productos />} />
+        <Route path="/menu" element={<Menu />} />
+        <Route path="/ventas" element={<Ventas />} />
+
+        {/* ESTA VA AL FINAL */}
         <Route path="*" element={<Navigate to="/" replace />} />
+
       </Routes>
     </Router>
   )
