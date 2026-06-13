@@ -10,6 +10,7 @@ import apiClient from './services/api';
 import './index.css';
 
 import Support from './pages/Support';
+import HotelLanding from './pages/landing/HotelLanding';
 import GymLanding from './pages/landing/GymLanding';
 import RestaurantLanding from './pages/landing/RestaurantLanding';
 import Billing from './pages/Billing';
@@ -27,6 +28,7 @@ const AppRoutes = () => {
 
   return (
     <Routes>
+      <Route path="/landing/hotel" element={<HotelLanding />} />
       <Route path="/landing/gym" element={<GymLanding />} />
       <Route path="/landing/restaurant" element={<RestaurantLanding />} />
       <Route path="/login" element={session ? <Navigate to="/dashboard" replace /> : <Login />} />

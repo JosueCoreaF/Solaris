@@ -1,5 +1,8 @@
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Hotel, Shield, Zap, Smartphone, Search, MapPin, Calendar, Users, ChevronRight } from 'lucide-react';
+import { buscarHoteles, type HotelSuggestion } from '../services/api';
 
 const features = [
   { icon: Zap,        title: 'Rápido',          desc: 'Reserva en menos de 2 minutos desde tu teléfono.' },
@@ -9,24 +12,59 @@ const features = [
 ];
 
 export default function LandingPage() {
-  const hubBase = import.meta.env.VITE_HUB_URL || `${window.location.protocol}//${window.location.hostname}:5174`;
+  const navigate = useNavigate();
+  const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<HotelSuggestion[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const term = query.trim();
+    if (term.length < 2) {
+      setSuggestions([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const timer = setTimeout(() => {
+      buscarHoteles(term)
+        .then((data) => setSuggestions(data))
+        .finally(() => setLoading(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const goToHotel = (slug: string) => {
+    if (slug) navigate(`/${slug}`);
+  };
+
   return (
     <div className="min-h-screen bg-[#fafaf9] flex flex-col font-sans overflow-hidden">
 
       {/* Nav */}
       <nav className="bg-white/80 backdrop-blur-lg border-b border-stone-200/50 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-5 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3 font-black text-stone-900 text-xl tracking-tight">
+          <a href="/" className="flex items-center gap-3 font-black text-stone-900 text-xl tracking-tight">
             <div className="w-9 h-9 rounded-xl bg-stone-900 flex items-center justify-center shadow-md">
               <Hotel size={18} className="text-white" />
             </div>
             solarys.uk
-          </div>
+          </a>
           <div className="flex items-center gap-4">
             <span className="text-sm text-stone-500 font-semibold hidden sm:block">Portal de Reservas</span>
             <div className="flex items-center gap-2">
-              <a href={`${hubBase}/landing/gym`} target="_blank" rel="noopener" className="bg-white border border-stone-200 hover:bg-stone-50 text-stone-800 text-sm font-bold px-3 py-2 rounded-full transition-colors hidden sm:inline-flex">Ir a Gym</a>
-              <a href={`${hubBase}/landing/restaurant`} target="_blank" rel="noopener" className="bg-white border border-stone-200 hover:bg-stone-50 text-stone-800 text-sm font-bold px-3 py-2 rounded-full transition-colors hidden sm:inline-flex">Ir a Restaurante</a>
+              <a href="/" className="bg-white border border-stone-200 hover:bg-stone-50 text-stone-800 text-sm font-bold px-3 py-2 rounded-full transition-colors hidden sm:inline-flex">Inicio</a>
               <button className="bg-stone-100 hover:bg-stone-200 text-stone-700 text-sm font-bold px-4 py-2 rounded-full transition-colors hidden md:block">Acceso Hoteleros</button>
             </div>
           </div>
@@ -54,23 +92,59 @@ export default function LandingPage() {
                 Accede al portal oficial de tu hotel y asegura tu habitación en segundos, sin comisiones ocultas y con la mejor tarifa garantizada.
               </p>
 
-              {/* URL Input interactivo visual */}
-              <div className="bg-white border border-stone-200 rounded-2xl p-2 shadow-sm max-w-lg mx-auto lg:mx-0 flex items-center focus-within:ring-2 focus-within:ring-stone-900/10 focus-within:border-stone-300 transition-all">
-                <div className="pl-4 pr-2 flex items-center text-stone-400">
-                  <Search size={18} />
+              {/* Buscador de hoteles con autocompletado */}
+              <div ref={boxRef} className="relative max-w-lg mx-auto lg:mx-0">
+                <div className="bg-white border border-stone-200 rounded-2xl p-2 shadow-sm flex items-center focus-within:ring-2 focus-within:ring-stone-900/10 focus-within:border-stone-300 transition-all">
+                  <div className="pl-4 pr-2 flex items-center text-stone-400">
+                    <Search size={18} />
+                  </div>
+                  <input
+                    type="text"
+                    value={query}
+                    onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+                    onFocus={() => setOpen(true)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && suggestions.length > 0) goToHotel(suggestions[0].slug);
+                    }}
+                    placeholder="Escribe el nombre de tu hotel…"
+                    className="flex-1 bg-transparent border-none focus:outline-none text-stone-800 font-bold text-sm sm:text-base placeholder:text-stone-400 placeholder:font-normal"
+                  />
+                  <button
+                    onClick={() => suggestions[0] && goToHotel(suggestions[0].slug)}
+                    className="bg-stone-900 hover:bg-stone-800 text-white rounded-xl p-3 flex-shrink-0 transition-transform active:scale-95"
+                  >
+                    <ChevronRight size={20} />
+                  </button>
                 </div>
-                <div className="flex-1 flex items-center font-mono text-sm sm:text-base overflow-hidden whitespace-nowrap">
-                  <span className="text-stone-400 select-none">solarys.uk/</span>
-                  <input type="text" 
-                    readOnly
-                    value="hotel-playa-dorada" 
-                    className="bg-transparent border-none focus:outline-none text-stone-800 font-bold w-full truncate" />
-                </div>
-                <button className="bg-stone-900 hover:bg-stone-800 text-white rounded-xl p-3 flex-shrink-0 transition-transform active:scale-95">
-                  <ChevronRight size={20} />
-                </button>
+
+                {/* Dropdown de resultados */}
+                {open && query.trim().length >= 2 && (
+                  <div className="absolute left-0 right-0 mt-2 bg-white border border-stone-200 rounded-2xl shadow-lg overflow-hidden z-20 text-left">
+                    {loading && (
+                      <div className="px-4 py-3 text-sm text-stone-400">Buscando…</div>
+                    )}
+                    {!loading && suggestions.length === 0 && (
+                      <div className="px-4 py-3 text-sm text-stone-400">No se encontraron hoteles.</div>
+                    )}
+                    {!loading && suggestions.map((h) => (
+                      <button
+                        key={h.slug}
+                        onClick={() => goToHotel(h.slug)}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-stone-50 transition-colors text-left"
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-stone-100 flex items-center justify-center flex-shrink-0">
+                          <Hotel size={16} className="text-stone-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-stone-900 truncate">{h.nombre}</p>
+                          <p className="text-xs text-stone-400 truncate">solarys.uk/{h.slug}{h.ciudad ? ` · ${h.ciudad}` : ''}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              <p className="text-xs text-stone-400 mt-3 font-medium">Pide el enlace de reservas directamente a tu hotel.</p>
+              <p className="text-xs text-stone-400 mt-3 font-medium">Escribe el nombre de tu hotel y selecciónalo para acceder a su portal de reservas.</p>
             </motion.div>
           </div>
 

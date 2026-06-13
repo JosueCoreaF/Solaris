@@ -33,19 +33,34 @@ export const fetchPagos = async (): Promise<PagoGym[]> => {
 export const registrarPago = async (pago: Partial<PagoGym>): Promise<PagoGym> => {
   const ctx = await getGymContext();
   if (!ctx) throw new Error('Sin contexto de gimnasio');
+  if (!pago.id_inscripcion || pago.monto == null) throw new Error('Inscripción y monto requeridos');
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc('fn_registrar_pago_gym', {
+    p_owner_id: ctx.ownerId,
+    p_id_inscripcion: pago.id_inscripcion,
+    p_monto: pago.monto,
+    p_metodo_pago: pago.metodo_pago ?? 'efectivo',
+    p_referencia: pago.referencia ?? null,
+    p_notas: pago.notas ?? null,
+  });
+  if (rpcError) throw rpcError;
+
+  const idPagoGym = (rpcData as any)?.id_pago_gym;
   const { data, error } = await supabase
     .from('pagos_gym')
-    .insert({ ...pago })
-    .select()
+    .select('*, inscripciones_gym!inner(id_gimnasio, miembros(nombre_completo), planes_membresia(nombre))')
+    .eq('id_pago_gym', idPagoGym)
     .single();
   if (error) throw error;
   return data;
 };
 
 export const anularPago = async (id: string): Promise<void> => {
-  const { error } = await supabase
-    .from('pagos_gym')
-    .update({ estado: 'anulado', updated_at: new Date().toISOString() })
-    .eq('id_pago_gym', id);
+  const ctx = await getGymContext();
+  if (!ctx) throw new Error('Sin contexto de gimnasio');
+  const { error } = await supabase.rpc('fn_anular_pago_gym', {
+    p_owner_id: ctx.ownerId,
+    p_id_pago_gym: id,
+  });
   if (error) throw error;
 };

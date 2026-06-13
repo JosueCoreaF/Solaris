@@ -12,7 +12,7 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
     supabase
       .from('usuarios_roles')
       .select('estado')
-      .eq('usuario_id', session.user.id)
+      .eq('user_id', session.user.id)
       .then(({ data }) => {
         const rec = data?.[0];
         if (!rec) setStatus('approved');

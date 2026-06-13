@@ -687,7 +687,7 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
         </div>
 
         {/* Columna Derecha (Formulario) */}
-        <div className="flex-1 flex flex-col w-full md:w-[55%]">
+        <div className="flex-1 flex flex-col w-full md:w-[55%] min-h-0">
           <div className="flex justify-center pt-3 pb-1 md:hidden">
             <div className="w-10 h-1 rounded-full bg-stone-200" />
           </div>
@@ -789,7 +789,14 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
                       <p className="text-[10px] text-stone-400 font-bold uppercase tracking-wide mb-1">Llegada</p>
                       <DatePicker
                         value={toDate(form.checkIn)}
-                        onValueChange={d => setForm(f => ({ ...f, checkIn: toStr(d) }))}
+                        onValueChange={d => setForm(f => {
+                          const checkIn = toStr(d);
+                          return {
+                            ...f,
+                            checkIn,
+                            checkOut: f.checkOut && f.checkOut < checkIn ? '' : f.checkOut,
+                          };
+                        })}
                         minDate={new Date()}
                         locale={es}
                         placeholder="Seleccionar"

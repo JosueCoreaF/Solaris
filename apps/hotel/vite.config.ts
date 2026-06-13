@@ -14,6 +14,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    envDir: path.resolve(__dirname, '../hub'),
     server: {
       port: 5173,
       proxy: {

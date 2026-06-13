@@ -13,6 +13,14 @@ body {
   color: #1e293b;
 }
 
+/* Los paneles flotantes de Headless UI (DatePicker, etc.) se portan a #headlessui-portal-root,
+   directo bajo <body>. Sin z-index propio quedan detrás de overlays con z-index (ej. el modal
+   de reserva, z-50), por lo que el calendario no se ve aunque esté abierto. */
+#headlessui-portal-root {
+  position: relative;
+  z-index: 9999;
+}
+
 .shimmer {
   background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
   background-size: 200% 100%;

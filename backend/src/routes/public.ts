@@ -437,13 +437,15 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
     if (dniUpper) {
       const { data } = await db().from('huespedes')
         .select('id_huesped, nombre_completo, correo, telefono')
+        .eq('id_hotel', habitacion.id_hotel)
         .eq('documento_identidad', dniUpper).maybeSingle();
       huespedExistente = data;
     }
     if (!huespedExistente && correoFinal && !correoFinal.startsWith('WEB-')) {
       const { data } = await db().from('huespedes')
         .select('id_huesped, nombre_completo, correo, telefono')
-        .eq('correo', correoFinal).maybeSingle();
+        .eq('id_hotel', habitacion.id_hotel)
+        .ilike('correo', correoFinal).maybeSingle();
       huespedExistente = data;
     }
 
@@ -466,8 +468,29 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
           telefono: telefonoFinal,
         })
         .select('id_huesped').single();
-      if (errHuesped) throw errHuesped;
-      huespedId = nuevoHuesped.id_huesped;
+      if (errHuesped) {
+        // Carrera o discrepancia de mayúsculas: el correo/DNI ya existe para este hotel.
+        if (errHuesped.code === '23505') {
+          const { data: retry } = await db().from('huespedes')
+            .select('id_huesped, nombre_completo, correo, telefono')
+            .eq('id_hotel', habitacion.id_hotel)
+            .ilike('correo', correoFinal).maybeSingle();
+          if (retry) {
+            huespedId = retry.id_huesped;
+            await db().from('huespedes').update({
+              nombre_completo: nombreUpper,
+              telefono: telefonoFinal || retry.telefono,
+              documento_identidad: dniUpper || null,
+            }).eq('id_huesped', huespedId);
+          } else {
+            throw errHuesped;
+          }
+        } else {
+          throw errHuesped;
+        }
+      } else {
+        huespedId = nuevoHuesped.id_huesped;
+      }
     }
 
     // Calcular noches
@@ -1098,6 +1121,35 @@ router.get('/config', async (req: Request, res: Response) => {
 });
 
 // GET /api/public/hoteles
+// GET /api/public/hoteles/buscar?q=...
+router.get('/hoteles/buscar', async (req: Request, res: Response) => {
+  try {
+    const q = (req.query.q as string | undefined)?.trim();
+    if (!q || q.length < 2) return res.json([]);
+
+    const { data, error } = await db()
+      .from('hoteles')
+      .select('nombre_hotel, slug, ciudad, logo_url')
+      .eq('estado', 'activo')
+      .not('slug', 'is', null)
+      .ilike('nombre_hotel', `%${q}%`)
+      .limit(8);
+
+    if (error) throw error;
+
+    const mapped = (data || []).map((h: any) => ({
+      nombre: h.nombre_hotel,
+      slug: h.slug,
+      ciudad: h.ciudad,
+      logoUrl: h.logo_url,
+    }));
+
+    return res.json(mapped);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/hoteles', async (req: Request, res: Response) => {
   try {
     let query = db()
