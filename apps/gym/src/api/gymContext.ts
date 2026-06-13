@@ -26,25 +26,32 @@ export const getGymContext = async (): Promise<GymContext | null> => {
     ownerId = ownerRow.id_owner;
   } else {
     // Caso 2: es staff → buscar en usuarios_roles
-    const { data: rol } = await supabase
+    const { data: roles } = await supabase
       .from('usuarios_roles')
       .select('owner_id')
       .eq('user_id', userId)
       .eq('estado', 'activo')
-      .single();
-    ownerId = rol?.owner_id ?? null;
+      .limit(1);
+    ownerId = roles?.[0]?.owner_id ?? null;
   }
 
   if (!ownerId) return null;
 
-  // Obtener el módulo gym del owner
-  const { data: mod } = await supabase
+  // Obtener el módulo gym del owner (puede tener varios negocios tipo gym)
+  const activeGymId = localStorage.getItem('active_gym_id');
+  let modQuery = supabase
     .from('business_modules')
     .select('id_module')
     .eq('owner_id', ownerId)
     .eq('tipo_modulo', 'gym')
-    .eq('estado', 'activo')
-    .single();
+    .eq('estado', 'activo');
+
+  modQuery = activeGymId
+    ? modQuery.eq('id_module', activeGymId)
+    : modQuery.order('created_at', { ascending: true });
+
+  const { data: mods } = await modQuery.limit(1);
+  const mod = mods?.[0];
 
   if (!mod?.id_module) return null;
 
@@ -54,7 +61,7 @@ export const getGymContext = async (): Promise<GymContext | null> => {
     .from('gimnasios')
     .select('id_gimnasio')
     .eq('id_module', mod.id_module)
-    .single();
+    .maybeSingle();
 
   if (gym?.id_gimnasio) {
     gimnasioId = gym.id_gimnasio;
