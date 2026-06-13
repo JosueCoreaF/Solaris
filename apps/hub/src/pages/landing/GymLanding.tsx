@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 
 const GymLanding: React.FC = () => {
-  const portalBase = `${window.location.protocol}//${window.location.hostname}:5177`;
+  const portalBase = import.meta.env.VITE_PORTAL_BASE_URL || `${window.location.protocol}//${window.location.hostname}:5177`;
   return (
     <div className="min-h-screen bg-gradient-to-b from-emerald-50 to-white text-gray-900">
       <header className="max-w-6xl mx-auto p-6 flex items-center justify-between">

@@ -343,6 +343,28 @@ router.post(['/business', '/businesses'], checkPlanLimits, async (req, res) => {
       void seedHotelDefaults(hotel.id_hotel);
     }
 
+    if (tipo_modulo.toLowerCase() === 'gym') {
+      const { data: gym, error: gymErr } = await db
+        .from('gimnasios')
+        .insert({
+          id_module:       mod.id_module,
+          nombre_gimnasio: nombre_modulo,
+          ciudad:          ciudad    ?? 'Sin definir',
+          direccion:       direccion ?? 'Sin definir',
+          telefono:        telefono  ?? null,
+          correo_contacto: correo_contacto ?? null,
+          estado:          'activo',
+        })
+        .select('id_gimnasio')
+        .single();
+
+      if (gymErr) {
+        await db.from('business_modules').delete().eq('id_module', mod.id_module);
+        return res.status(400).json({ error: gymErr.message });
+      }
+      businessId = gym.id_gimnasio;
+    }
+
     return res.status(201).json({ success: true, businessId, moduleId: mod.id_module, type: tipo_modulo, name: nombre_modulo, slug: hotelSlug });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
