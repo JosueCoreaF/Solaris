@@ -1,8 +1,9 @@
 import { supabase } from './supabase';
+import { getGymContext } from './gymContext';
 
 export interface Miembro {
   id_miembro: string;
-  owner_id: string;
+  id_gimnasio: string;
   nombre_completo: string;
   correo: string;
   telefono?: string;
@@ -18,36 +19,24 @@ export interface Miembro {
   created_at: string;
 }
 
-const getOwnerId = async (): Promise<string | null> => {
-  const { data } = await supabase.auth.getUser();
-  if (!data.user) return null;
-  const { data: rol } = await supabase
-    .from('usuarios_roles')
-    .select('owner_id')
-    .eq('usuario_id', data.user.id)
-    .eq('estado', 'activo')
-    .single();
-  return rol?.owner_id ?? null;
-};
-
 export const fetchMiembros = async (): Promise<Miembro[]> => {
-  const ownerId = await getOwnerId();
-  if (!ownerId) return [];
+  const ctx = await getGymContext();
+  if (!ctx) return [];
   const { data, error } = await supabase
     .from('miembros')
     .select('*')
-    .eq('owner_id', ownerId)
+    .eq('id_gimnasio', ctx.gimnasioId)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data ?? [];
 };
 
 export const crearMiembro = async (miembro: Partial<Miembro>): Promise<Miembro> => {
-  const ownerId = await getOwnerId();
-  if (!ownerId) throw new Error('No owner_id');
+  const ctx = await getGymContext();
+  if (!ctx) throw new Error('Sin contexto de gimnasio');
   const { data, error } = await supabase
     .from('miembros')
-    .insert({ ...miembro, owner_id: ownerId })
+    .insert({ ...miembro, id_gimnasio: ctx.gimnasioId })
     .select()
     .single();
   if (error) throw error;

@@ -61,6 +61,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
+    const { clearGymContextCache } = await import('../api/gymContext');
+    clearGymContextCache();
     await supabase.auth.signOut();
   };
 

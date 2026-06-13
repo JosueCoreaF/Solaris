@@ -238,6 +238,28 @@ router.post(['/business', '/businesses'], checkPlanLimits, async (req, res) => {
       businessId = hotel.id_hotel;
     }
 
+    if (normalizedType === 'gym') {
+      const { data: gym, error: gymErr } = await supabaseAdmin
+        .from('gimnasios')
+        .insert({
+          id_module:       mod.id_module,
+          nombre_gimnasio: nombre_modulo,
+          ciudad:          ciudad    ?? 'Sin definir',
+          direccion:       direccion ?? 'Sin definir',
+          telefono:        telefono  ?? null,
+          correo_contacto: correo_contacto ?? null,
+          estado:          'activo',
+        })
+        .select('id_gimnasio')
+        .single();
+
+      if (gymErr) {
+        await supabaseAdmin.from('business_modules').delete().eq('id_module', mod.id_module);
+        return res.status(400).json({ error: gymErr.message });
+      }
+      businessId = gym.id_gimnasio;
+    }
+
     res.status(201).json({ success: true, businessId, moduleId: mod.id_module, type: normalizedType, name: nombre_modulo });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
