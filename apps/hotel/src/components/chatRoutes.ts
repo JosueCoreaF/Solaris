@@ -142,7 +142,7 @@ export function registerChatRoutes(app: Express, io?: SocketServer) {
 
     const identifier = correo ? correo.toLowerCase().trim() : telefono.trim();
     const guestId = `guest:${identifier}`;
-    const channelName = `🟢 ${nombre}`;
+    const channelName = `${nombre}`;
 
     // Check if channel already exists for this guest
     const existing = await pool.query(

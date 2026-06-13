@@ -2,11 +2,15 @@ import { Router, Request, Response } from 'express';
 import { supabase, supabaseAdmin } from '../config/supabase.js';
 import { getIO, buildBotSystemPrompt, getSimpleAutoResponse, callGeminiChat } from './hotel/chat.js';
 import { verificarCamasExtrasDisponibles, verificarNeveritasDisponibles, verificarPlanchasDisponibles } from './hotel/bookings.js';
+import { sendBookingConfirmation, sendHotelNotificationEmail } from '../utils/emailService.js';
+import { syncQuoteReservations } from '../utils/quoteReservationHelper.js';
+import { crearNotificacion } from '../utils/notificaciones.js';
 
 const router = Router();
 const db = () => supabaseAdmin ?? supabase;
 
-const isMultiTenant = process.env.SUPABASE_URL?.includes('yefaoqzyjfqpwrnzgofb') || false;
+// isMultiTenant no usado — schema actual usa id_hotel, no owner_id
+const isMultiTenant = false;
 
 async function getOwnerId(hotelId?: any): Promise<string> {
   if (!isMultiTenant) return '';
@@ -29,6 +33,172 @@ async function getOwnerId(hotelId?: any): Promise<string> {
   }
   return ownerId;
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// GET /api/public/hotel/:slug — datos públicos de un hotel por slug o id_hotel (UUID)
+router.get('/hotel/:slug', async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params;
+
+    const select = 'id_hotel, nombre_hotel, slug, ciudad, direccion, telefono, correo_contacto, estrellas, enlace_google_maps, estado, logo_url, color_primario, color_secundario, redes_sociales';
+
+    // Si el parámetro es un UUID, busca directamente por id_hotel
+    let q = db().from('hoteles').select(select).eq('estado', 'activo');
+    if (UUID_RE.test(slug)) {
+      q = q.eq('id_hotel', slug);
+    } else {
+      q = q.ilike('slug', slug);
+    }
+
+    let { data: hotel, error: hotelErr } = await q.maybeSingle();
+
+    // Si no encontró por slug, intenta por id_hotel como último recurso
+    if (!hotel && !hotelErr && !UUID_RE.test(slug)) {
+      const fallback = await db()
+        .from('hoteles')
+        .select(select)
+        .eq('id_hotel', slug)
+        .eq('estado', 'activo')
+        .maybeSingle();
+      hotel = fallback.data;
+      hotelErr = fallback.error;
+    }
+
+    if (hotelErr) {
+      console.error('[portal/hotel/:slug] error hoteles:', hotelErr.message);
+      return res.status(500).json({ error: hotelErr.message });
+    }
+    if (!hotel) {
+      console.warn('[portal/hotel/:slug] no encontrado:', slug);
+      return res.status(404).json({ error: 'Hotel no encontrado.' });
+    }
+
+    // Query 2: configuración del hotel (query separada)
+    const { data: config } = await db()
+      .from('configuracion_hotelera')
+      .select('moneda, tipo_cambio_base, porcentaje_impuesto, tasa_turistica, hora_check_in, hora_check_out, cargo_persona_extra')
+      .eq('id_hotel', hotel.id_hotel)
+      .maybeSingle();
+
+    return res.json({
+      id:                 hotel.id_hotel,
+      nombre:             hotel.nombre_hotel,
+      slug:               hotel.slug,
+      ciudad:             hotel.ciudad,
+      direccion:          hotel.direccion,
+      telefono:           hotel.telefono,
+      correo:             hotel.correo_contacto,
+      estrellas:          hotel.estrellas ?? 3,
+      mapsUrl:            hotel.enlace_google_maps,
+      logoUrl:            hotel.logo_url,
+      colorPrimario:      hotel.color_primario,
+      colorSecundario:    hotel.color_secundario,
+      redesSociales:      hotel.redes_sociales,
+      moneda:             config?.moneda             ?? 'HNL',
+      tipoCambio:         Number(config?.tipo_cambio_base    ?? 26.58),
+      tasaIsv:            Number(config?.porcentaje_impuesto ?? 0.15),
+      tasaTuristica:      Number(config?.tasa_turistica      ?? 0.04),
+      horaCheckin:        (config?.hora_check_in  as string)?.substring(0, 5) ?? '15:00',
+      horaCheckout:       (config?.hora_check_out as string)?.substring(0, 5) ?? '12:00',
+      cargoPersonaExtra:  Number(config?.cargo_persona_extra ?? 0),
+    });
+  } catch (err: any) {
+    console.error('[portal/hotel/:slug] catch:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/public/buscar-huesped — busca huésped por correo en un hotel
+router.post('/buscar-huesped', async (req: Request, res: Response) => {
+  try {
+    const { correo, id_hotel } = req.body;
+    if (!correo || !id_hotel) return res.status(400).json({ error: 'correo e id_hotel son requeridos' });
+
+    const { data, error } = await db()
+      .from('huespedes')
+      .select('id_huesped, nombre_completo, correo, telefono, documento_identidad')
+      .eq('id_hotel', id_hotel)
+      .ilike('correo', correo.trim())
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!data) return res.json({ encontrado: false });
+
+    return res.json({
+      encontrado: true,
+      huesped: {
+        id:       data.id_huesped,
+        nombre:   data.nombre_completo,
+        correo:   data.correo,
+        telefono: data.telefono,
+        dni:      data.documento_identidad,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/public/registrar-huesped — registra nuevo huésped en el hotel
+router.post('/registrar-huesped', async (req: Request, res: Response) => {
+  try {
+    const { nombre_completo, correo, telefono, id_hotel } = req.body;
+    if (!nombre_completo || !correo || !id_hotel)
+      return res.status(400).json({ error: 'nombre_completo, correo e id_hotel son requeridos' });
+
+    // Verificar si ya existe (correo único por hotel)
+    const { data: existing } = await db()
+      .from('huespedes')
+      .select('id_huesped, nombre_completo, correo, telefono')
+      .eq('id_hotel', id_hotel)
+      .ilike('correo', correo.trim())
+      .maybeSingle();
+
+    if (existing) {
+      return res.json({
+        registrado: false,
+        encontrado: true,
+        huesped: { id: existing.id_huesped, nombre: existing.nombre_completo, correo: existing.correo, telefono: existing.telefono },
+      });
+    }
+
+    const { data, error } = await db()
+      .from('huespedes')
+      .insert({ id_hotel, nombre_completo: nombre_completo.trim(), correo: correo.trim().toLowerCase(), telefono: telefono?.trim() || null })
+      .select('id_huesped, nombre_completo, correo, telefono')
+      .single();
+
+    if (error) {
+      // Carrera entre solicitudes concurrentes: el correo ya fue registrado
+      // justo después de la verificación de "existing" anterior.
+      if (error.code === '23505') {
+        const { data: retry } = await db()
+          .from('huespedes')
+          .select('id_huesped, nombre_completo, correo, telefono')
+          .eq('id_hotel', id_hotel)
+          .ilike('correo', correo.trim())
+          .maybeSingle();
+        if (retry) {
+          return res.json({
+            registrado: false,
+            encontrado: true,
+            huesped: { id: retry.id_huesped, nombre: retry.nombre_completo, correo: retry.correo, telefono: retry.telefono },
+          });
+        }
+      }
+      throw error;
+    }
+
+    return res.status(201).json({
+      registrado: true,
+      huesped: { id: data.id_huesped, nombre: data.nombre_completo, correo: data.correo, telefono: data.telefono },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 // POST /api/public/validar-nuevo-huesped
 router.post('/validar-nuevo-huesped', async (req: Request, res: Response) => {
@@ -202,69 +372,15 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Faltan campos requeridos.' });
     }
 
-    // Resolver owner_id (requerido NOT NULL en huespedes y reservas_hotel)
-    const owner_id = await getOwnerId();
-
-    // 1. Obtener o crear huésped por DNI/Documento o Correo
-    const dniUpper = dni ? dni.trim().toUpperCase() : null;
-    const nombreUpper = nombre.trim().toUpperCase();
-    const correoFinal = correo?.trim() ? correo.trim().toLowerCase() : `WEB-${Date.now()}@PARTNERCENTRAL.LOCAL`;
-    const telefonoFinal = telefono?.trim() || null;
-    
-    let huespedId: string;
-    let huespedExistente: any = null;
-
-    if (dniUpper) {
-      const { data } = await db()
-        .from('huespedes')
-        .select('id_huesped, nombre_completo, correo, telefono')
-        .eq('documento_identidad', dniUpper)
-        .maybeSingle();
-      huespedExistente = data;
-    }
-
-    if (!huespedExistente && correoFinal && !correoFinal.startsWith('WEB-')) {
-      const { data } = await db()
-        .from('huespedes')
-        .select('id_huesped, nombre_completo, correo, telefono')
-        .eq('correo', correoFinal)
-        .maybeSingle();
-      huespedExistente = data;
-    }
-
-    if (huespedExistente) {
-      huespedId = huespedExistente.id_huesped;
-      // Actualizar datos de contacto y asegurar mayúsculas en nombre y DNI
-      await db()
-        .from('huespedes')
-        .update({
-          nombre_completo: nombreUpper,
-          telefono: telefonoFinal || huespedExistente.telefono,
-          documento_identidad: dniUpper || huespedExistente.documento_identidad || null,
-          correo: correoFinal || huespedExistente.correo
-        })
-        .eq('id_huesped', huespedId);
-    } else {
-      const { data: nuevoHuesped, error: errHuesped } = await db()
-        .from('huespedes')
-        .insert({
-          ...(isMultiTenant && owner_id ? { owner_id } : {}),
-          nombre_completo: nombreUpper,
-          documento_identidad: dniUpper || null,
-          correo: correoFinal,
-          telefono: telefonoFinal,
-        })
-        .select('id_huesped')
-        .single();
-
-      if (errHuesped) throw errHuesped;
-      huespedId = nuevoHuesped.id_huesped;
-    }
-
-    // 2. Obtener tarifa de la habitación desde la vista (tiene nombre_alias)
+    // 1. Obtener habitación primero (necesitamos id_hotel para crear huésped)
     const { data: habitacion, error: habErr } = await db()
       .from('habitaciones_con_detalles')
       .select('id_hotel, tarifa_noche, nombre_habitacion, nombre_alias')
+      .eq('id_habitacion', habitacionId)
+      .maybeSingle();
+    const { data: habTipoData } = await db()
+      .from('habitaciones')
+      .select('id_tipo_habitacion, tipos_habitacion(capacidad_base)')
       .eq('id_habitacion', habitacionId)
       .maybeSingle();
 
@@ -309,18 +425,114 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
       }
     }
 
+    // 2. Obtener o crear huésped
+    const dniUpper = dni ? dni.trim().toUpperCase() : null;
+    const nombreUpper = nombre.trim().toUpperCase();
+    const correoFinal = correo?.trim() ? correo.trim().toLowerCase() : `WEB-${Date.now()}@PARTNERCENTRAL.LOCAL`;
+    const telefonoFinal = telefono?.trim() || null;
+
+    let huespedId: string;
+    let huespedExistente: any = null;
+
+    if (dniUpper) {
+      const { data } = await db().from('huespedes')
+        .select('id_huesped, nombre_completo, correo, telefono')
+        .eq('documento_identidad', dniUpper).maybeSingle();
+      huespedExistente = data;
+    }
+    if (!huespedExistente && correoFinal && !correoFinal.startsWith('WEB-')) {
+      const { data } = await db().from('huespedes')
+        .select('id_huesped, nombre_completo, correo, telefono')
+        .eq('correo', correoFinal).maybeSingle();
+      huespedExistente = data;
+    }
+
+    if (huespedExistente) {
+      huespedId = huespedExistente.id_huesped;
+      await db().from('huespedes').update({
+        nombre_completo: nombreUpper,
+        telefono: telefonoFinal || huespedExistente.telefono,
+        documento_identidad: dniUpper || huespedExistente.documento_identidad || null,
+        correo: correoFinal || huespedExistente.correo
+      }).eq('id_huesped', huespedId);
+    } else {
+      const { data: nuevoHuesped, error: errHuesped } = await db()
+        .from('huespedes')
+        .insert({
+          id_hotel: habitacion.id_hotel,
+          nombre_completo: nombreUpper,
+          documento_identidad: dniUpper || null,
+          correo: correoFinal,
+          telefono: telefonoFinal,
+        })
+        .select('id_huesped').single();
+      if (errHuesped) throw errHuesped;
+      huespedId = nuevoHuesped.id_huesped;
+    }
+
     // Calcular noches
     const ci = new Date(checkIn);
     const co = new Date(checkOut);
     const msPerDay = 1000 * 60 * 60 * 24;
     const noches = Math.max(1, Math.round((co.getTime() - ci.getTime()) / msPerDay));
-    const totalEstimado = (habitacion.tarifa_noche || 0) * noches;
+
+    // Resolver tarifa activa para cada una de las noches
+    const ciStr = String(checkIn).split('T')[0];
+    const coStr = String(checkOut).split('T')[0];
+    const startDate = new Date(ciStr + 'T12:00:00Z');
+    const endDate = new Date(coStr + 'T12:00:00Z');
+
+    let totalTarifas = 0;
+    const { data: periodos, error: periodosErr } = await db()
+      .from('habitacion_tarifas_periodo')
+      .select('tarifa_noche, es_base, fecha_desde, fecha_hasta')
+      .eq('id_habitacion', habitacionId);
+
+    const staticRate = Number(habitacion.tarifa_noche || 0);
+
+    if (periodosErr) {
+      console.error('[Portal] Error leyendo tarifas_periodo:', periodosErr.message);
+      totalTarifas = staticRate * noches;
+    } else {
+      for (let d = new Date(startDate); d < endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+        const fCheck = d.toISOString().split('T')[0];
+
+        // Buscar período activo (no base) que cubra esta fecha
+        const periodoActivo = (periodos ?? []).find((p: any) => {
+          if (p.es_base) return false;
+          const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+          const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+          return (!desde || desde <= fCheck) && (!hasta || hasta >= fCheck);
+        });
+
+        if (periodoActivo) {
+          totalTarifas += Number(periodoActivo.tarifa_noche);
+        } else {
+          // Fallback a tarifa base
+          const base = (periodos ?? []).find((p: any) => p.es_base);
+          if (base) {
+            totalTarifas += Number(base.tarifa_noche);
+          } else {
+            totalTarifas += staticRate;
+          }
+        }
+      }
+    }
+
+    const capacidadBase = Number((habTipoData?.tipos_habitacion as any)?.capacidad_base ?? 2);
+    const { data: configHotel } = await db()
+      .from('configuracion_hotelera')
+      .select('cargo_persona_extra')
+      .eq('id_hotel', habitacion.id_hotel)
+      .maybeSingle();
+    const cargoPersonaExtraRate = Number(configHotel?.cargo_persona_extra ?? 0);
+    const personasExtra = ((Number(adultos) || 0) + (Number(ninos) || 0)) > capacidadBase ? 1 : 0;
+    const totalEstimado = totalTarifas + personasExtra * cargoPersonaExtraRate * noches;
 
     // 3. Crear reserva
     const { data: nuevaReserva, error: reservaErr } = await db()
       .from('reservas_hotel')
       .insert({
-        ...(isMultiTenant && owner_id ? { owner_id } : {}),
         id_huesped: huespedId,
         id_habitacion: habitacionId,
         id_hotel: habitacion.id_hotel,
@@ -330,7 +542,7 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
         ninos,
         estado: 'pendiente',
         total_reserva: totalEstimado,
-        moneda: 'USD',
+        moneda: 'HNL',
         observaciones: observaciones ? `[WEB] ${observaciones}` : '[WEB] Solicitud desde el Portal B2C',
         estado_pago: 'deuda', // pendiente de pago — reserva web
         anticipo: 0,
@@ -370,12 +582,68 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
 
     // 4. Emitir evento Socket para notificar a recepción
     const io = getIO();
+    const habNombre = habitacion.nombre_alias || habitacion.nombre_habitacion;
     if (io) {
-      const habNombre = habitacion.nombre_alias || habitacion.nombre_habitacion;
       io.emit('nueva_solicitud_reserva', {
         reserva: nuevaReserva,
         mensaje: `Nueva solicitud web: ${nombre} (${habNombre})`
       });
+    }
+
+    await crearNotificacion({
+      hotelId: habitacion.id_hotel,
+      tipo: 'reserva_web',
+      titulo: 'Nueva solicitud de reserva',
+      mensaje: `${nombre} solicitó ${habNombre} (${noches} noche${noches === 1 ? '' : 's'})`,
+      link: '/reservas',
+    });
+
+    // 5. Enviar correo de confirmación de forma asíncrona
+    if (nuevaReserva?.id_reserva_hotel) {
+      (async () => {
+        try {
+          const { data: hotel } = await db()
+            .from('hoteles')
+            .select('nombre_hotel, correo_contacto')
+            .eq('id_hotel', habitacion.id_hotel)
+            .single();
+
+          if (hotel && hotel.nombre_hotel) {
+            const emailData = {
+              guestName: nombre,
+              guestEmail: correoFinal,
+              bookingId: nuevaReserva.id_reserva_hotel,
+              checkIn: checkIn,
+              checkOut: checkOut,
+              totalAmount: totalEstimado,
+              currency: 'HNL',
+              hotelName: hotel.nombre_hotel,
+              roomType: (habitacion as any).tipo || 'Habitación Estándar',
+              adults: adultos,
+              children: ninos,
+              services: [
+                finalCamaExtra && 'Cama Extra',
+                finalNeverita && 'Neverita/Minibar',
+                finalPlancha && 'Plancha de ropa',
+                finalLimpiezaDiaria && 'Limpieza Diaria'
+              ].filter(Boolean) as string[],
+              id_hotel: habitacion.id_hotel,
+            };
+
+            // 1. Enviar correo al huésped
+            if (correoFinal) {
+              await sendBookingConfirmation(emailData);
+            }
+
+            // 2. Enviar correo de notificación al hotel (solo si es diferente al del huésped)
+            if (hotel.correo_contacto && hotel.correo_contacto !== correoFinal) {
+              await sendHotelNotificationEmail(emailData, hotel.correo_contacto);
+            }
+          }
+        } catch (err) {
+          console.error('Error enviando correo post-reserva (public):', err);
+        }
+      })();
     }
 
     return res.status(201).json({ success: true, reserva: nuevaReserva });
@@ -388,11 +656,20 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
 // POST /api/public/chat/init
 router.post('/chat/init', async (req: Request, res: Response) => {
   try {
-    const { nombre, correo, telefono } = req.body;
-    
+    const { nombre, correo, telefono, hotel_id } = req.body;
+
     if (!nombre) {
       return res.status(400).json({ error: 'Nombre es requerido' });
     }
+
+    // Resolver id_hotel — requerido por el schema
+    let chatHotelId: string = hotel_id || (req.headers['x-hotel-id'] as string) || '';
+    if (!chatHotelId) {
+      const { data: firstHotel } = await supabaseAdmin
+        .from('hoteles').select('id_hotel').eq('estado', 'activo').limit(1).maybeSingle();
+      chatHotelId = firstHotel?.id_hotel || '';
+    }
+    if (!chatHotelId) return res.status(400).json({ error: 'hotel_id requerido' });
 
     const identifier = correo?.trim() || telefono?.trim() || `anon-${Date.now()}`;
     const channelName = `Cliente: ${nombre.split(' ')[0]}`;
@@ -414,6 +691,7 @@ router.post('/chat/init', async (req: Request, res: Response) => {
       const { data: nuevoHuesped } = await supabaseAdmin
         .from('huespedes')
         .insert({
+          id_hotel: chatHotelId,
           nombre_completo: nombre.trim().toUpperCase(),
           correo: correo?.trim() ? correo.trim().toLowerCase() : `CHAT-ANON-${Date.now()}@PARTNERCENTRAL.LOCAL`,
           telefono: telefono?.trim() || null
@@ -434,7 +712,7 @@ router.post('/chat/init', async (req: Request, res: Response) => {
       .order('created_at', { ascending: false });
 
     // Filtrar por metadata (si usamos JSONB, esto es más robusto en memoria para este caso simple)
-    let channel = existingChannels?.find((c: any) => 
+    let channel = existingChannels?.find((c: any) =>
       c.metadata?.email === correo || c.metadata?.phone === telefono || c.metadata?.identifier === identifier
     );
 
@@ -454,9 +732,9 @@ router.post('/chat/init', async (req: Request, res: Response) => {
 
       // Crear nuevo canal
       const insertData: Record<string, any> = {
+        id_hotel: chatHotelId,
         name: channelName,
         channel_type: 'cliente',
-        created_by: 'portal-web',
         id_huesped: huespedId,
         metadata: {
           email: correo,
@@ -465,7 +743,6 @@ router.post('/chat/init', async (req: Request, res: Response) => {
           source: 'Portal B2C'
         }
       };
-      if (isMultiTenant && owner_id) insertData.owner_id = owner_id;
 
       const { data: newChannel, error: insertErr } = await supabaseAdmin
         .from('chat_channels')
@@ -484,9 +761,9 @@ router.post('/chat/init', async (req: Request, res: Response) => {
       }
     }
 
-    return res.json({ 
-      success: true, 
-      channelId: channel.id, 
+    return res.json({
+      success: true,
+      channelId: channel.id,
       guestId: channel.metadata?.identifier || identifier,
       messages
     });
@@ -501,7 +778,7 @@ router.get('/chat/messages/:channelId', async (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
     const { after } = req.query; // message_id para paginar (opcional en UI actual, pero lo dejamos listo)
-    
+
     // Obtener los últimos 50 mensajes de este canal
     let query = supabaseAdmin
       .from('chat_messages')
@@ -510,7 +787,7 @@ router.get('/chat/messages/:channelId', async (req: Request, res: Response) => {
       .eq('is_deleted', false)
       .order('created_at', { ascending: false })
       .limit(50);
-      
+
     if (after) {
       // Como el portal envía el timestamp de creación en 'after', filtramos por created_at > after
       query = query.gt('created_at', after);
@@ -531,7 +808,7 @@ router.get('/chat/messages/:channelId', async (req: Request, res: Response) => {
 router.post('/chat/send', async (req: Request, res: Response) => {
   try {
     const { channelId, guestId, nombre, content } = req.body;
-    
+
     if (!channelId || !content) {
       return res.status(400).json({ error: 'Faltan campos requeridos' });
     }
@@ -547,13 +824,12 @@ router.post('/chat/send', async (req: Request, res: Response) => {
       msgOwnerId = chanData?.owner_id || await getOwnerId();
     }
 
-    // Insertar el mensaje
+    // Insertar el mensaje (sender_id = null para clientes del portal, no tienen auth.users)
     const { data: messageData, error: msgError } = await supabaseAdmin
       .from('chat_messages')
       .insert({
-        ...(isMultiTenant && msgOwnerId ? { owner_id: msgOwnerId } : {}),
         channel_id: channelId,
-        sender_id: guestId || 'guest',
+        sender_id: null,
         sender_name: nombre || 'Huésped Web',
         content: content,
         message_type: 'text'
@@ -565,7 +841,7 @@ router.post('/chat/send', async (req: Request, res: Response) => {
 
     // Emitir socket event para notificar en tiempo real al panel operativo
     const io = getIO();
-    if (io) {
+    if (io && messageData) {
       io.to(`channel:${channelId}`).emit('new_message', messageData);
       io.emit('unread_update', { channelId });
     }
@@ -578,7 +854,7 @@ router.post('/chat/send', async (req: Request, res: Response) => {
         .select('metadata')
         .eq('id', channelId)
         .maybeSingle();
-      
+
       if (channelForBot && channelForBot.metadata?.bot_disabled) {
         await supabaseAdmin
           .from('chat_channels')
@@ -594,21 +870,21 @@ router.post('/chat/send', async (req: Request, res: Response) => {
 
     // Disparar procesamiento del chatbot en segundo plano
     void handleBotResponse(channelId, content);
- 
+
     return res.status(201).json({ success: true, message: messageData });
   } catch (error: any) {
     console.error('Error en /chat/send:', error);
     return res.status(500).json({ error: error.message || 'Error interno' });
   }
 });
- 
+
 // Función en segundo plano para procesar y responder con el chatbot
 async function handleBotResponse(channelId: string, content: string) {
   try {
     // 1. Obtener la metadata del canal y el huésped para verificar si el bot está activo o desactivado
     const { data: channel } = await supabaseAdmin
       .from('chat_channels')
-      .select('metadata, id_huesped, channel_type')
+      .select('metadata, id_huesped, channel_type, id_hotel')
       .eq('id', channelId)
       .maybeSingle();
 
@@ -640,9 +916,19 @@ async function handleBotResponse(channelId: string, content: string) {
         });
       }
 
+      if (channel.id_hotel) {
+        await crearNotificacion({
+          hotelId: channel.id_hotel,
+          tipo: 'mensaje_cliente',
+          titulo: 'Cliente solicita un agente',
+          mensaje: 'Un huésped pidió hablar con recepción en el chat del portal',
+          link: '/chat',
+        });
+      }
+
       // Enviar mensaje de confirmación del bot
       const botResponse = "Entendido. He notificado a recepción y te he conectado con un agente humano. En un momento te asistiremos. 📞";
-      
+
       // Resolver owner_id para el mensaje del bot
       let botOwnerId: string | null = null;
       if (isMultiTenant) {
@@ -655,7 +941,7 @@ async function handleBotResponse(channelId: string, content: string) {
         .insert({
           ...(isMultiTenant && botOwnerId ? { owner_id: botOwnerId } : {}),
           channel_id: channelId,
-          sender_id: 'bot:concierge',
+          sender_id: null,
           sender_name: 'Concierge Bot',
           content: botResponse,
           message_type: 'text'
@@ -692,7 +978,7 @@ async function handleBotResponse(channelId: string, content: string) {
       let query = supabaseAdmin.from('huespedes').select('id_huesped').limit(1);
       if (channel.metadata?.email) query = query.eq('correo', channel.metadata.email);
       else if (channel.metadata?.phone) query = query.eq('telefono', channel.metadata.phone);
-      
+
       const { data: g } = await query.single();
       if (g) dbGuestId = g.id_huesped;
     }
@@ -716,11 +1002,11 @@ async function handleBotResponse(channelId: string, content: string) {
     // Construir contexto del hotel
     const hotelContext = hotelData
       ? {
-          nombre: hotelData.nombre_hotel,
-          ciudad: hotelData.ciudad,
-          telefono: hotelData.telefono,
-          email: hotelData.correo_contacto,
-        }
+        nombre: hotelData.nombre_hotel,
+        ciudad: hotelData.ciudad,
+        telefono: hotelData.telefono,
+        email: hotelData.correo_contacto,
+      }
       : null;
 
     // Obtener catálogo de habitaciones para contexto seguro del bot público
@@ -737,13 +1023,13 @@ async function handleBotResponse(channelId: string, content: string) {
     // Obtener historial de mensajes para contexto
     const { data: history } = await supabaseAdmin
       .from('chat_messages')
-      .select('sender_id, content')
+      .select('sender_id, content, sender_name')
       .eq('channel_id', channelId)
       .order('created_at', { ascending: false })
       .limit(10);
-      
+
     const formattedHistory = (history || []).reverse().map(msg => ({
-      role: msg.sender_id.startsWith('bot') ? 'model' : 'user',
+      role: msg.sender_name === 'Concierge Bot' ? 'model' : 'user',
       parts: [{ text: msg.content }]
     }));
 
@@ -850,23 +1136,33 @@ router.get('/hoteles', async (req: Request, res: Response) => {
 // GET /api/public/disponibilidad
 router.get('/disponibilidad', async (req: Request, res: Response) => {
   try {
-    const { checkIn, checkOut } = req.query;
+    const { checkIn, checkOut, hotel_id } = req.query;
 
-    // Obtener todas las habitaciones marcadas como disponibles desde la vista 3NF
-    const { data: rooms, error: roomsError } = await db()
+    let checkInStr = checkIn ? String(checkIn).split('T')[0] : null;
+    let checkOutStr = checkOut ? String(checkOut).split('T')[0] : null;
+
+    if (checkInStr && (!checkOutStr || checkOutStr <= checkInStr)) {
+      const d = new Date(checkInStr + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() + 1);
+      checkOutStr = d.toISOString().split('T')[0];
+    }
+
+    let roomQuery = db()
       .from('habitaciones_con_detalles')
       .select('id_habitacion, id_hotel, nombre_habitacion, nombre_alias, tipo, tarifa_noche, numero_camas, capacidad, imagenes, imagen_360, comodidades')
       .eq('estado', 'disponible');
-    
+
+    if (hotel_id && hotel_id !== 'all') roomQuery = roomQuery.eq('id_hotel', hotel_id as string);
+
+    // Obtener todas las habitaciones marcadas como disponibles desde la vista 3NF
+    const { data: rooms, error: roomsError } = await roomQuery;
+
     if (roomsError) throw roomsError;
 
     let availableRooms = rooms || [];
 
     // Si se especificaron checkIn y checkOut, filtrar por disponibilidad real
-    if (checkIn && checkOut) {
-      const checkInStr = (checkIn as string).split('T')[0];
-      const checkOutStr = (checkOut as string).split('T')[0];
-
+    if (checkInStr && checkOutStr) {
       // Obtener todas las reservas que NO estén canceladas ni no_show
       const { data: bookings, error: bookingsError } = await db()
         .from('reservas_hotel')
@@ -892,21 +1188,135 @@ router.get('/disponibilidad', async (req: Request, res: Response) => {
     }
 
     // Renombrar campos para el frontend
-    const formatted = availableRooms.map((h: any) => ({
-      id: h.id_habitacion,
-      id_hotel: h.id_hotel,
-      nombre: h.nombre_habitacion,
-      nombreAlias: h.nombre_alias,
-      tipo: h.tipo,
-      tarifaNoche: h.tarifa_noche,
-      numeroCamas: h.numero_camas,
-      capacidad: h.capacidad,
-      cargoPersonaExtra: 0, // no existe en la vista, valor por defecto
-      imagenes: h.imagenes || [],
-      imagen_360: h.imagen_360,
-      comodidades: h.comodidades || [],
-      disponible: true
-    }));
+    // Obtener cargo_persona_extra de cada hotel (una sola query para todos los hoteles únicos)
+    const hotelIds = [...new Set(availableRooms.map((h: any) => h.id_hotel).filter(Boolean))];
+    const cargoMap: Record<string, number> = {};
+    if (hotelIds.length > 0) {
+      const { data: configs } = await db()
+        .from('configuracion_hotelera')
+        .select('id_hotel, cargo_persona_extra')
+        .in('id_hotel', hotelIds);
+      (configs || []).forEach((c: any) => {
+        cargoMap[c.id_hotel] = Number(c.cargo_persona_extra ?? 0);
+      });
+    }
+
+    // Resolver tarifas activas desde habitacion_tarifas_periodo
+    const roomIds = availableRooms.map((r: any) => r.id_habitacion).filter(Boolean);
+    const tarifasMap: Record<string, { tarifa: number; totalTarifas: number; esPeriodo: boolean; nombrePeriodo?: string }> = {};
+
+    if (roomIds.length > 0) {
+      const { data: periodos } = await (supabaseAdmin || db())
+        .from('habitacion_tarifas_periodo')
+        .select('id_habitacion, tarifa_noche, es_base, fecha_desde, fecha_hasta, nombre_periodo')
+        .in('id_habitacion', roomIds);
+
+      const ciStr = checkInStr;
+      const coStr = checkOutStr;
+
+      for (const roomId of roomIds) {
+        const roomPeriodos = (periodos ?? []).filter((p: any) => p.id_habitacion === roomId);
+        const staticRate = Number(availableRooms.find((r: any) => r.id_habitacion === roomId)?.tarifa_noche ?? 0);
+
+        if (ciStr && coStr) {
+          const startDate = new Date(ciStr + 'T12:00:00Z');
+          const endDate = new Date(coStr + 'T12:00:00Z');
+
+          let totalTarifas = 0;
+          let containsPeriodo = false;
+          let nochesCount = 0;
+          let activePeriodoName: string | null = null;
+
+          for (let d = new Date(startDate); d < endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+            const fCheck = d.toISOString().split('T')[0];
+            nochesCount++;
+
+            const periodoActivo = roomPeriodos.find((p: any) => {
+              if (p.es_base) return false;
+              const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+              const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+              return (!desde || desde <= fCheck) && (!hasta || hasta >= fCheck);
+            });
+
+            if (periodoActivo) {
+              totalTarifas += Number(periodoActivo.tarifa_noche);
+              containsPeriodo = true;
+              if (periodoActivo.nombre_periodo) activePeriodoName = periodoActivo.nombre_periodo;
+            } else {
+              const base = roomPeriodos.find((p: any) => p.es_base);
+              if (base) {
+                totalTarifas += Number(base.tarifa_noche);
+              } else {
+                totalTarifas += staticRate;
+              }
+            }
+          }
+
+          const nochesVal = nochesCount || 1;
+          tarifasMap[roomId] = {
+            tarifa: Math.round((totalTarifas / nochesVal) * 100) / 100, // promedio
+            totalTarifas: totalTarifas,
+            esPeriodo: containsPeriodo,
+            nombrePeriodo: containsPeriodo ? (activePeriodoName || 'Tarifas mixtas') : undefined
+          };
+        } else {
+          // Un solo día (fecha actual)
+          const fCheck = checkIn ? String(checkIn).split('T')[0] : new Date().toLocaleDateString('en-CA').substring(0, 10);
+          const periodoActivo = roomPeriodos.find((p: any) => {
+            if (p.es_base) return false;
+            const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+            const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+            return (!desde || desde <= fCheck) && (!hasta || hasta >= fCheck);
+          });
+
+          if (periodoActivo) {
+            tarifasMap[roomId] = {
+              tarifa: Number(periodoActivo.tarifa_noche),
+              totalTarifas: Number(periodoActivo.tarifa_noche),
+              esPeriodo: true,
+              nombrePeriodo: periodoActivo.nombre_periodo || undefined
+            };
+          } else {
+            const base = roomPeriodos.find((p: any) => p.es_base);
+            if (base) {
+              tarifasMap[roomId] = {
+                tarifa: Number(base.tarifa_noche),
+                totalTarifas: Number(base.tarifa_noche),
+                esPeriodo: false
+              };
+            } else {
+              tarifasMap[roomId] = {
+                tarifa: staticRate,
+                totalTarifas: staticRate,
+                esPeriodo: false
+              };
+            }
+          }
+        }
+      }
+    }
+
+    const formatted = availableRooms.map((h: any) => {
+      const t = tarifasMap[h.id_habitacion];
+      return {
+        id:              h.id_habitacion,
+        id_hotel:        h.id_hotel,
+        nombre:          h.nombre_habitacion,
+        nombreAlias:     h.nombre_alias,
+        tipo:            h.tipo,
+        tarifaNoche:     t ? t.tarifa : h.tarifa_noche,
+        totalTarifas:    t ? t.totalTarifas : h.tarifa_noche,
+        esTarifaPeriodo: t?.esPeriodo ?? false,
+        nombrePeriodo:   t?.nombrePeriodo ?? null,
+        numeroCamas:     h.numero_camas,
+        capacidad:       h.capacidad,
+        cargoPersonaExtra: cargoMap[h.id_hotel] ?? 0,
+        imagenes:        h.imagenes || [],
+        imagen_360:      h.imagen_360,
+        comodidades:     h.comodidades || [],
+        disponible:      true,
+      };
+    });
 
     return res.json(formatted);
   } catch (error: any) {
@@ -988,6 +1398,547 @@ router.get('/local-guide', async (req: Request, res: Response) => {
     return res.json([]);
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Validar invitación (sin auth requerida, usa supabaseAdmin para bypasear RLS) ──
+router.post('/invitacion/validar', async (req: Request, res: Response) => {
+  try {
+    const { email, codigo } = req.body as { email: string; codigo: string };
+    if (!email || !codigo) return res.status(400).json({ error: 'email y codigo requeridos' });
+
+    const client = supabaseAdmin ?? supabase;
+    const { data, error } = await client
+      .from('invitaciones')
+      .select('id, email, codigo_unico, id_hotel, rol_sugerido, owner_id, usado, expira_en')
+      .eq('email', email.toLowerCase().trim())
+      .eq('codigo_unico', codigo.toUpperCase().trim())
+      .maybeSingle();
+
+    if (error) return res.status(400).json({ error: error.message });
+    if (!data)  return res.json({ valida: false, razon: 'Código o correo inválido' });
+    if (data.usado) return res.json({ valida: false, razon: 'Este código ya fue utilizado' });
+    if (new Date(data.expira_en) < new Date()) {
+      return res.json({ valida: false, razon: 'El código de invitación ha expirado' });
+    }
+
+    return res.json({
+      valida:       true,
+      id_hotel:     data.id_hotel,
+      rol_sugerido: data.rol_sugerido,
+      owner_id:     data.owner_id,
+      codigo:       data.codigo_unico,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/public/tarifa-habitacion?id_habitacion=X&checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD
+ * Devuelve la tarifa activa o desglosada para una habitación en una fecha o rango de fechas.
+ * El portal lo usa para mostrar el precio correcto al seleccionar fechas.
+ */
+router.get('/tarifa-habitacion', async (req: Request, res: Response) => {
+  try {
+    const { id_habitacion, fecha, checkIn, checkOut } = req.query as { id_habitacion?: string; fecha?: string; checkIn?: string; checkOut?: string };
+    if (!id_habitacion) return res.status(400).json({ error: 'id_habitacion requerido' });
+
+    const { data: periodos, error } = await (supabaseAdmin || db())
+      .from('habitacion_tarifas_periodo')
+      .select('tarifa_noche, es_base, fecha_desde, fecha_hasta, nombre_periodo')
+      .eq('id_habitacion', id_habitacion);
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    // Fallback final: tarifa_noche estática de la habitación
+    const { data: hab } = await (supabaseAdmin || db())
+      .from('habitaciones')
+      .select('tarifa_noche')
+      .eq('id_habitacion', id_habitacion)
+      .maybeSingle();
+    const staticRate = Number(hab?.tarifa_noche ?? 0);
+
+    // Si se especificó un rango de fechas, calcular día por día (noche por noche)
+    if (checkIn && checkOut) {
+      const ciStr = String(checkIn).split('T')[0];
+      const coStr = String(checkOut).split('T')[0];
+      const startDate = new Date(ciStr + 'T12:00:00Z');
+      const endDate = new Date(coStr + 'T12:00:00Z');
+
+      let totalTarifas = 0;
+      let containsPeriodo = false;
+      const desglose: { fecha: string; tarifa: number; es_periodo: boolean; nombre_periodo: string | null }[] = [];
+
+      for (let d = new Date(startDate); d < endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+        const fCheck = d.toISOString().split('T')[0];
+
+        // Buscar período activo (no base) que cubra esta fecha
+        const periodoActivo = (periodos ?? []).find((p: any) => {
+          if (p.es_base) return false;
+          const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+          const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+          return (!desde || desde <= fCheck) && (!hasta || hasta >= fCheck);
+        });
+
+        if (periodoActivo) {
+          const rate = Number(periodoActivo.tarifa_noche);
+          totalTarifas += rate;
+          containsPeriodo = true;
+          desglose.push({ fecha: fCheck, tarifa: rate, es_periodo: true, nombre_periodo: periodoActivo.nombre_periodo || null });
+        } else {
+          // Fallback a tarifa base
+          const base = (periodos ?? []).find((p: any) => p.es_base);
+          if (base) {
+            const rate = Number(base.tarifa_noche);
+            totalTarifas += rate;
+            desglose.push({ fecha: fCheck, tarifa: rate, es_periodo: false, nombre_periodo: null });
+          } else {
+            totalTarifas += staticRate;
+            desglose.push({ fecha: fCheck, tarifa: staticRate, es_periodo: false, nombre_periodo: null });
+          }
+        }
+      }
+
+      const noches = desglose.length || 1;
+      return res.json({
+        total_tarifas:   totalTarifas,
+        tarifa_noche:    Math.round((totalTarifas / noches) * 100) / 100, // promedio
+        es_periodo:      containsPeriodo,
+        nombre_periodo:  containsPeriodo ? 'Tarifas mixtas' : null,
+        desglose
+      });
+    }
+
+    // Comportamiento de fecha única tradicional (para retrocompatibilidad)
+    const fCheck = fecha ? String(fecha).substring(0, 10) : new Date().toLocaleDateString('en-CA');
+
+    // Buscar período activo (no base) que cubra la fecha
+    const periodoActivo = (periodos ?? []).find((p: any) => {
+      if (p.es_base) return false;
+      const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+      const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+      return (!desde || desde <= fCheck) && (!hasta || hasta >= fCheck);
+    });
+
+    if (periodoActivo) {
+      return res.json({
+        total_tarifas:   Number(periodoActivo.tarifa_noche),
+        tarifa_noche:    Number(periodoActivo.tarifa_noche),
+        es_periodo:      true,
+        nombre_periodo:  periodoActivo.nombre_periodo || null,
+      });
+    }
+
+    // Fallback: tarifa base
+    const base = (periodos ?? []).find((p: any) => p.es_base);
+    if (base) {
+      return res.json({
+        total_tarifas:   Number(base.tarifa_noche),
+        tarifa_noche:    Number(base.tarifa_noche),
+        es_periodo:      false,
+        nombre_periodo:  null,
+      });
+    }
+
+    return res.json({
+      total_tarifas:   staticRate,
+      tarifa_noche:    staticRate,
+      es_periodo:      false,
+      nombre_periodo:  null,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/public/quotes/:id — Obtener cotización por UUID de forma pública
+router.get('/quotes/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'ID de cotización es requerido.' });
+    
+    const { data: quote, error: quoteErr } = await db()
+      .from('cotizaciones')
+      .select('*, hoteles(nombre_hotel, ciudad, direccion, telefono, correo_contacto, logo_url, color_primario, configuracion_hotelera(porcentaje_impuesto, tasa_turistica)), cotizacion_items(*)')
+      .eq('id_cotizacion', id)
+      .maybeSingle();
+
+    if (quoteErr) return res.status(500).json({ error: quoteErr.message });
+    if (!quote) return res.status(404).json({ error: 'Cotización no encontrada.' });
+
+    return res.json(quote);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Aplica la decisión (Aceptar/Rechazar) sobre una cotización: sincroniza
+// las reservas de cupo, actualiza el estado y notifica a recepción por
+// socket. Compartido por el endpoint PATCH (JSON) y el de un solo clic
+// desde el correo (GET con página de confirmación en HTML).
+async function applyQuoteDecision(id: string, estado: 'Aceptada' | 'Rechazada') {
+  const { data: quote, error: getErr } = await db()
+    .from('cotizaciones')
+    .select('*, cotizacion_items(*), hoteles(nombre_hotel, correo_contacto)')
+    .eq('id_cotizacion', id)
+    .maybeSingle();
+
+  if (getErr) return { success: false as const, status: 500, error: getErr.message };
+  if (!quote) return { success: false as const, status: 404, error: 'Cotización no encontrada.' };
+
+  // Si ya fue procesada (p.ej. el cliente ya hizo clic, o un escáner de
+  // correo precargó el enlace), no reprocesar para evitar dobles reservas.
+  if (quote.estado === 'Aceptada' || quote.estado === 'Rechazada') {
+    return { success: true as const, alreadyProcessed: true, quote };
+  }
+
+  const syncRes = await syncQuoteReservations(
+    id,
+    quote.id_hotel,
+    estado,
+    {
+      cliente_nombre: quote.cliente_nombre,
+      cliente_correo: quote.cliente_correo,
+      cliente_telefono: quote.cliente_telefono,
+      cliente_identificacion: quote.cliente_identificacion,
+      id_huesped: quote.id_huesped,
+      id_empresa: quote.id_empresa,
+      check_in: quote.check_in,
+      check_out: quote.check_out,
+      adultos: quote.adultos,
+      ninos: quote.ninos,
+      moneda: quote.moneda,
+      numero_cotizacion: quote.numero_cotizacion,
+      notas: quote.notas,
+      userId: null
+    },
+    quote.cotizacion_items || []
+  );
+
+  if (!syncRes.success) {
+    return { success: false as const, status: 400, error: syncRes.error };
+  }
+
+  const { data: updatedQuote, error: updateErr } = await db()
+    .from('cotizaciones')
+    .update({ estado, updated_at: new Date().toISOString() })
+    .eq('id_cotizacion', id)
+    .select('*, hoteles(nombre_hotel, correo_contacto)')
+    .single();
+
+  if (updateErr) return { success: false as const, status: 500, error: updateErr.message };
+
+  const io = getIO();
+  if (io) {
+    if (estado === 'Aceptada') {
+      io.emit('nueva_solicitud_reserva', {
+        mensaje: `Cotización ${updatedQuote.numero_cotizacion} aceptada por el cliente ${updatedQuote.cliente_nombre}`
+      });
+    } else {
+      io.emit('nueva_solicitud_reserva', {
+        mensaje: `Cotización ${updatedQuote.numero_cotizacion} rechazada por el cliente ${updatedQuote.cliente_nombre}. Habitaciones liberadas.`
+      });
+    }
+  }
+
+  if (estado === 'Aceptada') {
+    await crearNotificacion({
+      hotelId: quote.id_hotel,
+      tipo: 'cotizacion_aceptada',
+      titulo: 'Cotización aceptada',
+      mensaje: `El cliente ${updatedQuote.cliente_nombre} aceptó la cotización ${updatedQuote.numero_cotizacion}`,
+      link: '/cotizaciones',
+    });
+  }
+
+  return { success: true as const, alreadyProcessed: false, quote: updatedQuote };
+}
+
+// Página HTML autocontenida que confirma el resultado de la decisión.
+// No depende del frontend — el cliente nunca ve datos editables, solo
+// este mensaje de confirmación.
+function renderDecisionPage(opts: {
+  ok: boolean;
+  estado?: 'Aceptada' | 'Rechazada';
+  numero?: string;
+  hotelName?: string;
+  alreadyProcessed?: boolean;
+  message?: string;
+}) {
+  const { ok, estado, numero, hotelName, alreadyProcessed, message } = opts;
+
+  let status = 'Aviso';
+  let title = 'No fue posible procesar la solicitud';
+  let body = message || 'Ocurrió un error al registrar su decisión. Por favor, comuníquese directamente con el hotel.';
+  let accent = '#94a3b8';
+
+  if (ok && estado === 'Aceptada') {
+    status = 'Cotización aceptada';
+    title = alreadyProcessed ? 'Esta cotización ya había sido aceptada' : 'Cotización aceptada';
+    body = `Su decisión sobre la cotización ${numero ? `<strong>${numero}</strong>` : ''}${hotelName ? ` de <strong>${hotelName}</strong>` : ''} ha quedado registrada. El hotel ha sido notificado y se pondrá en contacto con usted para confirmar los detalles de su estancia.`;
+    accent = '#1d4ed8';
+  } else if (ok && estado === 'Rechazada') {
+    status = 'Cotización rechazada';
+    title = alreadyProcessed ? 'Esta cotización ya había sido rechazada' : 'Cotización rechazada';
+    body = `Su decisión sobre la cotización ${numero ? `<strong>${numero}</strong>` : ''}${hotelName ? ` de <strong>${hotelName}</strong>` : ''} ha quedado registrada y las fechas reservadas fueron liberadas. Si desea ajustar algún detalle, no dude en contactarnos.`;
+    accent = '#475569';
+  }
+
+  return `
+  <!DOCTYPE html>
+  <html lang="es">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+    <style>
+      body {
+        margin: 0; padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        color: #1e293b;
+        min-height: 100vh;
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px; box-sizing: border-box;
+      }
+      .card {
+        max-width: 460px; width: 100%;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-top: 3px solid ${accent};
+        border-radius: 8px;
+        padding: 40px 36px;
+        text-align: left;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+      }
+      .status-tag {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: ${accent};
+        border: 1px solid ${accent};
+        border-radius: 4px;
+        padding: 5px 10px;
+        margin-bottom: 18px;
+      }
+      h1 { font-size: 19px; margin: 0 0 12px; color: #0f172a; font-weight: 700; }
+      p { font-size: 14px; line-height: 1.7; color: #64748b; margin: 0; }
+      strong { color: #0f172a; }
+      .footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; color: #94a3b8; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <span class="status-tag">${status}</span>
+      <h1>${title}</h1>
+      <p>${body}</p>
+      <div class="footer">Solarys &middot; Plataforma de gestión hotelera</div>
+    </div>
+  </body>
+  </html>
+  `;
+}
+
+// Página intermedia de CONFIRMACIÓN: no modifica nada en la base de datos.
+// Es necesaria porque los enlaces de "aceptar"/"rechazar" del correo son GET,
+// y muchos clientes de correo (Outlook Safe Links, Gmail, antivirus, etc.)
+// precargan automáticamente esos enlaces para escanearlos en busca de
+// malware ANTES de que el cliente real lo abra. Si el GET aplicara la
+// decisión directamente, el escáner la dejaría "ya procesada" y el cliente
+// vería un mensaje confuso al hacer clic. Por eso el GET solo muestra esta
+// pantalla, y la decisión real solo se aplica cuando el cliente envía el
+// formulario (POST), algo que los escáneres automáticos no hacen.
+function renderConfirmPage(opts: {
+  estado: 'Aceptada' | 'Rechazada';
+  id: string;
+  accion: string;
+  numero?: string;
+  hotelName?: string;
+}) {
+  const { estado, id, accion, numero, hotelName } = opts;
+  const isAccept = estado === 'Aceptada';
+  const accent = isAccept ? '#1d4ed8' : '#475569';
+  const status = isAccept ? 'Confirmar aceptación' : 'Confirmar rechazo';
+  const title = isAccept
+    ? '¿Confirma que desea aceptar esta cotización?'
+    : '¿Confirma que desea rechazar esta cotización?';
+  const body = `Está a punto de ${isAccept ? 'aceptar' : 'rechazar'} la cotización ${numero ? `<strong>${numero}</strong>` : ''}${hotelName ? ` de <strong>${hotelName}</strong>` : ''}. Esta acción quedará registrada y el hotel será notificado de inmediato. Pulse el botón para confirmar su decisión.`;
+  const btnLabel = isAccept ? 'Sí, aceptar cotización' : 'Sí, rechazar cotización';
+  const btnBg = isAccept ? '#0f172a' : '#ffffff';
+  const btnColor = isAccept ? '#ffffff' : '#0f172a';
+  const btnBorder = isAccept ? '#0f172a' : '#cbd5e1';
+
+  return `
+  <!DOCTYPE html>
+  <html lang="es">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+    <style>
+      body {
+        margin: 0; padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        color: #1e293b;
+        min-height: 100vh;
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px; box-sizing: border-box;
+      }
+      .card {
+        max-width: 460px; width: 100%;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-top: 3px solid ${accent};
+        border-radius: 8px;
+        padding: 40px 36px;
+        text-align: left;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+      }
+      .status-tag {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: ${accent};
+        border: 1px solid ${accent};
+        border-radius: 4px;
+        padding: 5px 10px;
+        margin-bottom: 18px;
+      }
+      h1 { font-size: 19px; margin: 0 0 12px; color: #0f172a; font-weight: 700; }
+      p { font-size: 14px; line-height: 1.7; color: #64748b; margin: 0; }
+      strong { color: #0f172a; }
+      button {
+        width: 100%;
+        margin-top: 24px;
+        padding: 13px 20px;
+        background: ${btnBg};
+        color: ${btnColor};
+        border: 1px solid ${btnBorder};
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; color: #94a3b8; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <span class="status-tag">${status}</span>
+      <h1>${title}</h1>
+      <p>${body}</p>
+      <form method="POST" action="/api/public/quotes/${id}/decision">
+        <input type="hidden" name="accion" value="${accion}">
+        <button type="submit">${btnLabel}</button>
+      </form>
+      <div class="footer">Solarys &middot; Plataforma de gestión hotelera</div>
+    </div>
+  </body>
+  </html>
+  `;
+}
+
+// PATCH /api/public/quotes/:id/status — Aceptar o rechazar cotización (JSON)
+router.patch('/quotes/:id/status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { estado } = req.body; // 'Aceptada' o 'Rechazada'
+    if (!['Aceptada', 'Rechazada'].includes(estado)) {
+      return res.status(400).json({ error: 'Estado inválido. Debe ser Aceptada o Rechazada.' });
+    }
+
+    const result = await applyQuoteDecision(id, estado);
+    if (!result.success) {
+      return res.status(result.status).json({ error: result.error });
+    }
+
+    return res.json({ success: true, quote: result.quote });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/public/quotes/:id/decision?accion=aceptar|rechazar
+// Enlace usado por los botones del correo. A propósito NO modifica nada:
+// solo muestra una pantalla de confirmación (o el resultado, si la
+// cotización ya fue decidida antes). La decisión real se aplica únicamente
+// con el POST que dispara el botón de esa pantalla — ver renderConfirmPage
+// para la justificación de este flujo en dos pasos.
+router.get('/quotes/:id/decision', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const accion = String(req.query.accion || '').toLowerCase();
+    const estado = accion === 'aceptar' ? 'Aceptada' : accion === 'rechazar' ? 'Rechazada' : null;
+
+    if (!estado) {
+      return res.status(400).send(renderDecisionPage({ ok: false, message: 'El enlace no es válido.' }));
+    }
+
+    const { data: quote, error: getErr } = await db()
+      .from('cotizaciones')
+      .select('estado, numero_cotizacion, hoteles(nombre_hotel)')
+      .eq('id_cotizacion', id)
+      .maybeSingle();
+
+    if (getErr) return res.status(500).send(renderDecisionPage({ ok: false, message: getErr.message }));
+    if (!quote) return res.status(404).send(renderDecisionPage({ ok: false, message: 'Cotización no encontrada.' }));
+
+    if (quote.estado === 'Aceptada' || quote.estado === 'Rechazada') {
+      return res.send(renderDecisionPage({
+        ok: true,
+        estado: quote.estado as 'Aceptada' | 'Rechazada',
+        numero: quote.numero_cotizacion,
+        hotelName: (quote.hoteles as any)?.nombre_hotel,
+        alreadyProcessed: true
+      }));
+    }
+
+    return res.send(renderConfirmPage({
+      estado,
+      id,
+      accion,
+      numero: quote.numero_cotizacion,
+      hotelName: (quote.hoteles as any)?.nombre_hotel
+    }));
+  } catch (err: any) {
+    return res.status(500).send(renderDecisionPage({ ok: false, message: err.message }));
+  }
+});
+
+// POST /api/public/quotes/:id/decision — aplica la decisión real.
+// Solo se llega aquí cuando el cliente envía el formulario de la pantalla
+// de confirmación (acción explícita), nunca por precarga automática de enlaces.
+router.post('/quotes/:id/decision', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const accion = String(req.body?.accion || '').toLowerCase();
+    const estado = accion === 'aceptar' ? 'Aceptada' : accion === 'rechazar' ? 'Rechazada' : null;
+
+    if (!estado) {
+      return res.status(400).send(renderDecisionPage({ ok: false, message: 'El enlace no es válido.' }));
+    }
+
+    const result = await applyQuoteDecision(id, estado);
+    if (!result.success) {
+      return res.status(result.status).send(renderDecisionPage({ ok: false, message: result.error }));
+    }
+
+    return res.send(renderDecisionPage({
+      ok: true,
+      estado,
+      numero: result.quote.numero_cotizacion,
+      hotelName: (result.quote.hoteles as any)?.nombre_hotel,
+      alreadyProcessed: result.alreadyProcessed
+    }));
+  } catch (err: any) {
+    return res.status(500).send(renderDecisionPage({ ok: false, message: err.message }));
   }
 });
 

@@ -21,14 +21,6 @@ const IconReservations = () => (
     <path d="M7 4v3M17 4v3M5 9h14M6.5 6h11A1.5 1.5 0 0 1 19 7.5v10a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 17.5v-10A1.5 1.5 0 0 1 6.5 6z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
-const IconCleaning = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    <polyline points="14 2 14 8 20 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    <line x1="16" y1="13" x2="8" y2="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    <line x1="16" y1="17" x2="8" y2="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-  </svg>
-);
 const IconPayments = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5zm0 3.5h16M8 14h3m2 0h3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -52,6 +44,13 @@ const IconChart = () => (
     <line x1="6" y1="20" x2="6" y2="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
+const IconExport = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <line x1="12" y1="15" x2="12" y2="3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
 const IconUsers = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M16 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -71,9 +70,55 @@ const IconChat = () => (
   </svg>
 );
 
+const IconQuotes = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="16" y1="13" x2="8" y2="13" />
+    <line x1="16" y1="17" x2="8" y2="17" />
+    <polyline points="10 9 9 9 8 9" />
+  </svg>
+);
+
 const IconClients = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" fill="currentColor" />
+  </svg>
+);
+const IconBuilding = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M9 3v18M3 9h6M3 15h6M15 9h3M15 13h3M15 17h3" />
+  </svg>
+);
+const IconWrench = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+  </svg>
+);
+const IconSparkles = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3l1.88 5.76L20 10l-5.76 1.88L12 18l-1.88-5.76L4 10l5.76-1.88z" />
+    <path d="M5 3l.94 2.88L9 7l-2.88.94L5 11l-.94-2.88L1 7l2.88-.94z" strokeWidth="1.4" />
+    <path d="M19 17l.94 2.88L23 21l-2.88.94L19 25" strokeWidth="1.4" />
+  </svg>
+);
+const IconMail = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+    <polyline points="22,6 12,13 2,6" />
+  </svg>
+);
+const IconShield = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+  </svg>
+);
+const IconUploadCloud = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="16 16 12 12 8 16" />
+    <line x1="12" y1="12" x2="12" y2="21" />
+    <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
   </svg>
 );
 const IconChevron = () => (
@@ -86,54 +131,80 @@ const IconCheck = () => (
     <polyline points="20 6 9 17 4 12" />
   </svg>
 );
-const getSidebarSections = (role: string) => {
+/* ── Insignia visual del plan de suscripción activo ───────── */
+const PLAN_BADGES: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  hotel_starter: { label: 'Starter', color: '#64748b', bg: 'rgba(100,116,139,.10)', border: 'rgba(100,116,139,.25)' },
+  hotel_pro: { label: 'Estándar', color: '#2563eb', bg: 'rgba(37,99,235,.10)', border: 'rgba(37,99,235,.25)' },
+  hotel_business: { label: 'Premium', color: '#d97706', bg: 'rgba(217,119,6,.10)', border: 'rgba(217,119,6,.25)' },
+};
+
+const getSidebarSections = (role: string, featureFlags: string[]) => {
+  // Roles alineados con src/config/rbac.ts ROUTE_ROLES
   const sections: Array<{
     title: string;
-    items: Array<{ to: string; label: string; icon: () => JSX.Element; roles?: string[] }>;
+    items: Array<{ to: string; label: string; icon: () => JSX.Element; roles?: string[]; feature?: string }>;
   }> = [
       {
         title: 'Operativos',
         items: [
           { to: '/', label: 'Panel', icon: IconPanel, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'] },
           { to: '/habitaciones', label: 'Habitaciones', icon: IconServices, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'] },
-          { to: '/reservas', label: 'Reservas', icon: IconReservations, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'] },
+          { to: '/housekeeping', label: 'Housekeeping', icon: IconSparkles, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'] },
+          { to: '/mantenimiento', label: 'Mantenimiento', icon: IconWrench, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'] },
+          { to: '/reservas', label: 'Reservas', icon: IconReservations, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/pagos', label: 'Pagos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/clientes', label: 'Clientes', icon: IconClients, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
-          { to: '/estado-cuenta', label: 'Estado de Cuenta', icon: IconWallet, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
-          { to: '/limpieza', label: 'Limpieza', icon: IconCleaning, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO'] },
+          { to: '/empresas', label: 'Empresas', icon: IconBuilding, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
+          { to: '/cotizaciones', label: 'Cotizaciones', icon: IconQuotes, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'], feature: 'cotizaciones' },
+          { to: '/estado-cuenta', label: 'Estado de Cuenta', icon: IconWallet, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/chat', label: 'Chat', icon: IconChat, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'] },
         ],
       },
       {
         title: 'Administración',
         items: [
-          { to: '/finanzas', label: 'Ingresos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
+          { to: '/finanzas', label: 'Ingresos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
           { to: '/tarifas', label: 'Tarifas', icon: IconRates, roles: ['PROPIETARIO', 'ADMIN'] },
+          { to: '/exportar', label: 'Exportar Datos', icon: IconExport, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'], feature: 'exportador_datos' },
+          { to: '/importar-reservas', label: 'Importar', icon: IconUploadCloud, roles: ['PROPIETARIO', 'ADMIN'] },
           { to: '/config', label: 'Configuración', icon: IconSettings, roles: ['PROPIETARIO', 'ADMIN'] },
+          { to: '/plantillas-correo', label: 'Plantillas Correo', icon: IconMail, roles: ['PROPIETARIO', 'ADMIN'], feature: 'email_studio' },
           { to: '/gestionar-roles', label: 'Roles y Permisos', icon: IconUsers, roles: ['PROPIETARIO'] },
+          { to: '/auditoria', label: 'Auditoría', icon: IconShield, roles: ['PROPIETARIO', 'ADMIN'], feature: 'auditoria' },
         ],
       },
       {
         title: 'Reportes',
         items: [
-          { to: '/reportes', label: 'Reportes', icon: IconChart, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
+          { to: '/reportes', label: 'Reportes', icon: IconChart, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'], feature: 'reportes' },
         ],
       },
     ];
 
-  // Filtrar secciones y items según el rol
+  // Filtrar secciones y items según el rol y los feature flags del plan
   return sections
     .map(section => ({
       ...section,
-      items: section.items.filter(item => !item.roles || item.roles.includes(role)),
+      items: section.items.filter(item =>
+        (!item.roles || item.roles.includes(role)) &&
+        (!item.feature || featureFlags.includes(item.feature))
+      ),
     }))
     .filter(section => section.items.length > 0);
 };
 
 /* ── Items para rail (todos los items filtrados) ──────────── */
-const getAllItems = (role: string) => {
-  const sections = getSidebarSections(role);
+const getAllItems = (role: string, featureFlags: string[]) => {
+  const sections = getSidebarSections(role, featureFlags);
   return sections.flatMap(s => s.items);
+};
+
+/* ── Iniciales de un hotel para su avatar (ej. "Hotel Solar" -> "HS") ── */
+const getHotelInitials = (nombre?: string) => {
+  if (!nombre) return 'H';
+  const palabras = nombre.trim().split(/\s+/).filter(Boolean);
+  if (palabras.length === 1) return palabras[0].slice(0, 2).toUpperCase();
+  return (palabras[0][0] + palabras[1][0]).toUpperCase();
 };
 
 /* ── Componente ─────────────────────────────────────────── */
@@ -143,7 +214,7 @@ export const Sidebar: React.FC = () => {
   const { hotel: syncHotel } = useSync();
   const [unreadCount, setUnreadCount] = useState(0);
   const [hoteles, setHoteles] = useState<any[]>([]);
-  const [activeHotelId, setActiveHotelId] = useState(localStorage.getItem('active_hotel_id') || 'all');
+  const [activeHotelId, setActiveHotelId] = useState(localStorage.getItem('active_hotel_id') || '');
   const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
@@ -151,12 +222,27 @@ export const Sidebar: React.FC = () => {
       .then(data => {
         if (data && Array.isArray(data)) {
           setHoteles(data);
+          // Garantizar selección de hotel individual activo
+          const current = localStorage.getItem('active_hotel_id') || '';
+          const exists = current && current !== 'all' && data.some((h: any) => h.id_hotel === current);
+          if ((!exists || current === 'all') && data.length > 0) {
+            const firstId = data[0].id_hotel;
+            localStorage.setItem('active_hotel_id', firstId);
+            setActiveHotelId(firstId);
+            // Recargar para que todos los componentes usen el hotel correcto.
+            // Sin esto, Dashboard y otros que ya iniciaron peticiones con el ID
+            // antiguo mostrarían datos del usuario anterior.
+            window.location.reload();
+          } else if (current && current !== 'all') {
+            setActiveHotelId(current);
+          }
         }
       })
       .catch(err => console.error('Error loading hotels in sidebar:', err));
   }, []);
 
   const handleHotelChange = (val: string) => {
+    if (val === 'all') return;
     localStorage.setItem('active_hotel_id', val);
     setActiveHotelId(val);
     setModalOpen(false);
@@ -181,15 +267,33 @@ export const Sidebar: React.FC = () => {
     };
   }, []);
 
-  const sidebarSections = getSidebarSections(role);
-  const allItems = getAllItems(role);
+  const featureFlags = syncHotel?.plan?.feature_flags ?? [];
+  const sidebarSections = getSidebarSections(role, featureFlags);
+  const allItems = getAllItems(role, featureFlags);
 
   return (
     <div className="sidebar-cluster">
       {/* Rail compacto (visible por defecto) */}
       <aside className="sidebar-rail">
         <div className="sidebar-rail-head">
-          <div className="brand-badge" style={{ width: 38, height: 38, fontSize: 11, borderRadius: 12 }}>PC</div>
+          <div style={{ position: 'relative' }}>
+            <div className="brand-badge" style={{ width: 38, height: 38, fontSize: 11, borderRadius: 12 }}>PC</div>
+            {syncHotel?.plan?.id_plan && PLAN_BADGES[syncHotel.plan.id_plan] && (
+              <div
+                title={`Plan ${PLAN_BADGES[syncHotel.plan.id_plan].label}`}
+                style={{
+                  position: 'absolute',
+                  bottom: -3,
+                  right: -3,
+                  width: 12,
+                  height: 12,
+                  borderRadius: '50%',
+                  background: PLAN_BADGES[syncHotel.plan.id_plan].color,
+                  border: '2px solid var(--shell-bg)',
+                }}
+              />
+            )}
+          </div>
           <div
             style={{
               marginTop: 10,
@@ -204,10 +308,11 @@ export const Sidebar: React.FC = () => {
               fontSize: 14,
               cursor: 'pointer'
             }}
-            title={activeHotelId === 'all' ? 'Modo Consolidado (Todos)' : 'Hotel Individual Activo'}
+            title="Hotel Individual Activo"
           >
-            {activeHotelId === 'all' ? '🌍' : '🏢'}
+            🏨
           </div>
+
         </div>
 
         <nav className="sidebar-rail-menu">
@@ -218,6 +323,12 @@ export const Sidebar: React.FC = () => {
               end={item.to === '/'}
               className={({ isActive }) => isActive ? 'sidebar-rail-item active' : 'sidebar-rail-item'}
               title={item.label}
+              onClick={(e) => {
+                if (item.to === '/chat') {
+                  e.preventDefault();
+                  window.dispatchEvent(new CustomEvent('open-right-chat', { detail: { tab: 'operativo' } }));
+                }
+              }}
             >
               <div className="sidebar-rail-icon" style={{ position: 'relative' }}>
                 <item.icon />
@@ -230,6 +341,19 @@ export const Sidebar: React.FC = () => {
         </nav>
 
         <div style={{ marginTop: 'auto', paddingBottom: 10 }}>
+          <button
+            className="sidebar-rail-item"
+            title="Volver al Hub"
+            style={{ border: 'none', background: 'transparent', cursor: 'pointer', marginBottom: '8px' }}
+            onClick={() => {
+              const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
+              window.location.href = hubUrl;
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
           <button
             className="sidebar-rail-item"
             title="Cerrar sesión"
@@ -257,40 +381,100 @@ export const Sidebar: React.FC = () => {
 
         <div style={{ padding: '4px 8px', marginTop: 2 }}>
           <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>
-            🏨 Propiedad Activa
+            Propiedad Activa
           </label>
-          <button
-            onClick={() => setModalOpen(true)}
-            style={{
-              width: '100%',
-              padding: '10px 14px',
-              borderRadius: '12px',
-              border: '1px solid var(--shell-border-strong)',
-              backgroundColor: 'rgba(0, 0, 0, 0.03)',
-              color: 'var(--text-h)',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
-            onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--shell-border-strong)'}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {activeHotelId === 'all' ? '🌍 Consolidado (Todos)' : `🏢 ${syncHotel ? syncHotel.nombre_hotel : (hoteles.find(h => h.id_hotel === activeHotelId)?.nombre_hotel || 'Cargando...')}`}
-            </div>
-            <div style={{ color: 'var(--muted)', display: 'flex', flexShrink: 0 }}>
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-            </div>
-          </button>
+          {(() => {
+            const propiedadActiva = syncHotel
+              ? { nombre_hotel: syncHotel.nombre_hotel, ciudad: hoteles.find(h => h.id_hotel === activeHotelId)?.ciudad }
+              : hoteles.find(h => h.id_hotel === activeHotelId);
+            const puedeCambiar = hoteles.length > 1;
+            return (
+              <button
+                onClick={() => puedeCambiar && setModalOpen(true)}
+                title={puedeCambiar ? 'Cambiar de propiedad' : 'Esta es tu única propiedad'}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: '12px',
+                  border: '1px solid var(--shell-border-strong)',
+                  backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                  color: 'var(--text-h)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: puedeCambiar ? 'pointer' : 'default',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 10,
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                }}
+                onMouseEnter={(e) => { if (puedeCambiar) e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--shell-border-strong)'; }}
+              >
+                <div style={{
+                  width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                  background: 'var(--sidebar-item-hover)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 11, fontWeight: 800, color: 'var(--text-h)',
+                }}>
+                  {getHotelInitials(propiedadActiva?.nombre_hotel)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                  <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {propiedadActiva?.nombre_hotel || 'Cargando...'}
+                  </div>
+                  {propiedadActiva?.ciudad && (
+                    <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {propiedadActiva.ciudad}
+                    </div>
+                  )}
+                </div>
+                {puedeCambiar && (
+                  <div style={{ color: 'var(--muted)', display: 'flex', flexShrink: 0 }}>
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                  </div>
+                )}
+              </button>
+            );
+          })()}
         </div>
+
+        {(() => {
+          const planInfo = syncHotel?.plan?.id_plan ? PLAN_BADGES[syncHotel.plan.id_plan] : null;
+          if (!planInfo) return null;
+          const isTopTier = syncHotel?.plan?.id_plan === 'hotel_business';
+          return (
+            <div style={{ padding: '6px 8px 0' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  borderRadius: 12,
+                  background: planInfo.bg,
+                  border: `1px solid ${planInfo.border}`,
+                }}
+              >
+                <span style={{ fontSize: 11, fontWeight: 800, color: planInfo.color, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                  Plan {planInfo.label}
+                </span>
+                {!isTopTier && (
+                  <a
+                    href={`${import.meta.env.VITE_HUB_URL || 'http://localhost:5174'}/upgrade`}
+                    style={{ fontSize: 11, fontWeight: 700, color: planInfo.color, textDecoration: 'none' }}
+                  >
+                    Mejorar →
+                  </a>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         <nav className="menu">
           {sidebarSections.map((section, idx) => (
@@ -307,6 +491,12 @@ export const Sidebar: React.FC = () => {
                     to={item.to}
                     end={item.to === '/'}
                     className={({ isActive }) => isActive ? 'menu-item active' : 'menu-item'}
+                    onClick={(e) => {
+                      if (item.to === '/chat') {
+                        e.preventDefault();
+                        window.dispatchEvent(new CustomEvent('open-right-chat', { detail: { tab: 'operativo' } }));
+                      }
+                    }}
                     style={{
                       animation: `fadeInUp 0.4s ${i * 0.04 + idx * 0.08}s both`,
                       display: 'flex',
@@ -329,12 +519,41 @@ export const Sidebar: React.FC = () => {
           ))}
         </nav>
 
+
+
         <footer className="sidebar-footer">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingBottom: 4 }}>
             <strong>{user?.email?.split('@')[0] ?? 'Usuario'}</strong>
             <span>{user?.email ?? 'Partner Central'}</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{role}</span>
           </div>
+          <button
+            onClick={() => {
+              const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
+              window.location.href = hubUrl;
+            }}
+            style={{
+              marginTop: 6, width: '100%', padding: 9, borderRadius: 10,
+              border: '1px solid rgba(37, 99, 235, 0.2)',
+              background: 'rgba(37, 99, 235, 0.06)', color: '#2563eb',
+              fontWeight: 600, fontSize: 13, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              transition: 'all .18s ease'
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.12)';
+              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(37, 99, 235, 0.36)';
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.06)';
+              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(37, 99, 235, 0.2)';
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+            Volver al Hub
+          </button>
           <NavLink
             to="/perfil"
             className={({ isActive }) => isActive ? 'logout-button active' : 'logout-button'}
@@ -392,31 +611,6 @@ export const Sidebar: React.FC = () => {
             </div>
 
             <div style={{ padding: '12px', maxHeight: '60vh', overflowY: 'auto' }}>
-              <div
-                onClick={() => handleHotelChange('all')}
-                style={{
-                  padding: '14px 16px',
-                  borderRadius: '10px',
-                  marginBottom: 8,
-                  backgroundColor: activeHotelId === 'all' ? 'var(--accent-bg)' : 'transparent',
-                  border: activeHotelId === 'all' ? '1px solid var(--accent-border)' : '1px solid transparent',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-                }}
-                onMouseEnter={(e) => { if (activeHotelId !== 'all') e.currentTarget.style.backgroundColor = 'var(--sidebar-item-hover)' }}
-                onMouseLeave={(e) => { if (activeHotelId !== 'all') e.currentTarget.style.backgroundColor = 'transparent' }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: '8px', background: 'var(--sidebar-item-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🌍</div>
-                  <div>
-                    <div style={{ color: 'var(--text-h)', fontWeight: 600, fontSize: 15 }}>Consolidado Total</div>
-                    <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>Ver métricas de todos los hoteles</div>
-                  </div>
-                </div>
-                {activeHotelId === 'all' && <span style={{ color: 'var(--accent)' }}><IconCheck /></span>}
-              </div>
-
               {hoteles.map((h: any) => (
                 <div
                   key={h.id_hotel}
@@ -435,7 +629,7 @@ export const Sidebar: React.FC = () => {
                   onMouseLeave={(e) => { if (activeHotelId !== h.id_hotel) e.currentTarget.style.backgroundColor = 'transparent' }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '8px', background: 'var(--sidebar-item-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🏢</div>
+                    <div style={{ width: 40, height: 40, borderRadius: '8px', background: 'var(--sidebar-item-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>{getHotelInitials(h.nombre_hotel)}</div>
                     <div>
                       <div style={{ color: 'var(--text-h)', fontWeight: 600, fontSize: 15 }}>{h.nombre_hotel}</div>
                       <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>{h.ciudad || 'Operación regular'}</div>

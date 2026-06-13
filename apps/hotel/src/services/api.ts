@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { ApiResponse, Reserva, Habitacion } from '../types';
+import { supabase } from '../api/supabase';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
@@ -12,14 +13,18 @@ export const axiosInstance = axios.create({
 });
 
 axiosInstance.interceptors.request.use(
-  (config) => {
-    const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  async (config) => {
+    const activeHotelId = localStorage.getItem('active_hotel_id') || '';
     config.headers['X-Hotel-ID'] = activeHotelId;
+    // Adjuntar JWT para rutas que requieren autenticación
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (token) config.headers['Authorization'] = `Bearer ${token}`;
+    } catch (_) { /* sin sesión activa */ }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 axiosInstance.interceptors.response.use(
@@ -28,7 +33,14 @@ axiosInstance.interceptors.response.use(
     return response;
   },
   (error) => {
-    console.error('🌐 [API Error]:', error.config?.url, error.message);
+    const code = error.response?.data?.error;
+    if (code === 'ACCOUNT_SUSPENDED' || code === 'ACCOUNT_INACTIVE' || code === 'MODULE_SUSPENDED') {
+      window.dispatchEvent(new CustomEvent('solarys:account-blocked', {
+        detail: { reason: code, message: error.response?.data?.message ?? '' },
+      }));
+    } else {
+      console.error('🌐 [API Error]:', error.config?.url, error.message);
+    }
     return Promise.reject(error);
   }
 );
@@ -91,10 +103,11 @@ export const habitacionesService = {
 };
 
 const apiClient = {
-  get: <T = any>(endpoint: string) => axiosInstance.get<T>(endpoint).then(res => res.data),
-  post: <T = any>(endpoint: string, data?: any) => axiosInstance.post<T>(endpoint, data).then(res => res.data),
-  put: <T = any>(endpoint: string, data?: any) => axiosInstance.put<T>(endpoint, data).then(res => res.data),
-  delete: <T = any>(endpoint: string) => axiosInstance.delete<T>(endpoint).then(res => res.data),
+  get: <T = any>(endpoint: string, config?: any) => axiosInstance.get<T>(endpoint, config).then(res => res.data),
+  post: <T = any>(endpoint: string, data?: any, config?: any) => axiosInstance.post<T>(endpoint, data, config).then(res => res.data),
+  put: <T = any>(endpoint: string, data?: any, config?: any) => axiosInstance.put<T>(endpoint, data, config).then(res => res.data),
+  patch: <T = any>(endpoint: string, data?: any, config?: any) => axiosInstance.patch<T>(endpoint, data, config).then(res => res.data),
+  delete: <T = any>(endpoint: string, config?: any) => axiosInstance.delete<T>(endpoint, config).then(res => res.data),
 };
 
 export default apiClient;

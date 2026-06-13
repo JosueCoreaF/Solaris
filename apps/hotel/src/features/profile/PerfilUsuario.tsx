@@ -2,18 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Eye, EyeOff, Upload, Lock, Bell, Moon, Globe, Shield, LogOut, User, Mail, Phone, MapPin, Calendar, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useRole } from '../../hooks/useRole';
-import { supabase } from '../../api/supabase';
 import * as perfilService from '../../api/perfilService';
-
-interface ActivityLog {
-  id: string;
-  usuario_id: string;
-  accion: string;
-  tabla_afectada: string;
-  valores_antiguos?: Record<string, any>;
-  valores_nuevos?: Record<string, any>;
-  timestamp: string;
-}
+import { auditService, AuditLog } from '../../api/auditService';
 
 interface UserProfile {
   id: string;
@@ -35,7 +25,7 @@ export const PerfilUsuario: React.FC = () => {
   const { role, canRead, canCreate, canEdit, canDelete } = useRole();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [activityLogs, setActivityLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -61,9 +51,9 @@ export const PerfilUsuario: React.FC = () => {
   const [loginAutomatico, setLoginAutomatico] = useState(false);
   const [recordarDispositivo, setRecordarDispositivo] = useState(false);
 
-  // Filtros de actividad
   const [filtroAccion, setFiltroAccion] = useState('');
   const [filtroTabla, setFiltroTabla] = useState('');
+  const [activeTab, setActiveTab] = useState<'general' | 'seguridad' | 'preferencias' | 'actividad'>('general');
 
   useEffect(() => {
     cargarPerfil();
@@ -106,31 +96,27 @@ export const PerfilUsuario: React.FC = () => {
 
   const cargarPreferencias = async () => {
     try {
-      // Primero intentar cargar desde localStorage directamente (más rápido)
       const localPrefs = localStorage.getItem('userPreferences');
       if (localPrefs) {
         try {
           const parsed = JSON.parse(localPrefs);
-          console.log('✅ Preferencias cargadas desde localStorage:', parsed);
           setTema((parsed.tema || 'claro') as 'claro' | 'oscuro');
           setIdioma((parsed.idioma || 'es') as 'es' | 'en');
           setNotificacionesActivas(parsed.notificaciones_activas !== false);
           setLoginAutomatico(parsed.login_automatico === true);
           setRecordarDispositivo(parsed.recordar_dispositivo === true);
-          return; // Si encontramos en localStorage, no hacer más
+          return;
         } catch (e) {
           console.error('Error parsing localStorage:', e);
         }
       }
 
-      // Si no está en localStorage, intentar desde perfilService (que intenta BD + localStorage fallback)
       const prefs = await Promise.race([
         perfilService.obtenerPreferenciasUsuario(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
       ]) as any;
       
       if (prefs) {
-        console.log('Preferencias cargadas:', prefs);
         setTema((prefs.tema || 'claro') as 'claro' | 'oscuro');
         setIdioma((prefs.idioma || 'es') as 'es' | 'en');
         setNotificacionesActivas(prefs.notificaciones_activas !== false);
@@ -139,7 +125,6 @@ export const PerfilUsuario: React.FC = () => {
       }
     } catch (err) {
       console.error('Error cargando preferencias:', err);
-      // Usar valores por defecto si todo falla
       setTema('claro');
       setIdioma('es');
       setNotificacionesActivas(true);
@@ -151,22 +136,8 @@ export const PerfilUsuario: React.FC = () => {
   const cargarHistorialActividad = async () => {
     try {
       if (!authUser) return;
-
-      const { data, error: err } = await supabase
-        .from('bitacora_actividad')
-        .select('*')
-        .eq('usuario_id', authUser.id)
-        .order('timestamp', { ascending: false })
-        .limit(50);
-
-      if (err) {
-        console.warn('No se pudo cargar bitácora:', err);
-        return;
-      }
-
-      if (data) {
-        setActivityLogs(data);
-      }
+      const response = await auditService.obtenerMiActividad(30, 0);
+      setActivityLogs(response.data ?? []);
     } catch (err) {
       console.error(err);
     }
@@ -175,7 +146,6 @@ export const PerfilUsuario: React.FC = () => {
   const handleGuardarPerfil = async () => {
     try {
       if (!authUser || !profile) return;
-
       setLoading(true);
       const updatedData = {
         nombre: editNombre,
@@ -183,16 +153,8 @@ export const PerfilUsuario: React.FC = () => {
         telefono: editTelefono,
         direccion: editDireccion,
       };
-
-      // Actualizar metadata del usuario en Supabase Auth
       await perfilService.actualizarPerfilUsuario(updatedData);
-
-      const updatedProfile: UserProfile = {
-        ...profile,
-        ...updatedData,
-      };
-
-      setProfile(updatedProfile);
+      setProfile({ ...profile, ...updatedData });
       setEditingProfile(false);
       setSuccessMessage('✅ Perfil actualizado correctamente');
       setTimeout(() => setSuccessMessage(null), 3000);
@@ -211,13 +173,11 @@ export const PerfilUsuario: React.FC = () => {
       setTimeout(() => setError(null), 3000);
       return;
     }
-
     if (newPassword !== confirmPassword) {
       setError('⚠️ Las contraseñas no coinciden');
       setTimeout(() => setError(null), 3000);
       return;
     }
-
     if (newPassword.length < 8) {
       setError('⚠️ La contraseña debe tener al menos 8 caracteres');
       setTimeout(() => setError(null), 3000);
@@ -227,11 +187,9 @@ export const PerfilUsuario: React.FC = () => {
     try {
       setLoading(true);
       await perfilService.cambiarContraseña(newPassword);
-
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      setShowPasswordForm(false);
       setSuccessMessage('✅ Contraseña actualizada correctamente');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
@@ -243,22 +201,21 @@ export const PerfilUsuario: React.FC = () => {
     }
   };
 
-  const handleGuardarPreferencias = async () => {
+  // overrides permite pasar el valor recién cambiado directamente, ya que
+  // el estado de React (tema, loginAutomatico, etc.) aún no se actualiza
+  // en el momento en que se llama esta función desde un onChange.
+  const handleGuardarPreferencias = async (overrides?: Partial<perfilService.UserPreferences>) => {
     try {
       setLoading(true);
-      
-      // Guardar preferencias
       await perfilService.guardarPreferenciasUsuario({
         tema: tema as 'claro' | 'oscuro',
         idioma: idioma as 'es' | 'en',
         notificaciones_activas: notificacionesActivas,
         login_automatico: loginAutomatico,
         recordar_dispositivo: recordarDispositivo,
+        ...overrides,
       });
-
-      // Recargar preferencias para confirmar que se guardaron
       await cargarPreferencias();
-
       setSuccessMessage('✅ Preferencias guardadas correctamente');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
@@ -270,20 +227,20 @@ export const PerfilUsuario: React.FC = () => {
     }
   };
 
-  const actividadFiltrada = activityLogs.filter(log => {
-    const coincideAccion = !filtroAccion || log.accion.toLowerCase().includes(filtroAccion.toLowerCase());
-    const coincideTabla = !filtroTabla || log.tabla_afectada.toLowerCase().includes(filtroTabla.toLowerCase());
-    return coincideAccion && coincideTabla;
-  });
+  const etiquetaEntidadPerfil: Record<string, string> = {
+    reservas_hotel: 'Reservas', pagos_hotel: 'Pagos', huespedes: 'Huéspedes',
+    usuarios_roles: 'Usuarios & Roles', saldos_clientes: 'Saldos',
+    habitaciones: 'Habitaciones', cotizaciones: 'Cotizaciones', hoteles: 'Hotel',
+  };
 
   const userRole = role;
 
-  if (loading) {
+  if (loading && !profile) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 400 }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ width: 32, height: 32, border: '2.5px solid #e2e8f0', borderTopColor: '#2563eb', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
-          <p style={{ fontSize: 13, color: '#64748b' }}>Cargando perfil...</p>
+      <div className="min-h-[400px] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-slate-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-slate-500">Cargando perfil...</p>
         </div>
       </div>
     );
@@ -291,8 +248,8 @@ export const PerfilUsuario: React.FC = () => {
 
   if (!profile) {
     return (
-      <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ padding: '16px', borderRadius: 10, backgroundColor: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.22)', color: '#dc2626', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm flex items-center gap-2">
           <AlertCircle size={16} />
           Error: No se pudo cargar el perfil. Por favor recarga la página.
         </div>
@@ -301,544 +258,441 @@ export const PerfilUsuario: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 600, color: '#1e293b', margin: '0 0 8px' }}>
-          👤 Mi Perfil
-        </h1>
-        <p style={{ fontSize: 14, color: '#64748b', margin: 0 }}>
-          Gestiona tu información personal y preferencias
-        </p>
+    <div className="p-6 max-w-6xl mx-auto animate-fade-in">
+      <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-1 tracking-tight">Mi Perfil</h1>
+          <p className="text-sm text-slate-500">Gestiona tu información, seguridad y preferencias de la cuenta.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold uppercase tracking-wider rounded-lg border border-blue-100 flex items-center gap-1.5">
+            <Shield size={14} />
+            {userRole || 'CARGANDO...'}
+          </div>
+        </div>
       </div>
 
-      {/* Mensajes de error/éxito */}
       {error && (
-        <div style={{ padding: '12px 14px', borderRadius: 10, backgroundColor: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.22)', color: '#dc2626', fontSize: 13, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <AlertCircle size={16} />
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm mb-6 flex items-center gap-2 animate-slide-in">
+          <AlertCircle size={18} />
           {error}
         </div>
       )}
       {successMessage && (
-        <div style={{ padding: '12px 14px', borderRadius: 10, backgroundColor: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.22)', color: '#22c55e', fontSize: 13, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-          ✓ {successMessage}
+        <div className="p-4 rounded-xl bg-green-50 border border-green-200 text-green-700 text-sm mb-6 flex items-center gap-2 animate-slide-in">
+          <Shield size={18} />
+          {successMessage}
         </div>
       )}
 
-      {profile && (
-        <>
-          {/* 1. PERFIL PERSONAL */}
-          <div style={{ marginBottom: 32, padding: '20px', borderRadius: 12, border: '1px solid #e0e7ff', backgroundColor: '#f8fafc' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-              <User size={24} style={{ color: '#2563eb' }} />
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', margin: 0 }}>
-                📋 Perfil Personal
-              </h2>
-            </div>
+      <div className="flex flex-col lg:flex-row gap-8">
+        <div className="lg:w-64 flex-shrink-0">
+          <nav className="flex lg:flex-col gap-1 overflow-x-auto pb-2 lg:pb-0 scrollbar-hide">
+            <button
+              onClick={() => setActiveTab('general')}
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold whitespace-nowrap transition-all ${
+                activeTab === 'general' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <User size={18} /> General
+            </button>
+            <button
+              onClick={() => setActiveTab('seguridad')}
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold whitespace-nowrap transition-all ${
+                activeTab === 'seguridad' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Lock size={18} /> Seguridad
+            </button>
+            <button
+              onClick={() => setActiveTab('preferencias')}
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold whitespace-nowrap transition-all ${
+                activeTab === 'preferencias' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Globe size={18} /> Preferencias
+            </button>
+            <button
+              onClick={() => setActiveTab('actividad')}
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold whitespace-nowrap transition-all ${
+                activeTab === 'actividad' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Bell size={18} /> Actividad
+            </button>
+          </nav>
+        </div>
 
-            {!editingProfile ? (
-              <div style={{ display: 'grid', gap: 16 }}>
-                {/* Avatar */}
-                <div style={{ textAlign: 'center', paddingBottom: 16, borderBottom: '1px solid #e2e8f0' }}>
-                  <div style={{ width: 100, height: 100, borderRadius: '50%', backgroundColor: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', fontSize: 40, color: '#64748b' }}>
-                    {profile.foto_perfil_url ? '🖼️' : '👤'}
-                  </div>
-                  <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
-                    Foto de perfil
-                  </p>
-                </div>
-
-                {/* Datos */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', margin: '0 0 4px' }}>Nombre</p>
-                    <p style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', margin: 0 }}>{profile.nombre}</p>
-                  </div>
-                  <div>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', margin: '0 0 4px' }}>Apellido</p>
-                    <p style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', margin: 0 }}>{profile.apellido || '—'}</p>
-                  </div>
-                  <div>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', margin: '0 0 4px' }}>
-                      <Mail size={14} style={{ display: 'inline', marginRight: 4 }} />
-                      Correo
-                    </p>
-                    <p style={{ fontSize: 13, color: '#2563eb', margin: 0 }}>{profile.email}</p>
-                  </div>
-                  <div>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', margin: '0 0 4px' }}>
-                      <Phone size={14} style={{ display: 'inline', marginRight: 4 }} />
-                      Teléfono
-                    </p>
-                    <p style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', margin: 0 }}>{profile.telefono || '—'}</p>
-                  </div>
-                  <div>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', margin: '0 0 4px' }}>
-                      <MapPin size={14} style={{ display: 'inline', marginRight: 4 }} />
-                      Dirección
-                    </p>
-                    <p style={{ fontSize: 13, color: '#475569', margin: 0 }}>{profile.direccion || '—'}</p>
-                  </div>
-                  <div>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', margin: '0 0 4px' }}>
-                      <Calendar size={14} style={{ display: 'inline', marginRight: 4 }} />
-                      Se unió
-                    </p>
-                    <p style={{ fontSize: 13, color: '#475569', margin: 0 }}>{new Date(profile.created_at).toLocaleDateString('es-ES')}</p>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setEditingProfile(true)}
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: 6,
-                    border: 'none',
-                    backgroundColor: '#2563eb',
-                    color: '#fff',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    alignSelf: 'flex-start',
-                  }}
-                >
-                  ✏️ Editar Perfil
-                </button>
+        <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          {activeTab === 'general' && (
+            <div className="animate-fade-in">
+              <div className="p-6 md:p-8 border-b border-slate-100">
+                <h2 className="text-xl font-bold text-slate-800">Información Personal</h2>
+                <p className="text-sm text-slate-500 mt-1">Actualiza tu foto y datos de contacto.</p>
               </div>
-            ) : (
-              <div style={{ display: 'grid', gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
-                    Nombre
-                  </label>
-                  <input
-                    type="text"
-                    value={editNombre}
-                    onChange={e => setEditNombre(e.target.value)}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
-                    Apellido
-                  </label>
-                  <input
-                    type="text"
-                    value={editApellido}
-                    onChange={e => setEditApellido(e.target.value)}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
-                    Teléfono
-                  </label>
-                  <input
-                    type="tel"
-                    value={editTelefono}
-                    onChange={e => setEditTelefono(e.target.value)}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
-                    Dirección
-                  </label>
-                  <input
-                    type="text"
-                    value={editDireccion}
-                    onChange={e => setEditDireccion(e.target.value)}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }}
-                  />
-                </div>
-
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    onClick={handleGuardarPerfil}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 6,
-                      border: 'none',
-                      backgroundColor: '#16a34a',
-                      color: '#fff',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    💾 Guardar
-                  </button>
-                  <button
-                    onClick={() => setEditingProfile(false)}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 6,
-                      border: '1px solid #e2e8f0',
-                      backgroundColor: '#f8fafc',
-                      color: '#475569',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ✕ Cancelar
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Cambiar Contraseña */}
-            <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #e2e8f0' }}>
-              <button
-                onClick={() => setShowPasswordForm(!showPasswordForm)}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: 6,
-                  border: '1px solid #cbd5e1',
-                  backgroundColor: '#f8fafc',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  color: '#475569',
-                }}
-              >
-                <Lock size={14} />
-                {showPasswordForm ? 'Cancelar' : 'Cambiar Contraseña'}
-              </button>
-
-              {showPasswordForm && (
-                <div style={{ marginTop: 12, padding: 12, borderRadius: 8, backgroundColor: '#fff5f5', border: '1px solid #fee2e2' }}>
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
-                      Contraseña Nueva
-                    </label>
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                      <input
-                        type={showNewPassword ? 'text' : 'password'}
-                        value={newPassword}
-                        onChange={e => setNewPassword(e.target.value)}
-                        placeholder="Mín. 8 caracteres"
-                        style={{ width: '100%', padding: '8px 10px 8px 32px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }}
-                      />
-                      <button
-                        onClick={() => setShowNewPassword(!showNewPassword)}
-                        style={{ position: 'absolute', left: 8, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                      >
-                        {showNewPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                      </button>
+              
+              <div className="p-6 md:p-8 flex flex-col md:flex-row gap-8">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-32 h-32 rounded-full bg-slate-100 border-4 border-white shadow-lg flex items-center justify-center text-4xl overflow-hidden relative group">
+                    {profile.foto_perfil_url ? (
+                      <img src={profile.foto_perfil_url} alt="Profile" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-slate-400">👤</span>
+                    )}
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                      <Upload size={24} className="text-white" />
                     </div>
                   </div>
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
-                      Confirmar Contraseña
-                    </label>
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                      <input
-                        type={showConfirmPassword ? 'text' : 'password'}
-                        value={confirmPassword}
-                        onChange={e => setConfirmPassword(e.target.value)}
-                        placeholder="Repetir contraseña"
-                        style={{ width: '100%', padding: '8px 10px 8px 32px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }}
-                      />
-                      <button
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        style={{ position: 'absolute', left: 8, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                      >
-                        {showConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                      </button>
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleCambiarContraseña}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: 'none',
-                      backgroundColor: '#dc2626',
-                      color: '#fff',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    🔐 Actualizar Contraseña
+                  <button className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 px-3 py-1.5 rounded-md transition-colors">
+                    Cambiar foto
                   </button>
                 </div>
-              )}
-            </div>
-          </div>
 
-          {/* 2. PREFERENCIAS DE INTERFAZ */}
-          <div style={{ marginBottom: 32, padding: '20px', borderRadius: 12, border: '1px solid #fef3c7', backgroundColor: '#fffbeb' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-              <Moon size={24} style={{ color: '#ca8a04' }} />
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', margin: 0 }}>
-                🎨 Preferencias de Interfaz
-              </h2>
-            </div>
-
-            <div style={{ display: 'grid', gap: 12 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
-                  Tema
-                </label>
-                <select
-                  value={tema}
-                  onChange={e => setTema(e.target.value as 'claro' | 'oscuro')}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    borderRadius: 6,
-                    border: '1px solid #cbd5e1',
-                    fontSize: 13,
-                    backgroundColor: '#fff',
-                  }}
-                >
-                  <option value="claro">☀️ Claro</option>
-                  <option value="oscuro">🌙 Oscuro</option>
-                </select>
+                <div className="flex-1">
+                  {!editingProfile ? (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Nombre</p>
+                          <p className="text-base font-medium text-slate-900">{profile.nombre}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Apellido</p>
+                          <p className="text-base font-medium text-slate-900">{profile.apellido || '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Correo Electrónico</p>
+                          <p className="text-base font-medium text-slate-900 flex items-center gap-2">
+                            <Mail size={16} className="text-slate-400" /> {profile.email}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Teléfono</p>
+                          <p className="text-base font-medium text-slate-900 flex items-center gap-2">
+                            <Phone size={16} className="text-slate-400" /> {profile.telefono || '—'}
+                          </p>
+                        </div>
+                        <div className="md:col-span-2">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Dirección</p>
+                          <p className="text-base font-medium text-slate-900 flex items-center gap-2">
+                            <MapPin size={16} className="text-slate-400" /> {profile.direccion || '—'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="pt-6 border-t border-slate-100">
+                        <button
+                          onClick={() => setEditingProfile(true)}
+                          className="bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold py-2.5 px-6 rounded-xl transition-all shadow-sm"
+                        >
+                          Editar Información
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-5">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nombre</label>
+                          <input
+                            type="text"
+                            value={editNombre}
+                            onChange={e => setEditNombre(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 block p-3 transition-colors outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Apellido</label>
+                          <input
+                            type="text"
+                            value={editApellido}
+                            onChange={e => setEditApellido(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 block p-3 transition-colors outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Teléfono</label>
+                          <input
+                            type="tel"
+                            value={editTelefono}
+                            onChange={e => setEditTelefono(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 block p-3 transition-colors outline-none"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Dirección</label>
+                          <input
+                            type="text"
+                            value={editDireccion}
+                            onChange={e => setEditDireccion(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 block p-3 transition-colors outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div className="pt-6 border-t border-slate-100 flex gap-3">
+                        <button
+                          onClick={handleGuardarPerfil}
+                          disabled={loading}
+                          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2.5 px-6 rounded-xl transition-all shadow-sm shadow-blue-600/20 disabled:opacity-70 flex items-center gap-2"
+                        >
+                          {loading ? 'Guardando...' : 'Guardar Cambios'}
+                        </button>
+                        <button
+                          onClick={() => setEditingProfile(false)}
+                          className="bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 text-sm font-semibold py-2.5 px-6 rounded-xl transition-all"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
+            </div>
+          )}
 
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
-                  Idioma
-                </label>
-                <select
-                  value={idioma}
-                  onChange={e => setIdioma(e.target.value as 'es' | 'en')}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    borderRadius: 6,
-                    border: '1px solid #cbd5e1',
-                    fontSize: 13,
-                    backgroundColor: '#fff',
-                  }}
-                >
-                  <option value="es">🇪🇸 Español</option>
-                  <option value="en">🇺🇸 English</option>
-                </select>
+          {activeTab === 'seguridad' && (
+            <div className="animate-fade-in">
+              <div className="p-6 md:p-8 border-b border-slate-100">
+                <h2 className="text-xl font-bold text-slate-800">Seguridad de la Cuenta</h2>
+                <p className="text-sm text-slate-500 mt-1">Protege tu acceso y administra tus credenciales.</p>
               </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 8, backgroundColor: '#fff' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Bell size={16} style={{ color: '#ca8a04' }} />
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', margin: 0 }}>Notificaciones</p>
-                    <p style={{ fontSize: 11, color: '#64748b', margin: '4px 0 0' }}>Recibir alertas del sistema</p>
+              
+              <div className="p-6 md:p-8 space-y-8">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
+                    <Lock size={18} className="text-blue-600" /> Cambiar Contraseña
+                  </h3>
+                  <div className="max-w-md space-y-4 bg-slate-50/50 p-6 rounded-2xl border border-slate-100">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nueva Contraseña</label>
+                      <div className="relative">
+                        <input
+                          type={showNewPassword ? 'text' : 'password'}
+                          value={newPassword}
+                          onChange={e => setNewPassword(e.target.value)}
+                          placeholder="Mín. 8 caracteres"
+                          className="w-full bg-white border border-slate-200 text-slate-900 text-sm rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 block p-3 transition-colors outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                          className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                        >
+                          {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Confirmar Contraseña</label>
+                      <div className="relative">
+                        <input
+                          type={showConfirmPassword ? 'text' : 'password'}
+                          value={confirmPassword}
+                          onChange={e => setConfirmPassword(e.target.value)}
+                          placeholder="Repite la contraseña"
+                          className="w-full bg-white border border-slate-200 text-slate-900 text-sm rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 block p-3 transition-colors outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                        >
+                          {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleCambiarContraseña}
+                      disabled={loading || !newPassword || !confirmPassword}
+                      className="w-full mt-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold py-3 px-6 rounded-xl transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Actualizando...' : 'Actualizar Contraseña'}
+                    </button>
                   </div>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={notificacionesActivas}
-                  onChange={e => setNotificacionesActivas(e.target.checked)}
-                  style={{ width: 20, height: 20, cursor: 'pointer' }}
-                />
-              </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 8, backgroundColor: '#fff', border: '1px solid #dbeafe' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Lock size={16} style={{ color: '#0284c7' }} />
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', margin: 0 }}>🔐 Login Automático</p>
-                    <p style={{ fontSize: 11, color: '#64748b', margin: '4px 0 0' }}>Inicia sesión automáticamente (como Google)</p>
+                <hr className="border-slate-100" />
+
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
+                    <Shield size={18} className="text-blue-600" /> Opciones de Acceso
+                  </h3>
+                  <div className="space-y-4 max-w-2xl">
+                    <label className="flex items-center justify-between p-4 rounded-xl border border-slate-200 hover:border-blue-300 transition-colors cursor-pointer group">
+                      <div>
+                        <p className="text-sm font-bold text-slate-900">Login Automático</p>
+                        <p className="text-xs text-slate-500 mt-1">Inicia sesión automáticamente si existe un token activo (como Google).</p>
+                      </div>
+                      <div className="relative">
+                        <input type="checkbox" className="sr-only peer" checked={loginAutomatico} onChange={e => {setLoginAutomatico(e.target.checked); handleGuardarPreferencias({ login_automatico: e.target.checked });}} />
+                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center justify-between p-4 rounded-xl border border-slate-200 hover:border-blue-300 transition-colors cursor-pointer group">
+                      <div>
+                        <p className="text-sm font-bold text-slate-900">Recordar Dispositivo</p>
+                        <p className="text-xs text-slate-500 mt-1">Mantener la sesión abierta en este navegador por más tiempo.</p>
+                      </div>
+                      <div className="relative">
+                        <input type="checkbox" className="sr-only peer" checked={recordarDispositivo} onChange={e => {setRecordarDispositivo(e.target.checked); handleGuardarPreferencias({ recordar_dispositivo: e.target.checked });}} />
+                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </div>
+                    </label>
                   </div>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={loginAutomatico}
-                  onChange={e => setLoginAutomatico(e.target.checked)}
-                  style={{ width: 20, height: 20, cursor: 'pointer' }}
-                />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'preferencias' && (
+            <div className="animate-fade-in">
+              <div className="p-6 md:p-8 border-b border-slate-100">
+                <h2 className="text-xl font-bold text-slate-800">Preferencias de Interfaz</h2>
+                <p className="text-sm text-slate-500 mt-1">Personaliza la apariencia y el comportamiento de la aplicación.</p>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 8, backgroundColor: '#fff', border: '1px solid #dbeafe' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Shield size={16} style={{ color: '#0284c7' }} />
+              <div className="p-6 md:p-8 space-y-8 max-w-2xl">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', margin: 0 }}>📱 Recordar Dispositivo</p>
-                    <p style={{ fontSize: 11, color: '#64748b', margin: '4px 0 0' }}>Mantener sesión en este navegador</p>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Apariencia</label>
+                    <div className="relative">
+                      <select
+                        value={tema}
+                        onChange={e => {setTema(e.target.value as 'claro'|'oscuro'); handleGuardarPreferencias({ tema: e.target.value as 'claro'|'oscuro' });}}
+                        className="w-full bg-white border border-slate-200 text-slate-900 text-sm font-semibold rounded-xl focus:ring-2 focus:ring-blue-500 block p-3 outline-none appearance-none cursor-pointer hover:border-blue-300 transition-colors"
+                      >
+                        <option value="claro">☀️ Tema Claro</option>
+                        <option value="oscuro">🌙 Tema Oscuro</option>
+                      </select>
+                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-500">
+                        <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Idioma</label>
+                    <div className="relative">
+                      <select
+                        value={idioma}
+                        onChange={e => {setIdioma(e.target.value as 'es'|'en'); handleGuardarPreferencias({ idioma: e.target.value as 'es'|'en' });}}
+                        className="w-full bg-white border border-slate-200 text-slate-900 text-sm font-semibold rounded-xl focus:ring-2 focus:ring-blue-500 block p-3 outline-none appearance-none cursor-pointer hover:border-blue-300 transition-colors"
+                      >
+                        <option value="es">🇪🇸 Español (Honduras)</option>
+                        <option value="en">🇺🇸 English (US)</option>
+                      </select>
+                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-500">
+                        <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={recordarDispositivo}
-                  onChange={e => setRecordarDispositivo(e.target.checked)}
-                  style={{ width: 20, height: 20, cursor: 'pointer' }}
-                />
-              </div>
 
-              <button
-                onClick={handleGuardarPreferencias}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: 6,
-                  border: 'none',
-                  backgroundColor: '#ca8a04',
-                  color: '#fff',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                💾 Guardar Preferencias
-              </button>
-            </div>
-          </div>
+                <hr className="border-slate-100" />
 
-          {/* 3. SEGURIDAD Y AUDITORÍA */}
-          <div style={{ marginBottom: 32, padding: '20px', borderRadius: 12, border: '1px solid #fce7f3', backgroundColor: '#fdf2f8' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-              <Shield size={24} style={{ color: '#ec4899' }} />
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', margin: 0 }}>
-                🔒 Mi Actividad
-              </h2>
-            </div>
-
-            {/* Filtros */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
-                  Filtrar por acción
-                </label>
-                <input
-                  type="text"
-                  value={filtroAccion}
-                  onChange={e => setFiltroAccion(e.target.value)}
-                  placeholder="Ej: INSERT, UPDATE, DELETE"
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
-                  Filtrar por tabla
-                </label>
-                <input
-                  type="text"
-                  value={filtroTabla}
-                  onChange={e => setFiltroTabla(e.target.value)}
-                  placeholder="Ej: reservas, usuarios_roles"
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }}
-                />
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
+                    <Bell size={18} className="text-blue-600" /> Alertas
+                  </h3>
+                  <label className="flex items-center justify-between p-4 rounded-xl border border-slate-200 hover:border-blue-300 transition-colors cursor-pointer group">
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">Notificaciones del Sistema</p>
+                      <p className="text-xs text-slate-500 mt-1">Recibe alertas importantes sobre tus reservas e ingresos.</p>
+                    </div>
+                    <div className="relative">
+                      <input type="checkbox" className="sr-only peer" checked={notificacionesActivas} onChange={e => {setNotificacionesActivas(e.target.checked); handleGuardarPreferencias({ notificaciones_activas: e.target.checked });}} />
+                      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </div>
+                  </label>
+                </div>
               </div>
             </div>
+          )}
 
-            {/* Tabla de actividad */}
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #e2e8f0', backgroundColor: '#fff' }}>
-                    <th style={{ padding: '10px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Fecha/Hora</th>
-                    <th style={{ padding: '10px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Acción</th>
-                    <th style={{ padding: '10px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Tabla</th>
-                    <th style={{ padding: '10px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Detalles</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {actividadFiltrada.length > 0 ? (
-                    actividadFiltrada.map(log => (
-                      <tr key={log.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: '#fdf2f8' }}>
-                        <td style={{ padding: '10px', color: '#475569' }}>
-                          {new Date(log.timestamp).toLocaleString('es-ES')}
-                        </td>
-                        <td style={{ padding: '10px' }}>
-                          <span style={{
-                            padding: '4px 8px',
-                            borderRadius: 4,
-                            backgroundColor: log.accion === 'INSERT' ? '#dcfce7' : log.accion === 'UPDATE' ? '#fef3c7' : '#fee2e2',
-                            color: log.accion === 'INSERT' ? '#16a34a' : log.accion === 'UPDATE' ? '#ca8a04' : '#dc2626',
-                            fontSize: 11,
-                            fontWeight: 600,
-                          }}>
-                            {log.accion}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px', color: '#2563eb', fontWeight: 500 }}>
-                          {log.tabla_afectada}
-                        </td>
-                        <td style={{ padding: '10px', color: '#64748b', fontSize: 11 }}>
-                          {log.valores_nuevos && Object.keys(log.valores_nuevos).length > 0
-                            ? `${Object.keys(log.valores_nuevos).length} campos`
-                            : '—'
-                          }
+          {activeTab === 'actividad' && (
+            <div className="animate-fade-in flex flex-col h-full min-h-[500px]">
+              <div className="p-6 md:p-8 border-b border-slate-100">
+                <h2 className="text-xl font-bold text-slate-800">Bitácora de Actividad</h2>
+                <p className="text-sm text-slate-500 mt-1">Revisa el historial de acciones realizadas por tu cuenta.</p>
+              </div>
+
+              <div className="p-6 bg-slate-50 border-b border-slate-200">
+                <div className="flex flex-col md:flex-row gap-4">
+                  <div className="flex-1">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Filtrar por Acción</label>
+                    <input
+                      type="text"
+                      value={filtroAccion}
+                      onChange={e => setFiltroAccion(e.target.value)}
+                      placeholder="Ej: Creado, Actualizado"
+                      className="w-full bg-white border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 outline-none"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Filtrar por Módulo</label>
+                    <input
+                      type="text"
+                      value={filtroTabla}
+                      onChange={e => setFiltroTabla(e.target.value)}
+                      placeholder="Ej: Reservas, Pagos"
+                      className="w-full bg-white border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="py-4 px-6 font-semibold">Fecha y Hora</th>
+                      <th className="py-4 px-6 font-semibold">Acción</th>
+                      <th className="py-4 px-6 font-semibold">Módulo</th>
+                      <th className="py-4 px-6 font-semibold">Descripción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {activityLogs.length > 0 ? (
+                      activityLogs
+                        .filter(log => {
+                          const etiquetaAccion = auditService.obtenerEtiquetaAccion(log.accion).toLowerCase();
+                          const etiquetaEnt = (etiquetaEntidadPerfil[log.entidad] ?? log.entidad ?? '').toLowerCase();
+                          return (
+                            (!filtroAccion || etiquetaAccion.includes(filtroAccion.toLowerCase()) || log.accion.toLowerCase().includes(filtroAccion.toLowerCase())) &&
+                            (!filtroTabla  || etiquetaEnt.includes(filtroTabla.toLowerCase()))
+                          );
+                        })
+                        .map(log => (
+                          <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="py-4 px-6 text-slate-700 whitespace-nowrap">
+                              {new Date(log.created_at_iso).toLocaleString('es-HN', { dateStyle: 'short', timeStyle: 'short' })}
+                            </td>
+                            <td className="py-4 px-6 font-medium text-slate-900">
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${auditService.obtenerColorAccion(log.accion)} bg-slate-100`}>
+                                {auditService.obtenerIconoAccion(log.accion)} {auditService.obtenerEtiquetaAccion(log.accion)}
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-slate-600 text-sm">
+                              {etiquetaEntidadPerfil[log.entidad] ?? log.entidad?.replace(/_/g, ' ') ?? '—'}
+                            </td>
+                            <td className="py-4 px-6 text-slate-500 text-xs max-w-xs truncate">
+                              {auditService.describirCambio(log)}
+                            </td>
+                          </tr>
+                        ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4} className="py-8 text-center text-slate-500">
+                          No hay actividad reciente registrada.
                         </td>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={4} style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>
-                        No hay registros de actividad
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <p style={{ fontSize: 11, color: '#64748b', marginTop: 12, marginBottom: 0 }}>
-              📊 Total de registros mostrados: {actividadFiltrada.length} de {activityLogs.length}
-            </p>
-          </div>
-
-          {/* 4. ROL Y PERMISOS */}
-          <div style={{ marginBottom: 32, padding: '20px', borderRadius: 12, border: '1px solid #dbeafe', backgroundColor: '#eff6ff' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-              <User size={24} style={{ color: '#0284c7' }} />
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', margin: 0 }}>
-                🎯 Rol y Permisos
-              </h2>
-            </div>
-
-            <div style={{ display: 'grid', gap: 12 }}>
-              <div style={{ padding: 12, borderRadius: 8, backgroundColor: '#fff', border: '1px solid #bfdbfe' }}>
-                <p style={{ fontSize: 11, fontWeight: 600, color: '#475569', margin: '0 0 4px' }}>Rol Asignado</p>
-                <p style={{ fontSize: 16, fontWeight: 700, color: '#0284c7', margin: 0 }}>
-                  {userRole ? userRole.toUpperCase() : 'Cargando...'}
-                </p>
-              </div>
-
-              <div>
-                <p style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', marginBottom: 8 }}>Permisos Activos:</p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
-                  {userRole ? (
-                    [
-                      { nombre: 'Leer Reservas', permiso: canRead('reservas') },
-                      { nombre: 'Crear Reservas', permiso: canCreate('reservas') },
-                      { nombre: 'Editar Reservas', permiso: canEdit('reservas') },
-                      { nombre: 'Ver Finanzas', permiso: canRead('finanzas') },
-                      { nombre: 'Crear Pagos', permiso: canCreate('pagos') },
-                      { nombre: 'Ver Reportes', permiso: canRead('reportes') },
-                      { nombre: 'Acceso Admin', permiso: canRead('config') },
-                    ].map(({ nombre, permiso }) => (
-                      <div
-                        key={nombre}
-                        style={{
-                          padding: '10px 12px',
-                          borderRadius: 6,
-                          backgroundColor: permiso ? '#dcfce7' : '#fee2e2',
-                          border: `1px solid ${permiso ? '#86efac' : '#fca5a5'}`,
-                          fontSize: 12,
-                          fontWeight: 500,
-                          color: permiso ? '#166534' : '#7f1d1d',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                        }}
-                      >
-                        {permiso ? '✓' : '✗'} {nombre}
-                      </div>
-                    ))
-                  ) : (
-                    <p style={{ fontSize: 12, color: '#64748b' }}>Cargando permisos...</p>
-                  )}
-                </div>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Cerrar Sesión */}
           <div style={{ padding: '20px', borderRadius: 12, border: '1px solid #fee2e2', backgroundColor: '#fff5f5', textAlign: 'center' }}>
@@ -867,8 +721,8 @@ export const PerfilUsuario: React.FC = () => {
               Cerrar Sesión
             </button>
           </div>
-        </>
-      )}
+        </div>
+      </div>
     </div>
   );
 };

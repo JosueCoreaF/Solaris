@@ -1,20 +1,96 @@
 import { Router, Request, Response } from 'express';
 import { supabase, supabaseAdmin } from '../../config/supabase.js';
+import { getAuthUser, getOwnerHotelIdsForUser } from '../../utils/tenantHelper.js';
 
 const router = Router();
 
 // ─── CATEGORÍAS DE TARIFA ───────────────────────────────────────────────────────
 
 // GET /api/tarifas/categorias
-router.get('/categorias', async (_req, res) => {
+router.get('/categorias', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
-      .from('categorias_tarifa')
-      .select('*')
-      .eq('activa', true)
-      .order('nombre');
+    const hotelId = req.headers['x-hotel-id'] || 'all';
+    let query = supabaseAdmin.from('categorias_tarifa').select('*').order('nombre');
+    
+    if (hotelId && hotelId !== 'all') {
+      query = query.eq('id_hotel', hotelId);
+    }
+    
+    const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
     return res.json(data ?? []);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/tarifas/categorias
+router.post('/categorias', async (req, res) => {
+  try {
+    const hotelId = req.headers['x-hotel-id'] as string;
+    if (!hotelId || hotelId === 'all') {
+      return res.status(400).json({ error: 'x-hotel-id es requerido y no puede ser "all"' });
+    }
+
+    const { nombre, descripcion, activa } = req.body;
+    if (!nombre) {
+      return res.status(400).json({ error: 'El nombre es obligatorio' });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('categorias_tarifa')
+      .insert({
+        id_hotel: hotelId,
+        nombre,
+        descripcion: descripcion || null,
+        activa: activa !== undefined ? !!activa : true
+      })
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(201).json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/tarifas/categorias/:id
+router.put('/categorias/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, activa } = req.body;
+
+    const updates: any = {};
+    if (nombre !== undefined) updates.nombre = nombre;
+    if (descripcion !== undefined) updates.descripcion = descripcion;
+    if (activa !== undefined) updates.activa = !!activa;
+
+    const { data, error } = await supabaseAdmin
+      .from('categorias_tarifa')
+      .update(updates)
+      .eq('id_categoria', id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/tarifas/categorias/:id
+router.delete('/categorias/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error } = await supabaseAdmin
+      .from('categorias_tarifa')
+      .delete()
+      .eq('id_categoria', id);
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true, message: 'Categoría eliminada exitosamente' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -55,15 +131,15 @@ router.get('/', async (req, res) => {
     }
 
     if (hotelId && hotelId !== 'all') {
-      // Obtener los ids de tipos de habitación presentes en las habitaciones de este hotel
-      const { data: habs, error: hErr } = await supabaseAdmin
-        .from('habitaciones')
+      // Obtener los ids de tipos de habitación configurados en este hotel
+      const { data: tiposHab, error: tErr } = await supabaseAdmin
+        .from('tipos_habitacion')
         .select('id_tipo_habitacion')
         .eq('id_hotel', hotelId);
 
-      if (hErr) return res.status(400).json({ error: hErr.message });
+      if (tErr) return res.status(400).json({ error: tErr.message });
 
-      const idsTipos = [...new Set((habs ?? []).map(h => h.id_tipo_habitacion).filter(Boolean))];
+      const idsTipos = (tiposHab ?? []).map(t => t.id_tipo_habitacion).filter(Boolean);
 
       if (idsTipos.length === 0) {
         return res.json([]);
@@ -112,15 +188,15 @@ router.get('/vigentes', async (req, res) => {
       .eq('activa', true);
 
     if (hotelId && hotelId !== 'all') {
-      // Obtener los ids de tipos de habitación presentes en las habitaciones de este hotel
-      const { data: habs, error: hErr } = await supabaseAdmin
-        .from('habitaciones')
+      // Obtener los ids de tipos de habitación configurados en este hotel
+      const { data: tiposHab, error: tErr } = await supabaseAdmin
+        .from('tipos_habitacion')
         .select('id_tipo_habitacion')
         .eq('id_hotel', hotelId);
 
-      if (hErr) return res.status(400).json({ error: hErr.message });
+      if (tErr) return res.status(400).json({ error: tErr.message });
 
-      const idsTipos = [...new Set((habs ?? []).map(h => h.id_tipo_habitacion).filter(Boolean))];
+      const idsTipos = (tiposHab ?? []).map(t => t.id_tipo_habitacion).filter(Boolean);
 
       if (idsTipos.length === 0) {
         return res.json([]);
@@ -152,6 +228,12 @@ router.get('/vigentes', async (req, res) => {
 // POST /api/tarifas (crear tarifa)
 router.post('/', async (req: Request, res: Response) => {
   try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+    const { ownerIds } = await getOwnerHotelIdsForUser(user);
+    const owner_id = ownerIds[0];
+    if (!owner_id) return res.status(401).json({ error: 'No hay propietario asociado' });
+
     const { id_tipo_habitacion, id_categoria, tarifa_noche, tarifa_hora, tarifa_pasadia, vigente_desde, vigente_hasta } = req.body;
 
     if (!id_tipo_habitacion || !id_categoria || tarifa_noche === undefined) {
@@ -249,6 +331,47 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
     if (error) return res.status(500).json({ error: error.message });
     return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/tarifas/activa?id_tipo_habitacion=X&fecha=YYYY-MM-DD
+ * Devuelve la tarifa vigente para un tipo de habitación en una fecha dada.
+ * Prioridad: tarifa más específica (con vigente_hasta) sobre tarifa base (sin vigente_hasta).
+ * Si no hay ninguna activa, retorna null.
+ */
+router.get('/activa', async (req, res) => {
+  try {
+    const { id_tipo_habitacion, fecha } = req.query as { id_tipo_habitacion?: string; fecha?: string };
+    if (!id_tipo_habitacion) return res.status(400).json({ error: 'id_tipo_habitacion requerido' });
+
+    const fechaConsulta = fecha || new Date().toLocaleDateString('en-CA');
+
+    const { data, error } = await supabaseAdmin
+      .from('tarifas')
+      .select(`
+        id_tarifa, id_tipo_habitacion, id_categoria,
+        tarifa_noche, tarifa_hora, tarifa_pasadia,
+        vigente_desde, vigente_hasta, activa,
+        categorias_tarifa ( nombre )
+      `)
+      .eq('id_tipo_habitacion', id_tipo_habitacion)
+      .eq('activa', true)
+      .lte('vigente_desde', fechaConsulta)
+      .or(`vigente_hasta.is.null,vigente_hasta.gte.${fechaConsulta}`)
+      // Prioridad: la que vence antes primero (más específica)
+      .order('vigente_hasta', { ascending: true, nullsFirst: false });
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    // Tomar la más específica (vigente_hasta no nulo) o la base si solo hay esa
+    const tarifas = data ?? [];
+    const especifica = tarifas.find((t: any) => t.vigente_hasta != null);
+    const resultado  = especifica ?? tarifas[0] ?? null;
+
+    return res.json(resultado);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

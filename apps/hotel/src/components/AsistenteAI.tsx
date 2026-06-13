@@ -61,10 +61,10 @@ REGLAS DE NEGOCIO Y MULTI-SEDE / CADENA:
 `;
 
 const SUGGESTIONS = [
-  { label: '📊 Estado del Hotel', prompt: 'Dame un resumen ejecutivo analítico del estado actual del hotel con base en los datos de la base de datos.' },
-  { label: '✍️ Redactar Correo', prompt: 'Ayúdame a redactar un correo amable y formal para confirmar la reserva de un huésped que llegará mañana a las 4:00 PM.' },
-  { label: '💵 Explicar Impuestos', prompt: 'Explícame detalladamente cómo se calcula el Impuesto de Turismo (4%) y el ISV (15%) en una reserva de 3 noches con tarifa de $100 USD la noche.' },
-  { label: '📊 Borrador de Turno', prompt: 'Ayúdame a estructurar una plantilla elegante para hacer el reporte de entrega de turno de recepción.' }
+  { label: 'Estado del Hotel', prompt: 'Dame un resumen ejecutivo analítico del estado actual del hotel con base en los datos de la base de datos.' },
+  { label: 'Redactar Correo', prompt: 'Ayúdame a redactar un correo amable y formal para confirmar la reserva de un huésped que llegará mañana a las 4:00 PM.' },
+  { label: 'Explicar Impuestos', prompt: 'Explícame detalladamente cómo se calcula el Impuesto de Turismo (4%) y el ISV (15%) en una reserva de 3 noches con tarifa de $100 USD la noche.' },
+  { label: 'Borrador de Turno', prompt: 'Ayúdame a estructurar una plantilla elegante para hacer el reporte de entrega de turno de recepción.' }
 ];
 
 const parseRetrySeconds = (errorMessage: string): number | null => {
@@ -113,9 +113,9 @@ const playChimeSound = (): void => {
   }
 };
 
-export const AsistenteAI: React.FC = () => {
+export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
   const { user } = useAuth();
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(embedded ? true : false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -281,16 +281,16 @@ export const AsistenteAI: React.FC = () => {
       setMessages([
         {
           role: 'model',
-          text: `👋 ¡Hola! Soy **Verona AI**, tu copiloto inteligente de soporte conectado a la base de datos en tiempo real. 
+          text: `Hola. Soy **Verona AI**, tu copiloto inteligente de soporte conectado a la base de datos en tiempo real.
 
 ¿En qué te puedo asistir hoy? Puedo ayudarte a:
-- 📅 **Crear nuevas reservas** y registrar nuevos huéspedes en segundos.
-- ⚙️ **Modificar o cancelar reservas** directamente desde el chat en tiempo real.
-- 📊 Analizar el estado de ocupación y reservas reales del hotel.
-- ✍️ Redactar respuestas y correos profesionales a huéspedes.
-- 💵 Explicar cálculos de impuestos (15% ISV, 4% Turismo).
-- 🧹 Crear listas de control operativas o reportes de turnos.
-- 📋 Resolver dudas sobre políticas del hotel.`,
+- **Crear nuevas reservas** y registrar nuevos huéspedes en segundos.
+- **Modificar o cancelar reservas** directamente desde el chat en tiempo real.
+- Analizar el estado de ocupación y reservas reales del hotel.
+- Redactar respuestas y correos profesionales a huéspedes.
+- Explicar cálculos de impuestos (15% ISV, 4% Turismo).
+- Crear listas de control operativas o reportes de turnos.
+- Resolver dudas sobre políticas del hotel.`,
           timestamp: getFormattedTime()
         }
       ]);
@@ -619,7 +619,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
 
       if (functionCallParts.length > 0) {
         // Push a status message to show the user that action is running
-        setMessages(prev => [...prev, { role: 'model', text: `⚙️ *Procesando ${functionCallParts.length} acciones automáticas en la base de datos...*`, timestamp: getFormattedTime() }]);
+        setMessages(prev => [...prev, { role: 'model', text: `*Procesando ${functionCallParts.length} acciones automáticas en la base de datos...*`, timestamp: getFormattedTime() }]);
 
         try {
           // Execute function calls sequentially to avoid race conditions (e.g. two reservations on same room)
@@ -728,20 +728,20 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
           let finalReply = '';
           if (!followUpResponse.ok) {
             console.warn(`Error en seguimiento de acción AI: ${followUpResponse.status}. Usando fallback local.`);
-            finalReply = `✨ **¡Acciones completadas con éxito en la base de datos!**\n\nEl asistente ha procesado correctamente las siguientes tareas directamente en el sistema:\n\n` +
+            finalReply = `**Acciones completadas con éxito en la base de datos.**\n\nEl asistente ha procesado correctamente las siguientes tareas directamente en el sistema:\n\n` +
               results.map(r => {
                 if (r.name === 'toggleRoomBlock') {
-                  return `- 🔓/🔒 **Gestión de Disponibilidad:** ${r.resultText}`;
+                  return `- **Gestión de Disponibilidad:** ${r.resultText}`;
                 } else if (r.name === 'createReservation') {
-                  return `- 📅 **Creación de Reserva:** ${r.resultText}`;
+                  return `- **Creación de Reserva:** ${r.resultText}`;
                 } else if (r.name === 'updateReservation') {
-                  return `- ⚙️ **Modificación de Reserva:** ${r.resultText}`;
+                  return `- **Modificación de Reserva:** ${r.resultText}`;
                 } else if (r.name === 'cancelReservation') {
-                  return `- ❌ **Cancelación de Reserva:** ${r.resultText}`;
+                  return `- **Cancelación de Reserva:** ${r.resultText}`;
                 } else if (r.name === 'createGuest') {
-                  return `- 👤 **Registro de Huésped:** ${r.resultText}`;
+                  return `- **Registro de Huésped:** ${r.resultText}`;
                 } else if (r.name === 'splitReservation') {
-                  return `- ✂️ **División de Estancia:** ${r.resultText}`;
+                  return `- **División de Estancia:** ${r.resultText}`;
                 }
                 return `- **Acción:** ${r.resultText}`;
               }).join('\n') +
@@ -765,7 +765,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
           setMessages(prev => {
             const copy = [...prev];
             copy.pop(); // Remove loader
-            return [...copy, { role: 'model', text: `❌ **Error al ejecutar las acciones:** ${err.message || 'Error desconocido.'}`, timestamp: getFormattedTime() }];
+            return [...copy, { role: 'model', text: `**Error al ejecutar las acciones:** ${err.message || 'Error desconocido.'}`, timestamp: getFormattedTime() }];
           });
         }
         return;
@@ -792,12 +792,12 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
         const bufferedRetry = baseRetry + buffer;
 
         setRateLimitCountdown(bufferedRetry);
-        cleanErrorMessage = `⏳ **Límite de Consultas Alcanzado (Frecuencia Excesiva)**\n\n` +
+        cleanErrorMessage = `**Límite de Consultas Alcanzado (Frecuencia Excesiva)**\n\n` +
           `El motor de inteligencia artificial de Gemini ha alcanzado su límite de cuota por minuto del plan gratuito.\n\n` +
           `Para garantizar que la conexión se restablezca por completo, hemos añadido un **margen de seguridad de ${buffer} segundos** al tiempo sugerido. Por favor, espera **${bufferedRetry} segundos** antes de enviar tu mensaje.\n\n` +
           `*(El canal de chat se reactivará automáticamente cuando el contador llegue a cero)*`;
       } else {
-        cleanErrorMessage = `⚠️ **Error de Conexión:** ${errMsg || 'No se pudo comunicar con el asistente.'}`;
+        cleanErrorMessage = `**Error de Conexión:** ${errMsg || 'No se pudo comunicar con el asistente.'}`;
       }
 
       setMessages(prev => [
@@ -818,7 +818,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
       const initial = [
         {
           role: 'model',
-          text: `👋 ¡Hola! He reiniciado la conversación. 
+          text: `He reiniciado la conversación.
 
 ¿En qué te puedo asistir hoy?`,
           timestamp: getFormattedTime()
@@ -926,6 +926,16 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
           flex-direction: column;
           overflow: hidden;
           z-index: 998;
+          font-family: var(--sans);
+        }
+
+        .verona-ai-panel-embedded {
+          width: 100%;
+          height: 100%;
+          background: transparent;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
           font-family: var(--sans);
         }
 
@@ -1170,124 +1180,222 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
         }
       `}</style>
 
-      {/* Floating Toggle Button */}
-      <button
-        className={`verona-ai-float${isOpen ? ' active' : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
-        title="Asistente Verona AI (Gemini)"
-      >
-        {isOpen ? '✕' : '✨'}
-      </button>
+      {/* Floating Toggle Button (Only in floating mode) */}
+      {!embedded && (
+        <button
+          className={`verona-ai-float${isOpen ? ' active' : ''}`}
+          onClick={() => setIsOpen(!isOpen)}
+          title="Asistente Verona AI (Gemini)"
+        >
+          {isOpen ? '×' : 'AI'}
+        </button>
+      )}
 
-      {/* Slide-in Chat Panel */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            className="verona-ai-panel"
-            initial={{ opacity: 0, y: 30, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.97 }}
-            transition={{ duration: 0.22, cubicBezier: [0.16, 1, 0.3, 1] }}
-          >
-            {/* Header */}
-            <div className="verona-ai-header">
-              <div className="verona-ai-header-info">
-                <div className="verona-ai-logo">✨</div>
-                <div>
-                  <div className="verona-ai-header-title">Verona AI</div>
-                  <div className="verona-ai-header-sub">
-                    <span className="verona-ai-dot" /> Copiloto Activo
+      {/* Embedded Panel or Slide-in Panel */}
+      {embedded ? (
+        <div className="verona-ai-panel-embedded">
+          {/* Header */}
+          <div className="verona-ai-header" style={{ border: 'none', background: 'transparent', padding: '10px 16px' }}>
+            <div className="verona-ai-header-info">
+              <div className="verona-ai-logo" style={{ width: 24, height: 24, fontSize: 10, borderRadius: 6 }}>AI</div>
+              <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--muted)', letterSpacing: '0.05em' }}>MARS CO-PILOTO</span>
+            </div>
+            <button className="verona-ai-clear-btn" onClick={handleClearHistory} title="Limpiar conversación">
+              Reiniciar
+            </button>
+          </div>
+
+          {/* Message Area */}
+          <div className="verona-ai-messages">
+            {messages.map((msg, index) => (
+              <div key={index} className={`verona-ai-msg-row ${msg.role}`}>
+                <div className={`verona-ai-msg-avatar ${msg.role}`}>
+                  {msg.role === 'model' ? 'AI' : (user?.email?.[0]?.toUpperCase() || 'P')}
+                </div>
+                <div className={`verona-ai-bubble ${msg.role}`}>
+                  {renderMessageContent(msg.text)}
+                  {msg.timestamp && (
+                    <div className={`verona-ai-timestamp ${msg.role}`}>
+                      {msg.timestamp}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="verona-ai-msg-row model">
+                <div className="verona-ai-msg-avatar model">AI</div>
+                <div className="verona-ai-bubble model">
+                  <div className="ai-loading-dots">
+                    <div className="ai-dot" />
+                    <div className="ai-dot" />
+                    <div className="ai-dot" />
                   </div>
                 </div>
               </div>
-              <button className="verona-ai-clear-btn" onClick={handleClearHistory} title="Limpiar conversación">
-                🗑️ Reiniciar
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Quick Suggestions */}
+          <div className="verona-ai-suggestions">
+            {SUGGESTIONS.map((sug, idx) => (
+              <button
+                key={idx}
+                className="verona-ai-chip"
+                onClick={() => handleSend(sug.prompt)}
+                disabled={loading || rateLimitCountdown !== null || isVerifying}
+              >
+                {sug.label}
               </button>
-            </div>
+            ))}
+          </div>
 
-            {/* Message Area */}
-            <div className="verona-ai-messages">
-              {messages.map((msg, index) => (
-                <div key={index} className={`verona-ai-msg-row ${msg.role}`}>
-                  <div className={`verona-ai-msg-avatar ${msg.role}`}>
-                    {msg.role === 'model' ? '✨' : (user?.email?.[0]?.toUpperCase() || 'P')}
-                  </div>
-                  <div className={`verona-ai-bubble ${msg.role}`}>
-                    {renderMessageContent(msg.text)}
-                    {msg.timestamp && (
-                      <div className={`verona-ai-timestamp ${msg.role}`}>
-                        {msg.timestamp}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {loading && (
-                <div className="verona-ai-msg-row model">
-                  <div className="verona-ai-msg-avatar model">✨</div>
-                  <div className="verona-ai-bubble model">
-                    <div className="ai-loading-dots">
-                      <div className="ai-dot" />
-                      <div className="ai-dot" />
-                      <div className="ai-dot" />
+          {/* Input Form */}
+          <form
+            className="verona-ai-input-area"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend(input);
+            }}
+          >
+            <input
+              className="verona-ai-input"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={
+                isVerifying
+                  ? "Verificando disponibilidad..."
+                  : rateLimitCountdown !== null
+                    ? `Espera ${rateLimitCountdown}s para consultar...`
+                    : "Pregunta a Verona AI..."
+              }
+              disabled={loading || rateLimitCountdown !== null || isVerifying}
+              style={(rateLimitCountdown !== null || isVerifying) ? { backgroundColor: 'var(--shell-bg)', cursor: 'not-allowed' } : undefined}
+            />
+            <button
+              type="submit"
+              className="verona-ai-send-btn"
+              disabled={!input.trim() || loading || rateLimitCountdown !== null || isVerifying}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            </button>
+          </form>
+        </div>
+      ) : (
+        <AnimatePresence>
+          {isOpen && (
+            <motion.div
+              className="verona-ai-panel"
+              initial={{ opacity: 0, y: 30, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.97 }}
+              transition={{ duration: 0.22, cubicBezier: [0.16, 1, 0.3, 1] }}
+            >
+              {/* Header */}
+              <div className="verona-ai-header">
+                <div className="verona-ai-header-info">
+                  <div className="verona-ai-logo">AI</div>
+                  <div>
+                    <div className="verona-ai-header-title">Verona AI</div>
+                    <div className="verona-ai-header-sub">
+                      <span className="verona-ai-dot" /> Copiloto Activo
                     </div>
                   </div>
                 </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Quick Suggestions */}
-            <div className="verona-ai-suggestions">
-              {SUGGESTIONS.map((sug, idx) => (
-                <button
-                  key={idx}
-                  className="verona-ai-chip"
-                  onClick={() => handleSend(sug.prompt)}
-                  disabled={loading || rateLimitCountdown !== null || isVerifying}
-                >
-                  {sug.label}
+                <button className="verona-ai-clear-btn" onClick={handleClearHistory} title="Limpiar conversación">
+                  Reiniciar
                 </button>
-              ))}
-            </div>
+              </div>
 
-            {/* Input Form */}
-            <form
-              className="verona-ai-input-area"
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSend(input);
-              }}
-            >
-              <input
-                className="verona-ai-input"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={
-                  isVerifying
-                    ? "🔄 Verificando disponibilidad real..."
-                    : rateLimitCountdown !== null
-                      ? `⏳ Espera ${rateLimitCountdown}s para consultar...`
-                      : "Pregunta a Verona AI..."
-                }
-                disabled={loading || rateLimitCountdown !== null || isVerifying}
-                style={(rateLimitCountdown !== null || isVerifying) ? { backgroundColor: 'var(--shell-bg)', cursor: 'not-allowed' } : undefined}
-              />
-              <button
-                type="submit"
-                className="verona-ai-send-btn"
-                disabled={!input.trim() || loading || rateLimitCountdown !== null || isVerifying}
+              {/* Message Area */}
+              <div className="verona-ai-messages">
+                {messages.map((msg, index) => (
+                  <div key={index} className={`verona-ai-msg-row ${msg.role}`}>
+                    <div className={`verona-ai-msg-avatar ${msg.role}`}>
+                      {msg.role === 'model' ? 'AI' : (user?.email?.[0]?.toUpperCase() || 'P')}
+                    </div>
+                    <div className={`verona-ai-bubble ${msg.role}`}>
+                      {renderMessageContent(msg.text)}
+                      {msg.timestamp && (
+                        <div className={`verona-ai-timestamp ${msg.role}`}>
+                          {msg.timestamp}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {loading && (
+                  <div className="verona-ai-msg-row model">
+                    <div className="verona-ai-msg-avatar model">AI</div>
+                    <div className="verona-ai-bubble model">
+                      <div className="ai-loading-dots">
+                        <div className="ai-dot" />
+                        <div className="ai-dot" />
+                        <div className="ai-dot" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Quick Suggestions */}
+              <div className="verona-ai-suggestions">
+                {SUGGESTIONS.map((sug, idx) => (
+                  <button
+                    key={idx}
+                    className="verona-ai-chip"
+                    onClick={() => handleSend(sug.prompt)}
+                    disabled={loading || rateLimitCountdown !== null || isVerifying}
+                  >
+                    {sug.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Input Form */}
+              <form
+                className="verona-ai-input-area"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSend(input);
+                }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="22" y1="2" x2="11" y2="13" />
-                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                </svg>
-              </button>
-            </form>
-          </motion.div>
-        )}
-      </AnimatePresence>
+                <input
+                  className="verona-ai-input"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={
+                    isVerifying
+                      ? "Verificando disponibilidad..."
+                      : rateLimitCountdown !== null
+                        ? `Espera ${rateLimitCountdown}s para consultar...`
+                        : "Pregunta a Verona AI..."
+                  }
+                  disabled={loading || rateLimitCountdown !== null || isVerifying}
+                  style={(rateLimitCountdown !== null || isVerifying) ? { backgroundColor: 'var(--shell-bg)', cursor: 'not-allowed' } : undefined}
+                />
+                <button
+                  type="submit"
+                  className="verona-ai-send-btn"
+                  disabled={!input.trim() || loading || rateLimitCountdown !== null || isVerifying}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                </button>
+              </form>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
     </>
   );
 };

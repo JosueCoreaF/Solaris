@@ -1,6 +1,97 @@
 import express from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 
+/**
+ * Middleware factory: bloquea el acceso si el owner tiene estado 'suspendido'/'inactivo',
+ * o si el módulo de negocio específico (tipoModulo) fue desactivado individualmente
+ * desde el panel admin (business_modules.is_active = false).
+ * También bloquea a usuarios cuyo token fue revocado (usuario eliminado → 401).
+ */
+export function checkAccountStatus(tipoModulo?: 'hotel' | 'restaurant' | 'gym' | 'store') {
+  return async function (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) {
+    const user = await getAuthUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    // Buscar el owner_id y estado: primero como propietario directo, luego como staff
+    let ownerId: string | null = null;
+    let estado: string | null = null;
+
+    const { data: owner } = await supabaseAdmin!
+      .from('owners')
+      .select('id_owner, estado')
+      .eq('id_owner', user.id)
+      .maybeSingle();
+
+    if (owner?.id_owner) {
+      ownerId = owner.id_owner;
+      estado = owner.estado;
+    } else {
+      const { data: role } = await supabaseAdmin!
+        .from('usuarios_roles')
+        .select('owner_id')
+        .eq('user_id', user.id)
+        .eq('estado', 'activo')
+        .limit(1)
+        .maybeSingle();
+
+      if (role?.owner_id) {
+        ownerId = role.owner_id;
+        const { data: ownerData } = await supabaseAdmin!
+          .from('owners')
+          .select('estado')
+          .eq('id_owner', role.owner_id)
+          .maybeSingle();
+        estado = ownerData?.estado ?? null;
+      }
+    }
+
+    if (estado === 'suspendido') {
+      res.status(403).json({
+        error: 'ACCOUNT_SUSPENDED',
+        message: 'Tu cuenta ha sido suspendida. Contacta con soporte para más información.',
+      });
+      return;
+    }
+
+    if (estado === 'inactivo') {
+      res.status(403).json({
+        error: 'ACCOUNT_INACTIVE',
+        message: 'Tu cuenta está inactiva.',
+      });
+      return;
+    }
+
+    // Bloqueo a nivel de negocio individual: el owner está activo pero
+    // este módulo específico fue suspendido/desactivado desde el panel admin.
+    if (tipoModulo && ownerId) {
+      const { data: module } = await supabaseAdmin!
+        .from('business_modules')
+        .select('is_active, estado')
+        .eq('owner_id', ownerId)
+        .eq('tipo_modulo', tipoModulo)
+        .maybeSingle();
+
+      if (module && (module.is_active === false || module.estado === 'inactivo')) {
+        res.status(403).json({
+          error: 'MODULE_SUSPENDED',
+          message: 'Este negocio ha sido suspendido. Contacta con soporte para más información.',
+        });
+        return;
+      }
+    }
+
+    (req as any).authUser = user;
+    next();
+  };
+}
+
 export async function getAuthUser(req: express.Request) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) return null;
@@ -10,64 +101,93 @@ export async function getAuthUser(req: express.Request) {
   return data.user;
 }
 
+/**
+ * Resuelve owner_id y hotel_ids para un usuario autenticado.
+ *
+ * Diseño del schema:
+ * - El PROPIETARIO se identifica por: owners.id_owner = auth.uid()
+ *   (no tiene fila en usuarios_roles)
+ * - El staff (ADMIN, RECEPCIONISTA, etc.) tiene fila en usuarios_roles
+ *   con user_id = auth.uid() y owner_id = su propietario
+ */
 export async function getOwnerHotelIdsForUser(user: any) {
+  // 1. ¿Es propietario? (su auth.uid = owners.id_owner)
+  const { data: ownerRow } = await supabaseAdmin!
+    .from('owners')
+    .select('id_owner')
+    .eq('id_owner', user.id)
+    .maybeSingle();
+
+  if (ownerRow?.id_owner) {
+    // Dos queries simples en vez de join embebido (más fiable en PostgREST)
+    const { data: modules } = await supabaseAdmin!
+      .from('business_modules')
+      .select('id_module')
+      .eq('owner_id', ownerRow.id_owner);
+
+    const moduleIds = (modules || []).map((m: any) => m.id_module).filter(Boolean);
+
+    let hotelIds: string[] = [];
+    if (moduleIds.length > 0) {
+      const { data: hoteles } = await supabaseAdmin!
+        .from('hoteles')
+        .select('id_hotel')
+        .in('id_module', moduleIds);
+      hotelIds = (hoteles || []).map((h: any) => h.id_hotel).filter(Boolean);
+    }
+
+    return { ownerIds: [ownerRow.id_owner], hotelIds, error: null };
+  }
+
+  // 2. ¿Es staff? (tiene fila en usuarios_roles con user_id)
   const { data: roles, error } = await supabaseAdmin!
     .from('usuarios_roles')
     .select('owner_id, id_hotel')
-    .eq('usuario_id', user.id)
+    .eq('user_id', user.id)   // columna correcta: user_id
     .eq('estado', 'activo');
 
   if (error) return { ownerIds: [] as string[], hotelIds: [] as string[], error };
 
-  const ownerIds = Array.from(
-    new Set(
-      (roles || [])
-        .map((item: any) => item.owner_id)
-        .filter((id: any) => !!id)
-    )
-  );
-
-  const hotelIds = Array.from(
-    new Set(
-      (roles || [])
-        .map((item: any) => item.id_hotel)
-        .filter((id: any) => !!id)
-    )
-  );
-
-  if (ownerIds.length > 0) {
-    return { ownerIds, hotelIds, error: null };
-  }
-
-  const email = user.email?.toLowerCase() ?? '';
-  if (!email) {
-    return { ownerIds, hotelIds, error: null };
-  }
-
-  const { data: ownerRow, error: ownerError } = await supabaseAdmin!
-    .from('owners')
-    .select('id_owner')
-    .eq('email_contacto', email)
-    .maybeSingle();
-
-  if (ownerError) return { ownerIds: [], hotelIds: [], error: ownerError };
-  if (ownerRow?.id_owner) {
-    ownerIds.push(ownerRow.id_owner);
-  }
+  const ownerIds = Array.from(new Set(
+    (roles || []).map((r: any) => r.owner_id).filter(Boolean)
+  ));
+  const hotelIds = Array.from(new Set(
+    (roles || []).map((r: any) => r.id_hotel).filter(Boolean)
+  ));
 
   return { ownerIds, hotelIds, error: null };
 }
 
+/**
+ * Obtiene el owner_id de un hotel via business_modules.
+ */
 export async function getOwnerIdsFromHotelId(hotelId: string) {
   const { data, error } = await supabaseAdmin!
     .from('hoteles')
-    .select('owner_id')
+    .select('business_modules!inner(owner_id)')
     .eq('id_hotel', hotelId)
     .maybeSingle();
 
-  if (error) {
-    throw error;
-  }
-  if (!data?.owner_id) return [];
-  return [data.owner_id];
+  if (error) throw error;
+  const ownerId = (data as any)?.business_modules?.owner_id;
+  return ownerId ? [ownerId] : [];
+}
+
+/**
+ * Verifica si el plan de suscripción del owner de un hotel incluye el
+ * feature flag indicado (planes_suscripcion.feature_flags).
+ */
+export async function hotelHasFeature(hotelId: string, featureKey: string): Promise<boolean> {
+  const [ownerId] = await getOwnerIdsFromHotelId(hotelId);
+  if (!ownerId) return false;
+
+  const { data: sub } = await supabaseAdmin!
+    .from('suscripciones_owner')
+    .select('planes_suscripcion(feature_flags)')
+    .eq('owner_id', ownerId)
+    .eq('tipo_modulo', 'hotel')
+    .maybeSingle();
+
+  const flags: string[] = (sub?.planes_suscripcion as any)?.feature_flags ?? [];
+  return flags.includes(featureKey);
 }

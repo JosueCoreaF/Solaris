@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { auditService, AuditLog, AuditStats, AuditLogsResponse } from '../../api/auditService';
+import { auditService, AuditLog, AuditStats, AuditLogsResponse, ETIQUETA_ENTIDAD, ETIQUETA_CAMPO } from '../../api/auditService';
 import { Search, Download, ChevronDown, Filter, RefreshCw, Calendar } from 'lucide-react';
 
 export const AuditPanel: React.FC = () => {
@@ -29,8 +29,8 @@ export const AuditPanel: React.FC = () => {
         fechaDesde.setDate(fechaDesde.getDate() - daysFilter);
 
         response = await auditService.obtenerLogs(limit, nuevoOffset, {
-          entidad: entityFilter || undefined,
-          accion: actionFilter || undefined,
+          entidad:     entityFilter || undefined,
+          accion:      actionFilter || undefined,
           fecha_desde: fechaDesde.toISOString().split('T')[0],
           fecha_hasta: new Date().toISOString().split('T')[0],
         });
@@ -106,17 +106,9 @@ export const AuditPanel: React.FC = () => {
     return { __html: lines.join('\n') };
   };
 
-  // Etiquetas legibles para campos técnicos
-  const etiquetaCampo: Record<string, string> = {
-    estado: 'Estado', estado_pago: 'Estado de Pago', estado_display: 'Estado (visual)',
-    total_reserva: 'Total Reserva', monto: 'Monto', moneda: 'Moneda',
-    check_in: 'Check-in', check_out: 'Check-out', updated_at: 'Actualizado',
-    created_at: 'Creado', id_huesped: 'Huésped ID', id_habitacion: 'Habitación ID',
-    id_hotel: 'Hotel ID', observaciones: 'Observaciones', origen_reserva: 'Origen',
-    es_cortesia: 'Es Cortesía', metodo_pago: 'Método de Pago', fecha_pago: 'Fecha Pago',
-    rol: 'Rol', email: 'Email', nombre_completo: 'Nombre', tipo: 'Tipo',
-    aplicado: 'Aplicado', detalles_estado: 'Detalles Estado',
-  };
+  // Etiquetas legibles para campos técnicos y entidades (nombres de tablas)
+  const etiquetaCampo = ETIQUETA_CAMPO;
+  const etiquetaEntidad = ETIQUETA_ENTIDAD;
 
   const formatValor = (val: unknown): string => {
     if (val === null || val === undefined) return '—';
@@ -190,9 +182,6 @@ export const AuditPanel: React.FC = () => {
 
   const renderLog = (log: AuditLog) => {
     const isExpanded = expandedLogId === log.id;
-    const usuario = log.usuario_email
-      ? log.usuario_email.split('@')[0]
-      : 'Sistema';
     const usuarioCompleto = log.usuario_email ?? 'Sistema (trigger automático)';
 
     return (
@@ -211,7 +200,7 @@ export const AuditPanel: React.FC = () => {
                   {auditService.obtenerEtiquetaAccion(log.accion)}
                 </span>
                 <span className="text-sm text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                  {log.entidad?.replace('_', ' ')}
+                  {etiquetaEntidad[log.entidad ?? ''] ?? log.entidad?.replace(/_/g, ' ')}
                 </span>
                 {log.usuario_rol && (
                   <span className="text-xs text-white bg-blue-600 px-2 py-0.5 rounded">
@@ -223,25 +212,20 @@ export const AuditPanel: React.FC = () => {
               {/* Usuario y fecha en una sola fila destacada */}
               <div className="flex items-center gap-3 text-sm mb-2">
                 <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-full">
-                  <span className="text-base">👤</span>
-                  <span className="font-semibold text-indigo-800">{usuario}</span>
-                  {log.usuario_email && (
-                    <span className="text-indigo-500 text-xs">{log.usuario_email}</span>
-                  )}
+                  <span className="text-base">·</span>
+                  <span className="font-semibold text-indigo-800">{usuarioCompleto}</span>
                 </div>
                 <span className="text-gray-400">•</span>
                 <span className="text-gray-500">{auditService.formatearFecha(log.created_at_iso)}</span>
               </div>
 
-              {log.cambios_resumidos && (
-                <div className="text-xs text-gray-600 bg-blue-50 px-3 py-1.5 rounded border-l-2 border-blue-300 font-mono">
-                  {log.cambios_resumidos}
-                </div>
-              )}
+              <div className="text-xs text-gray-600 bg-blue-50 px-3 py-1.5 rounded border-l-2 border-blue-300">
+                {auditService.describirCambio(log)}
+              </div>
 
               {log.notas && (
                 <div className="text-sm text-gray-600 mt-1.5 italic">
-                  📌 {log.notas}
+                  {log.notas}
                 </div>
               )}
             </div>
@@ -257,7 +241,7 @@ export const AuditPanel: React.FC = () => {
           <div className="bg-gray-50 p-4 border-t border-gray-200 space-y-4">
             {/* Quién hizo el cambio */}
             <div className="p-3 bg-white rounded-lg border border-indigo-100">
-              <h4 className="font-semibold text-sm text-gray-700 mb-2">👤 Realizó el cambio</h4>
+              <h4 className="font-semibold text-sm text-gray-700 mb-2">Realizó el cambio</h4>
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div>
                   <span className="text-gray-500 text-xs">Usuario</span>
@@ -284,7 +268,7 @@ export const AuditPanel: React.FC = () => {
             {(log.datos_anteriores || log.datos_nuevos) && (
               <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
                 <div className="px-3 py-2 bg-gray-100 border-b border-gray-200">
-                  <h4 className="font-semibold text-sm text-gray-700">📋 Detalle de Cambios</h4>
+                  <h4 className="font-semibold text-sm text-gray-700">Detalle de Cambios</h4>
                 </div>
                 <div className="p-3">
                   {renderCambiosTabla(
@@ -343,7 +327,7 @@ export const AuditPanel: React.FC = () => {
   return (
     <div className="p-6 bg-white rounded-lg">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">🔍 Auditoría Exhaustiva</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Auditoría Exhaustiva</h1>
         <p className="text-gray-600">
           Rastreo detallado de todas las acciones en el sistema. Solo accesible por PROPIETARIO.
         </p>
@@ -410,7 +394,7 @@ export const AuditPanel: React.FC = () => {
                   .slice(0, 3)
                   .map(([entidad, count]) => (
                     <div key={entidad}>
-                      {entidad}: {count}
+                      {etiquetaEntidad[entidad] ?? entidad.replace(/_/g, ' ')}: {count}
                     </div>
                   ))}
               </div>
@@ -424,7 +408,7 @@ export const AuditPanel: React.FC = () => {
         {/* Búsqueda */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            🔎 Búsqueda (mínimo 3 caracteres)
+            Búsqueda (mínimo 3 caracteres)
           </label>
           <input
             type="text"
@@ -494,7 +478,8 @@ export const AuditPanel: React.FC = () => {
           <div className="flex gap-2 items-end">
             <button
               onClick={() => {
-                cargarLogs(true);
+                setOffset(0);
+                cargarLogs(0);
                 cargarEstadisticas();
               }}
               disabled={loading}
@@ -524,7 +509,7 @@ export const AuditPanel: React.FC = () => {
           </div>
         ) : logs.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
-            📭 No hay registros de auditoría con los filtros seleccionados
+            Sin registros de auditoría con los filtros seleccionados
           </div>
         ) : (
           <>

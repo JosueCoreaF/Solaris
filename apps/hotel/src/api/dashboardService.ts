@@ -3,10 +3,10 @@ import { obtenerUsuariosRoles } from './usuariosRolesService';
 import { withCache } from '../utils/cache';
 import type { Reserva, Habitacion } from './bookingsService';
 
-const API = 'http://localhost:4000/api';
+const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
 async function apiFetch<T>(path: string): Promise<T> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   const r = await fetch(`${API}${path}`, {
     headers: {
       'X-Hotel-ID': activeHotelId
@@ -113,7 +113,7 @@ export async function calcularTendenciasOcupacion(): Promise<TendenciaOcupacion[
  * Obtiene todos los KPIs del dashboard
  */
 export async function obtenerKPIsDashboard(): Promise<DashboardKPI> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   return withCache(`kpis:dashboard:${activeHotelId}`, 60_000, async () => {
     try {
       const [ocupacion, ingresosHoy, reservasPendientes, resMes, rooms] = await Promise.all([

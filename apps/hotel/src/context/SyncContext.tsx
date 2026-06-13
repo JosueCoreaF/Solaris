@@ -1,11 +1,19 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import apiClient from '../services/api';
 
+interface PlanInfo {
+  id_plan: string | null;
+  nombre: string | null;
+  estado: string | null;
+  feature_flags: string[];
+}
+
 interface HotelData {
   id_hotel: string;
   nombre_hotel: string;
   ciudad: string;
   estado: string;
+  plan?: PlanInfo;
 }
 
 interface SyncContextType {
@@ -24,34 +32,37 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const initSync = async () => {
       try {
+        // Clave histórica que quedaba "pegada" entre cuentas distintas en el
+        // mismo navegador y hacía que se mostraran datos de otro hotel/plan.
+        // Ya no se usa: se elimina para evitar fugas entre cuentas.
+        localStorage.removeItem('solaris_active_business_id');
+
         const urlParams = new URLSearchParams(window.location.search);
-        let businessId = urlParams.get('business_id');
         const accessToken = urlParams.get('access_token');
         const refreshToken = urlParams.get('refresh_token');
 
         // Guardar token en local storage si viene en la URL
         if (accessToken && refreshToken) {
-          localStorage.setItem('sb-yefaoqzyjfqpwrnzgofb-auth-token', JSON.stringify({
+          localStorage.setItem('sb-rmdflsphuxjdcxqpfwvv-auth-token', JSON.stringify({
             access_token: accessToken,
             refresh_token: refreshToken,
           }));
         }
 
-        if (businessId) {
-          localStorage.setItem('solaris_active_business_id', businessId);
-          // Limpiar URL
+        // El id del negocio activo: de la URL (redirección desde el hub) o,
+        // si no hay, el que ya esté seleccionado en el panel (active_hotel_id,
+        // la misma clave que usa el resto de la app y el switcher del sidebar).
+        const urlBusinessId = urlParams.get('hotel_id') || urlParams.get('business_id');
+        const businessId = urlBusinessId || localStorage.getItem('active_hotel_id') || '';
+
+        if (urlBusinessId) {
+          // Limpiar URL (AuthContext ya guardó el id correcto en active_hotel_id)
           window.history.replaceState({}, document.title, window.location.pathname);
-        } else {
-          businessId = localStorage.getItem('solaris_active_business_id');
         }
 
-        if (!businessId) {
-          setLoading(false);
-          return;
-        }
-
-        // Obtener contexto del backend
-        const response = await apiClient.get(`/hotel/sync-context?business_id=${businessId}`);
+        // Obtener contexto del backend. Si no llega business_id (login directo
+        // al panel hotelero), el backend resuelve el hotel del usuario autenticado.
+        const response = await apiClient.get(`/hotel/sync-context${businessId ? `?business_id=${businessId}` : ''}`);
         setHotel(response.data);
       } catch (err: any) {
         console.error('Error sincronizando contexto:', err);

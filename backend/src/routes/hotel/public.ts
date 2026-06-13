@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { supabase, supabaseAdmin } from '../../config/supabase.js';
 import { getIO, buildBotSystemPrompt, getSimpleAutoResponse, callGeminiChat } from './chat.js';
 import { verificarCamasExtrasDisponibles, verificarNeveritasDisponibles, verificarPlanchasDisponibles } from './bookings.js';
+import { crearNotificacion } from '../../utils/notificaciones.js';
 
 const router = Router();
 const db = () => supabaseAdmin ?? supabase;
@@ -315,7 +316,42 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
     const co = new Date(checkOut);
     const msPerDay = 1000 * 60 * 60 * 24;
     const noches = Math.max(1, Math.round((co.getTime() - ci.getTime()) / msPerDay));
-    const totalEstimado = (habitacion.tarifa_noche || 0) * noches;
+
+    // Resolver tarifa activa para las fechas del cliente
+    const fechaCI_str = String(checkIn).split('T')[0];
+    let tarifaResuelta: number = habitacion.tarifa_noche || 0;
+
+    // Traer todos los períodos de la habitación y filtrar en JS
+    // (más fiable que combinar .lte + .or en PostgREST)
+    const { data: periodos, error: periodosErr } = await db()
+      .from('habitacion_tarifas_periodo')
+      .select('tarifa_noche, es_base, fecha_desde, fecha_hasta')
+      .eq('id_habitacion', habitacionId);
+
+    if (periodosErr) {
+      console.error('[Portal] Error leyendo tarifas_periodo:', periodosErr.message);
+    } else if (periodos && periodos.length > 0) {
+      // Comparación de fechas como strings YYYY-MM-DD (evita problemas de zona horaria)
+      const fCheck = fechaCI_str.substring(0, 10);
+
+      // 1. Buscar período activo (es_base=false) que cubra la fecha
+      const periodoActivo = periodos.find((p: any) => {
+        if (p.es_base) return false;
+        const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+        const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+        return (!desde || desde <= fCheck) && (!hasta || hasta >= fCheck);
+      });
+
+      if (periodoActivo) {
+        tarifaResuelta = Number(periodoActivo.tarifa_noche);
+      } else {
+        // 2. Usar tarifa base si existe
+        const base = periodos.find((p: any) => p.es_base);
+        if (base) tarifaResuelta = Number(base.tarifa_noche);
+      }
+    }
+
+    const totalEstimado = tarifaResuelta * noches;
 
     // 3. Crear reserva
     const { data: nuevaReserva, error: reservaErr } = await db()
@@ -372,13 +408,21 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
 
     // 4. Emitir evento Socket para notificar a recepción
     const io = getIO();
+    const habNombre = habitacion.nombre_alias || habitacion.nombre_habitacion;
     if (io) {
-      const habNombre = habitacion.nombre_alias || habitacion.nombre_habitacion;
       io.emit('nueva_solicitud_reserva', {
         reserva: nuevaReserva,
         mensaje: `Nueva solicitud web: ${nombre} (${habNombre})`
       });
     }
+
+    await crearNotificacion({
+      hotelId: habitacion.id_hotel,
+      tipo: 'reserva_web',
+      titulo: 'Nueva solicitud de reserva',
+      mensaje: `${nombre} solicitó ${habNombre} (${noches} noche${noches === 1 ? '' : 's'})`,
+      link: '/reservas',
+    });
 
     return res.status(201).json({ success: true, reserva: nuevaReserva });
   } catch (error: any) {
@@ -640,6 +684,17 @@ async function handleBotResponse(channelId: string, content: string) {
         });
       }
 
+      const chatHotelId = channel?.metadata?.hotel_id;
+      if (chatHotelId) {
+        await crearNotificacion({
+          hotelId: chatHotelId,
+          tipo: 'mensaje_cliente',
+          titulo: 'Cliente solicita un agente',
+          mensaje: 'Un huésped pidió hablar con recepción en el chat del portal',
+          link: '/chat',
+        });
+      }
+
       // Enviar mensaje de confirmación del bot
       const botResponse = "Entendido. He notificado a recepción y te he conectado con un agente humano. En un momento te asistiremos. 📞";
       const { data: botMsg } = await supabaseAdmin
@@ -835,13 +890,19 @@ router.get('/hoteles', async (req: Request, res: Response) => {
 // GET /api/public/disponibilidad
 router.get('/disponibilidad', async (req: Request, res: Response) => {
   try {
-    const { checkIn, checkOut } = req.query;
+    const { checkIn, checkOut, hotel_id } = req.query;
 
-    // Obtener todas las habitaciones marcadas como disponibles desde la vista 3NF
-    const { data: rooms, error: roomsError } = await db()
+    // Obtener habitaciones disponibles, filtradas por hotel si se provee hotel_id
+    let roomQuery = db()
       .from('habitaciones_con_detalles')
       .select('id_habitacion, id_hotel, nombre_habitacion, nombre_alias, tipo, tarifa_noche, numero_camas, capacidad, imagenes, imagen_360, comodidades')
       .eq('estado', 'disponible');
+
+    if (hotel_id && hotel_id !== 'all') {
+      roomQuery = roomQuery.eq('id_hotel', hotel_id as string);
+    }
+
+    const { data: rooms, error: roomsError } = await roomQuery;
     
     if (roomsError) throw roomsError;
 
@@ -876,22 +937,51 @@ router.get('/disponibilidad', async (req: Request, res: Response) => {
       availableRooms = availableRooms.filter((r: any) => !bookedRoomIds.has(r.id_habitacion));
     }
 
+    // Resolver tarifas activas desde habitacion_tarifas_periodo
+    const fechaConsulta = checkIn ? String(checkIn).split('T')[0] : new Date().toLocaleDateString('en-CA');
+    const fCheck = fechaConsulta.substring(0, 10);
+    const roomIds = availableRooms.map((r: any) => r.id_habitacion).filter(Boolean);
+    const tarifasMap: Record<string, { tarifa: number; esPeriodo: boolean; nombrePeriodo?: string }> = {};
+
+    if (roomIds.length > 0) {
+      const { data: periodos } = await (supabaseAdmin || db())
+        .from('habitacion_tarifas_periodo')
+        .select('id_habitacion, tarifa_noche, es_base, fecha_desde, fecha_hasta, nombre_periodo')
+        .in('id_habitacion', roomIds);
+
+      for (const p of (periodos ?? []).filter((p: any) => p.es_base)) {
+        tarifasMap[p.id_habitacion] = { tarifa: Number(p.tarifa_noche), esPeriodo: false };
+      }
+      for (const p of (periodos ?? []).filter((p: any) => !p.es_base)) {
+        const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+        const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+        if ((!desde || desde <= fCheck) && (!hasta || hasta >= fCheck)) {
+          tarifasMap[p.id_habitacion] = { tarifa: Number(p.tarifa_noche), esPeriodo: true, nombrePeriodo: p.nombre_periodo || undefined };
+        }
+      }
+    }
+
     // Renombrar campos para el frontend
-    const formatted = availableRooms.map((h: any) => ({
+    const formatted = availableRooms.map((h: any) => {
+      const t = tarifasMap[h.id_habitacion];
+      return {
       id: h.id_habitacion,
       id_hotel: h.id_hotel,
       nombre: h.nombre_habitacion,
       nombreAlias: h.nombre_alias,
       tipo: h.tipo,
-      tarifaNoche: h.tarifa_noche,
+      // Período activo → base → tarifa_noche estática de la habitación
+      tarifaNoche:    t ? t.tarifa : h.tarifa_noche,
+      esTarifaPeriodo: t?.esPeriodo ?? false,   // true cuando aplica tarifa especial
+      nombrePeriodo:  t?.nombrePeriodo ?? null, // ej: "Navidad 2024"
       numeroCamas: h.numero_camas,
       capacidad: h.capacidad,
-      cargoPersonaExtra: 0, // no existe en la vista, valor por defecto
+      cargoPersonaExtra: 0,
       imagenes: h.imagenes || [],
       imagen_360: h.imagen_360,
       comodidades: h.comodidades || [],
       disponible: true
-    }));
+    };});
 
     return res.json(formatted);
   } catch (error: any) {
@@ -973,6 +1063,68 @@ router.get('/local-guide', async (req: Request, res: Response) => {
     return res.json([]);
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/public/tarifa-habitacion?id_habitacion=X&fecha=YYYY-MM-DD
+ * Devuelve la tarifa activa para una habitación en una fecha específica.
+ * El portal lo usa para mostrar el precio correcto al seleccionar fechas.
+ */
+router.get('/tarifa-habitacion', async (req: Request, res: Response) => {
+  try {
+    const { id_habitacion, fecha } = req.query as { id_habitacion?: string; fecha?: string };
+    if (!id_habitacion) return res.status(400).json({ error: 'id_habitacion requerido' });
+
+    const fCheck = fecha ? String(fecha).substring(0, 10) : new Date().toLocaleDateString('en-CA');
+
+    const { data: periodos, error } = await (supabaseAdmin || db())
+      .from('habitacion_tarifas_periodo')
+      .select('tarifa_noche, es_base, fecha_desde, fecha_hasta, nombre_periodo')
+      .eq('id_habitacion', id_habitacion);
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    // Buscar período activo (no base) que cubra la fecha
+    const periodoActivo = (periodos ?? []).find((p: any) => {
+      if (p.es_base) return false;
+      const desde = p.fecha_desde ? String(p.fecha_desde).substring(0, 10) : null;
+      const hasta  = p.fecha_hasta ? String(p.fecha_hasta).substring(0, 10) : null;
+      return (!desde || desde <= fCheck) && (!hasta || hasta >= fCheck);
+    });
+
+    if (periodoActivo) {
+      return res.json({
+        tarifa_noche:   Number(periodoActivo.tarifa_noche),
+        es_periodo:     true,
+        nombre_periodo: periodoActivo.nombre_periodo || null,
+      });
+    }
+
+    // Fallback: tarifa base
+    const base = (periodos ?? []).find((p: any) => p.es_base);
+    if (base) {
+      return res.json({
+        tarifa_noche:   Number(base.tarifa_noche),
+        es_periodo:     false,
+        nombre_periodo: null,
+      });
+    }
+
+    // Fallback final: tarifa_noche estática de la habitación
+    const { data: hab } = await (supabaseAdmin || db())
+      .from('habitaciones')
+      .select('tarifa_noche')
+      .eq('id_habitacion', id_habitacion)
+      .maybeSingle();
+
+    return res.json({
+      tarifa_noche:   Number(hab?.tarifa_noche ?? 0),
+      es_periodo:     false,
+      nombre_periodo: null,
+    });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
   }
 });
 

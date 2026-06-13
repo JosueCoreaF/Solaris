@@ -1,13 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, FileSpreadsheet, Plus, X } from 'lucide-react';
+import { ImportadorReservas } from './ImportadorReservas';
+import { DatePicker } from '../../components/DatePicker';
 import { useNavigate } from 'react-router-dom';
 import {
   addDays,
   cancelReserva,
   checkOutFromNights,
+  addColaboradorEmpresa,
   createEmpresa,
   createHuesped,
   createReserva,
+  fetchColaboradoresEmpresa,
   fetchEmpresas,
   fetchHabitaciones,
   fetchHoteles,
@@ -33,13 +37,16 @@ import {
   type BloqueHabitacion,
 } from '../../api/bookingsService';
 import { obtenerConfigHotelera } from '../../api/configService';
+import { obtenerTarifasVigentes, type Tarifa } from '../../api/tarifasService';
+import { EmailStudioModal } from '../../components/EmailStudioModal';
+import { useHasFeature } from '../../hooks/usePlanFeature';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 type WizardStep = 'datos' | 'tarifas' | 'resumen';
 
 const WIZARD_STEPS: { id: WizardStep; title: string; caption: string }[] = [
-  { id: 'datos',   title: 'Datos',   caption: 'Huésped, habitación y fechas' },
+  { id: 'datos', title: 'Datos', caption: 'Huésped, habitación y fechas' },
   { id: 'tarifas', title: 'Tarifas', caption: 'Esquema y cálculo' },
   { id: 'resumen', title: 'Resumen', caption: 'Revisión final y cierre' },
 ];
@@ -127,6 +134,7 @@ export const Bookings: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hotelConfig, setHotelConfig] = useState<any>(null);
+  const [tarifas, setTarifas] = useState<Tarifa[]>([]);
 
   // ── Filters ──
   const [hotelFiltro, setHotelFiltro] = useState<string>(() => {
@@ -164,11 +172,21 @@ export const Bookings: React.FC = () => {
   const dragState = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [detailReserva, setDetailReserva] = useState<Reserva | null>(null);
+  const [importadorOpen, setImportadorOpen] = useState(false);
   // ── Nueva empresa inline ──
   const [showNuevaEmpresa, setShowNuevaEmpresa] = useState(false);
+  const [guestQuery, setGuestQuery] = useState('');  // búsqueda live de huéspedes
+
   const [nuevaEmpresaNombre, setNuevaEmpresaNombre] = useState('');
   const [nuevaEmpresaRtn, setNuevaEmpresaRtn] = useState('');
   const [savingEmpresa, setSavingEmpresa] = useState(false);
+
+  // ── Colaboradores de empresa seleccionada ──
+  const [colaboradoresIds, setColaboradoresIds] = useState<string[]>([]);
+  const [mostrarTodosHuespedes, setMostrarTodosHuespedes] = useState(false);
+
+  // ── Animación reserva exitosa ──
+  const [successAnim, setSuccessAnim] = useState<{ guestName: string; habitacion: string; noches: number } | null>(null);
 
   // ── Context Menu ──
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; reserva: Reserva } | null>(null);
@@ -195,6 +213,10 @@ export const Bookings: React.FC = () => {
   const [selectedSplitDate, setSelectedSplitDate] = useState<string>('');
   const [savingSplit, setSavingSplit] = useState(false);
 
+  // ── Email Studio ──
+  const [emailStudioReserva, setEmailStudioReserva] = useState<Reserva | null>(null);
+  const hasEmailStudio = useHasFeature('email_studio');
+
   // ── Toast ──
   const showToast = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {
     setToast({ msg, type });
@@ -207,10 +229,10 @@ export const Bookings: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const rangeStart = toDateKey(addDays(viewMonth, -365));
-      const rangeEnd = toDateKey(addDays(viewMonth, 365));
-      const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
-      const [h, hab, hues, res, emps, bloq, configData] = await Promise.all([
+      const rangeStart = toDateKey(addDays(viewMonth, -45));
+      const rangeEnd = toDateKey(addDays(viewMonth, 45));
+      const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+      const [h, hab, hues, res, emps, bloq, configData, activeTarifas] = await Promise.all([
         fetchHoteles(),
         fetchHabitaciones(),
         fetchHuespedes(),
@@ -218,6 +240,7 @@ export const Bookings: React.FC = () => {
         fetchEmpresas(),
         fetchBloques(rangeStart, rangeEnd),
         obtenerConfigHotelera(activeHotelId).catch(() => null),
+        obtenerTarifasVigentes().catch(() => []),
       ]);
       setHoteles(h);
       setHabitaciones(hab);
@@ -225,6 +248,7 @@ export const Bookings: React.FC = () => {
       setReservas(res);
       setEmpresas(emps);
       setBloqueos(bloq || []);
+      setTarifas(activeTarifas || []);
 
       let singleConfig = null;
       if (configData) {
@@ -252,6 +276,18 @@ export const Bookings: React.FC = () => {
     return () => window.removeEventListener('reloadBookings', handleReload);
   }, [load]);
 
+  // Cargar colaboradores cuando se selecciona empresa en el modal de nueva reserva
+  useEffect(() => {
+    if (!form.esCredito || !form.empresaId) {
+      setColaboradoresIds([]);
+      setMostrarTodosHuespedes(false);
+      return;
+    }
+    fetchColaboradoresEmpresa(form.empresaId)
+      .then(rows => setColaboradoresIds(rows.map(r => r.huespedes?.id_huesped ?? r.id_huesped).filter(Boolean)))
+      .catch(() => setColaboradoresIds([]));
+  }, [form.esCredito, form.empresaId]);
+
   // ── Global ESC Handler ──
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -271,12 +307,12 @@ export const Bookings: React.FC = () => {
   useEffect(() => {
     function handleMouseUp() {
       setResizingState(s => {
-        if (!s || s.isPendingConfirm || s.direction === null) return s;
+        if (!s || s.direction === null) return s;
         const ciStr = s.tentativeCi;
         const coStr = s.tentativeCo;
         const hovered = s.hoveredDate;
         let newCi = ciStr, newCo = coStr;
-        
+
         if (s.direction === 'bottom') {
           const lastNightDate = new Date(hovered + 'T12:00:00Z');
           lastNightDate.setUTCDate(lastNightDate.getUTCDate() + 1);
@@ -290,15 +326,13 @@ export const Bookings: React.FC = () => {
           maxCiDate.setUTCDate(maxCiDate.getUTCDate() - 1);
           const maxCiStr = maxCiDate.toISOString().split('T')[0];
           newCi = hovered < maxCiStr ? hovered : maxCiStr;
+          
+          const origCi = getOnlyDate(s.reserva.check_in);
+          if (newCi < origCi) newCi = origCi;
         }
-        
-        return {
-          ...s,
-          tentativeCi: newCi,
-          tentativeCo: newCo,
-          direction: null,
-          isPendingConfirm: true,
-        };
+
+        // Vuelve a direction:null (sin isPendingConfirm) para que ambos handles sean reutilizables
+        return { ...s, tentativeCi: newCi, tentativeCo: newCo, direction: null };
       });
     }
     window.addEventListener('mouseup', handleMouseUp);
@@ -309,11 +343,11 @@ export const Bookings: React.FC = () => {
     if (!splitStayState) return [];
     const ci = getOnlyDate(splitStayState.reserva.check_in);
     const co = getOnlyDate(splitStayState.reserva.check_out);
-    
+
     const options: { dateKey: string; label: string }[] = [];
     const checkInDateObj = new Date(ci + 'T12:00:00Z');
     const checkOutDateObj = new Date(co + 'T12:00:00Z');
-    
+
     let current = new Date(checkInDateObj.getTime() + 24 * 60 * 60 * 1000);
     while (current < checkOutDateObj) {
       const dateKey = toDateKey(current);
@@ -326,7 +360,7 @@ export const Bookings: React.FC = () => {
 
   const habitacionesFiltradas = useMemo(() => {
     const filtered = hotelFiltro === 'todos' ? habitaciones : habitaciones.filter(h => h.id_hotel === hotelFiltro);
-    
+
     // Ordenar por número extraído del nombre
     return filtered.sort((a, b) => {
       const numA = parseInt(a.nombre_habitacion.match(/\d+/)?.[0] ?? '0', 10);
@@ -376,63 +410,71 @@ export const Bookings: React.FC = () => {
 
   const precioBase = selectedHabitacion?.tarifa_noche ?? 0;
 
+
+  // ── Tarifas del sistema filtradas por habitación y modalidad ──
+  const tarifasFiltradas = useMemo(() => {
+    return tarifas
+      .filter(t => t.tipo_habitacion === selectedHabitacion?.tipo)
+      .map(t => ({
+        ...t,
+        valorActivo:
+          form.tipoReserva === 'hora'
+            ? t.tarifa_hora
+            : form.tipoReserva === 'pasadia'
+            ? t.tarifa_pasadia
+            : t.tarifa_noche,
+      }))
+      .filter(t => t.valorActivo > 0);
+  }, [tarifas, selectedHabitacion, form.tipoReserva]);
+
   const rates = useMemo(() => {
     const isvRate = hotelConfig?.tasa_isv !== undefined ? hotelConfig.tasa_isv : 0.15;
     const turisticaRate = hotelConfig?.tasa_turistica !== undefined ? hotelConfig.tasa_turistica : 0.04;
     const taxFactor = 1 + isvRate + turisticaRate;
-    
+
     if (form.esCortesia) {
-      return {
-        subtotalBruto: 0,
-        discount: 0,
-        subtotal: 0,
-        isv: 0,
-        tasaTuristica: 0,
-        total: 0,
-        isvRate,
-        turisticaRate,
-      };
+      return { subtotalBruto: 0, discount: 0, subtotal: 0, isv: 0, tasaTuristica: 0, total: 0, isvRate, turisticaRate };
     }
-    
+
+    // Por hora: cobro fijo total
     if (form.tipoReserva === 'hora') {
       const total = form.tarifaManual;
       const subtotal = +(total / taxFactor).toFixed(2);
       const isv = +(subtotal * isvRate).toFixed(2);
       const tasaTuristica = +(total - subtotal - isv).toFixed(2);
-      return {
-        subtotalBruto: subtotal,
-        discount: 0,
-        subtotal,
-        isv,
-        tasaTuristica,
-        total,
-        isvRate,
-        turisticaRate,
-      };
+      return { subtotalBruto: subtotal, discount: 0, subtotal, isv, tasaTuristica, total, isvRate, turisticaRate };
     }
 
+    // Pasadía: cobro fijo único (no multiplica por noches)
+    if (form.tipoReserva === 'pasadia') {
+      const total = form.tarifaManual > 0 ? form.tarifaManual : 0;
+      const subtotal = +(total / taxFactor).toFixed(2);
+      const isv = +(subtotal * isvRate).toFixed(2);
+      const tasaTuristica = +(total - subtotal - isv).toFixed(2);
+      return { subtotalBruto: subtotal, discount: 0, subtotal, isv, tasaTuristica, total, isvRate, turisticaRate };
+    }
+
+    // Por noche
+    const discountRate = hotelConfig?.descuento_tercera_edad !== undefined
+      ? hotelConfig.descuento_tercera_edad / 100
+      : 0.25; // Fallback: 25% (default del sistema)
     const pricePerNoche = form.tarifaManual > 0 ? form.tarifaManual : precioBase;
     const totalBruto = pricePerNoche * form.noches;
-    const discountBruto = form.aplicarDescuento ? totalBruto * 0.15 : 0;
-    const total = +(totalBruto - discountBruto).toFixed(2);
-    
+    const discountBruto = form.aplicarDescuento ? totalBruto * discountRate : 0;
+
+    const capacidadBase = selectedHabitacion?.capacidad_base ?? 2;
+    const cargoExtraRate = hotelConfig?.cargo_persona_extra ?? 0;
+    const personasExtra = ((form.adultos ?? 1) + (form.ninos ?? 0)) > capacidadBase ? 1 : 0;
+    const cargoPersonaExtra = +(personasExtra * cargoExtraRate * form.noches).toFixed(2);
+
+    const total = +(totalBruto - discountBruto + cargoPersonaExtra).toFixed(2);
     const subtotalBruto = +(totalBruto / taxFactor).toFixed(2);
     const discount = +(discountBruto / taxFactor).toFixed(2);
     const subtotal = +(total / taxFactor).toFixed(2);
     const isv = +(subtotal * isvRate).toFixed(2);
     const tasaTuristica = +(total - subtotal - isv).toFixed(2);
-    
-    return {
-      subtotalBruto,
-      discount,
-      subtotal,
-      isv,
-      tasaTuristica,
-      total,
-      isvRate,
-      turisticaRate,
-    };
-  }, [form.tarifaManual, form.aplicarDescuento, form.noches, form.esCortesia, form.tipoReserva, precioBase, hotelConfig]);
+    return { subtotalBruto, discount, subtotal, isv, tasaTuristica, total, isvRate, turisticaRate, discountRate, cargoPersonaExtra, personasExtra, capacidadBase };
+  }, [form.tarifaManual, form.aplicarDescuento, form.noches, form.esCortesia, form.tipoReserva, form.adultos, form.ninos, precioBase, hotelConfig, selectedHabitacion]);
 
   const totalEstimado = useMemo(() => {
     return rates.total;
@@ -463,13 +505,23 @@ export const Bookings: React.FC = () => {
   const getEffectiveStatus = useCallback((reserva: Reserva): DisplayStatus => {
     const validStatuses: DisplayStatus[] = ['reservada', 'pagada', 'abonada', 'pendiente', 'credito', 'cortesia', 'check_out', 'cancelada', 'confirmada', 'check_in'];
 
-    // 1. Leer estado_display de la BD si existe y es válido
+    // Crédito y cortesía tienen prioridad sobre cualquier valor de la BD
+    if (reserva.estado === 'cancelada') return 'cancelada';
+
+    // Bloqueo temporal generado por una cotización aún sin confirmar: se
+    // muestra distinto de "Pendiente" como referencia visual, y no admite
+    // pagos hasta que el cliente la acepte o el hotel la confirme.
+    if (reserva.id_cotizacion && reserva.estado === 'pendiente') return 'cotizacion';
+    if (reserva.es_cortesia || reserva.estado_pago === 'cortesia') return 'cortesia';
+    if (reserva.id_empresa || reserva.estado_pago === 'credito') return 'credito';
+
+    // Leer estado_display de la BD si existe y es válido
     const fromBD = reserva.estado_display as string;
     if (fromBD && validStatuses.includes(fromBD as DisplayStatus)) {
       return fromBD as DisplayStatus;
     }
 
-    // 2. Fallback: calcular localmente (mismo flujo que el trigger SQL)
+    // Fallback: calcular localmente
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
@@ -482,9 +534,6 @@ export const Bookings: React.FC = () => {
     const isFullyPaid = totalDue > 0 && totalPaid + 0.009 >= totalDue;
     const hasPartialPayment = totalPaid > 0 && !isFullyPaid;
 
-    if (reserva.estado === 'cancelada') return 'cancelada';
-    if (reserva.es_cortesia) return 'cortesia';
-    if (reserva.id_empresa) return 'credito';
     if (reserva.estado === 'check_in') return 'check_in';
     if (reserva.estado === 'check_out') return 'check_out';
     if (totalDue === 0) return 'cortesia';
@@ -504,13 +553,21 @@ export const Bookings: React.FC = () => {
     if (reserva.tipo_reserva === 'hora') {
       if (dateStr !== checkInStr) return null;
     } else {
-      if (dateStr < checkInStr || dateStr >= checkOutStr) {
-        return null;
+      if (checkInStr === checkOutStr) {
+        if (dateStr !== checkInStr) return null;
+      } else {
+        if (dateStr < checkInStr || dateStr >= checkOutStr) {
+          return null;
+        }
       }
     }
 
     if (reserva.estado === 'cancelada') {
       return { status: 'cancelada' as DisplayStatus, isCheckIn: false, isCheckOut: false };
+    }
+
+    if (reserva.id_cotizacion && reserva.estado === 'pendiente') {
+      return { status: 'cotizacion' as DisplayStatus, isCheckIn: false, isCheckOut: false };
     }
 
     // Generar todas las noches de la reserva
@@ -520,9 +577,13 @@ export const Bookings: React.FC = () => {
     } else {
       const cur = new Date(checkInStr + 'T12:00:00');
       const end = new Date(checkOutStr + 'T12:00:00');
-      while (cur < end) {
-        allNights.push(toDateKey(cur));
-        cur.setDate(cur.getDate() + 1);
+      if (checkInStr === checkOutStr) {
+        allNights.push(checkInStr);
+      } else {
+        while (cur < end) {
+          allNights.push(toDateKey(cur));
+          cur.setDate(cur.getDate() + 1);
+        }
       }
     }
 
@@ -551,24 +612,40 @@ export const Bookings: React.FC = () => {
 
     if (reserva.estado === 'check_out') {
       // Si la reserva ya completó check-out, las noches consumidas (anteriores al check-out)
-      // se muestran como completada. Las noches a partir del check-out son por_confirmar.
+      // o el mismo día si coinciden check-in y check-out se muestran según su estado de facturación.
+      // Las noches a partir del check-out son por_confirmar.
       if (reserva.tipo_reserva === 'hora') {
         status = 'completada';
       } else {
-        status = dateStr < checkOutStr ? 'completada' : 'por_confirmar';
+        const isNightBeforeCheckOut = dateStr < checkOutStr || checkInStr === checkOutStr;
+        if (isNightBeforeCheckOut) {
+          if (isCortesia) {
+            status = 'cortesia';
+          } else if (isCredito) {
+            status = isFullyPaid ? 'completada' : 'credito';
+          } else if (isFullyPaid) {
+            status = 'completada';
+          } else if (hasPartialPayment) {
+            status = 'abonada';
+          } else {
+            status = 'pendiente';
+          }
+        } else {
+          status = 'por_confirmar';
+        }
       }
     } else if (isCortesia) {
       status = 'cortesia';
     } else {
       if (dateStr > todayStr) {
         // Noche futura
-        status = (isFullyPaid || isCredito) ? 'pagada' : 'reservada';
+        status = isCredito ? 'credito' : (isFullyPaid ? 'pagada' : 'reservada');
       } else if (dateStr === todayStr) {
         // Noche actual (de hoy)
         if (reserva.estado === 'check_in') {
           status = (isFullyPaid || isCredito) ? 'en_el_hotel' : 'check_in_pendiente';
         } else {
-          status = (isFullyPaid || isCredito) ? 'pagada' : 'reservada';
+          status = isCredito ? 'credito' : (isFullyPaid ? 'pagada' : 'reservada');
         }
       } else {
         // Noche pasada
@@ -604,14 +681,14 @@ export const Bookings: React.FC = () => {
       while (i < monthDays.length) {
         const day = monthDays[i];
         const dayKey = toDateKey(day);
-        
+
         const dayReservas = roomReservas.filter(rv => {
           const ci = getOnlyDate(rv.check_in);
           const co = getOnlyDate(rv.check_out);
           if (rv.tipo_reserva === 'hora') {
             return dayKey === ci;
           } else {
-            return dayKey >= ci && dayKey < co;
+            return dayKey >= ci && (ci === co ? dayKey === ci : dayKey < co);
           }
         });
 
@@ -634,14 +711,14 @@ export const Bookings: React.FC = () => {
     const ciStr = getOnlyDate(movingReserva.check_in);
     const coStr = getOnlyDate(movingReserva.check_out);
     const result = new Set<string>();
-    
+
     // Obtener hotel de la habitación original para evitar traslados entre distintas propiedades
     const originalHab = habitaciones.find(h => h.id_habitacion === movingReserva.id_habitacion);
     const originalHotelId = originalHab?.id_hotel;
 
     for (const hab of habitacionesFiltradas) {
       if (hab.id_habitacion === movingReserva.id_habitacion) continue;
-      
+
       // Impedir traslados entre hoteles diferentes (inconsistencia contable/tarifaria)
       if (originalHotelId && hab.id_hotel !== originalHotelId) continue;
 
@@ -683,8 +760,8 @@ export const Bookings: React.FC = () => {
     const todayStr = toDateKey(new Date());
 
     if (nuevoEstado === 'check_in') {
-      if (getOnlyDate(res.check_in) !== todayStr) {
-        showToast(`El check-in solo se puede registrar en la fecha de entrada programada (${getOnlyDate(res.check_in)}).`, 'err');
+      if (getOnlyDate(res.check_in) > todayStr) {
+        showToast(`El check-in no se puede registrar antes de la fecha de entrada programada (${getOnlyDate(res.check_in)}).`, 'err');
         return;
       }
     }
@@ -695,7 +772,7 @@ export const Bookings: React.FC = () => {
     if (nuevoEstado === 'check_out') {
       const checkInStr = getOnlyDate(res.check_in);
       const checkOutStr = getOnlyDate(res.check_out);
-      
+
       if (todayStr >= checkInStr && todayStr < checkOutStr) {
         const releaseRoom = window.confirm(
           'El huésped está realizando Check-out antes de la fecha programada.\n\n' +
@@ -743,31 +820,32 @@ export const Bookings: React.FC = () => {
       }
     }
     setEditingReserva(null);
-    
+
     if (contextHoraReserva) {
-       const newForm = defaultForm(checkIn, habitacionId);
-       const endD = new Date(contextHoraReserva.check_out);
-       const h = endD.getHours().toString().padStart(2, '0');
-       const m = endD.getMinutes().toString().padStart(2, '0');
-       const startH = `${h}:${m}`;
-       
-       endD.setHours(endD.getHours() + 3);
-       const endH2 = endD.getHours().toString().padStart(2, '0');
-       const endM2 = endD.getMinutes().toString().padStart(2, '0');
-       const endH = `${endH2}:${endM2}`;
-       
-       setForm({
-         ...newForm,
-         tipoReserva: 'hora',
-         fechaHoraDate: getOnlyDate(contextHoraReserva.check_out),
-         horaCheckIn: startH,
-         horaCheckOut: endH
-       });
+      const newForm = defaultForm(checkIn, habitacionId);
+      const endD = new Date(contextHoraReserva.check_out);
+      const h = endD.getHours().toString().padStart(2, '0');
+      const m = endD.getMinutes().toString().padStart(2, '0');
+      const startH = `${h}:${m}`;
+
+      endD.setHours(endD.getHours() + 3);
+      const endH2 = endD.getHours().toString().padStart(2, '0');
+      const endM2 = endD.getMinutes().toString().padStart(2, '0');
+      const endH = `${endH2}:${endM2}`;
+
+      setForm({
+        ...newForm,
+        tipoReserva: 'hora',
+        fechaHoraDate: getOnlyDate(contextHoraReserva.check_out),
+        horaCheckIn: startH,
+        horaCheckOut: endH
+      });
     } else {
       setForm(defaultForm(checkIn, habitacionId));
     }
-    
+
     setWizardStep('datos');
+    setGuestQuery('');
     setEditorOpen(true);
   }
 
@@ -810,6 +888,7 @@ export const Bookings: React.FC = () => {
       registrarNuevo: false,
     });
     setWizardStep('datos');
+    setGuestQuery('');
     setEditorOpen(true);
   }
 
@@ -833,7 +912,7 @@ export const Bookings: React.FC = () => {
     const checkInDateObj = new Date(ci + 'T12:00:00Z');
     const firstSplitDate = new Date(checkInDateObj.getTime() + 24 * 60 * 60 * 1000);
     const firstSplitStr = toDateKey(firstSplitDate);
-    
+
     setSelectedSplitDate(firstSplitStr);
     setSplitStayState({ reserva });
   }
@@ -866,10 +945,10 @@ export const Bookings: React.FC = () => {
     closeCtxMenu();
     const todayStr = toDateKey(new Date());
     const isPast = reserva.estado === 'check_in' ||
-                   reserva.estado === 'check_out' || 
-                   reserva.estado === 'cancelada' || 
-                   getOnlyDate(reserva.check_in) < todayStr ||
-                   getOnlyDate(reserva.check_out) < todayStr;
+      reserva.estado === 'check_out' ||
+      reserva.estado === 'cancelada' ||
+      getOnlyDate(reserva.check_in) < todayStr ||
+      getOnlyDate(reserva.check_out) < todayStr;
     if (isPast) {
       showToast('No se pueden modificar reservas del pasado.', 'err');
       return;
@@ -938,14 +1017,31 @@ export const Bookings: React.FC = () => {
     }
   }
 
+  // Activa el modo resize mostrando los handles (sin direcci\u00f3n, no dispara mouseup)
+  function activateResize(reserva: Reserva) {
+    const todayStr = toDateKey(new Date());
+    const isPast = reserva.estado === 'check_in' || reserva.estado === 'check_out' ||
+      reserva.estado === 'cancelada' ||
+      getOnlyDate(reserva.check_in) < todayStr || getOnlyDate(reserva.check_out) < todayStr;
+    if (isPast) { showToast('No se pueden modificar reservas del pasado.', 'err'); return; }
+    setResizingState({
+      reserva,
+      direction: null,
+      tentativeCi: getOnlyDate(reserva.check_in),
+      tentativeCo: getOnlyDate(reserva.check_out),
+      hoveredDate: '',
+      isPendingConfirm: false,
+    });
+  }
+
   // \u2500\u2500 Ampliar/Reducir estilo Excel (drag handles) \u2500\u2500
   function startResize(reserva: Reserva, direction: 'top' | 'bottom') {
     const todayStr = toDateKey(new Date());
     const isPast = reserva.estado === 'check_in' ||
-                   reserva.estado === 'check_out' || 
-                   reserva.estado === 'cancelada' || 
-                   getOnlyDate(reserva.check_in) < todayStr ||
-                   getOnlyDate(reserva.check_out) < todayStr;
+      reserva.estado === 'check_out' ||
+      reserva.estado === 'cancelada' ||
+      getOnlyDate(reserva.check_in) < todayStr ||
+      getOnlyDate(reserva.check_out) < todayStr;
     if (isPast) {
       showToast('No se pueden modificar reservas del pasado.', 'err');
       return;
@@ -954,7 +1050,15 @@ export const Bookings: React.FC = () => {
       const isSame = s?.reserva.id_reserva_hotel === reserva.id_reserva_hotel;
       const tentativeCi = isSame ? s.tentativeCi : getOnlyDate(reserva.check_in);
       const tentativeCo = isSame ? s.tentativeCo : getOnlyDate(reserva.check_out);
-      const date = direction === 'top' ? tentativeCi : tentativeCo;
+      // Para 'bottom', hoveredDate = último día (checkout - 1), no checkout
+      let date: string;
+      if (direction === 'top') {
+        date = tentativeCi;
+      } else {
+        const lastNight = new Date(tentativeCo + 'T12:00:00Z');
+        lastNight.setUTCDate(lastNight.getUTCDate() - 1);
+        date = lastNight.toISOString().split('T')[0];
+      }
       return { reserva, direction, tentativeCi, tentativeCo, hoveredDate: date, isPendingConfirm: false };
     });
   }
@@ -964,28 +1068,31 @@ export const Bookings: React.FC = () => {
     const ciStr = state.tentativeCi;
     const coStr = state.tentativeCo;
     const hovered = state.hoveredDate;
-    
+
     if (state.direction === null) {
       return { newCi: ciStr, newCo: coStr };
     }
-    
+
     if (state.direction === 'bottom') {
       const lastNightDate = new Date(hovered + 'T12:00:00Z');
       lastNightDate.setUTCDate(lastNightDate.getUTCDate() + 1);
       const nextDayStr = lastNightDate.toISOString().split('T')[0];
-      
+
       const minCoDate = new Date(ciStr + 'T12:00:00Z');
       minCoDate.setUTCDate(minCoDate.getUTCDate() + 1);
       const minCoStr = minCoDate.toISOString().split('T')[0];
-      
+
       const newCo = nextDayStr > minCoStr ? nextDayStr : minCoStr;
       return { newCi: ciStr, newCo };
     } else {
       const maxCiDate = new Date(coStr + 'T12:00:00Z');
       maxCiDate.setUTCDate(maxCiDate.getUTCDate() - 1);
       const maxCiStr = maxCiDate.toISOString().split('T')[0];
+
+      let newCi = hovered < maxCiStr ? hovered : maxCiStr;
+      const origCi = getOnlyDate(state.reserva.check_in);
+      if (newCi < origCi) newCi = origCi;
       
-      const newCi = hovered < maxCiStr ? hovered : maxCiStr;
       return { newCi, newCo: coStr };
     }
   }
@@ -1007,7 +1114,7 @@ export const Bookings: React.FC = () => {
     const newCi = resizingState.tentativeCi;
     const newCo = resizingState.tentativeCo;
     if (newCi === getOnlyDate(resizingState.reserva.check_in) &&
-        newCo === getOnlyDate(resizingState.reserva.check_out)) {
+      newCo === getOnlyDate(resizingState.reserva.check_out)) {
       setResizingState(null);
       return;
     }
@@ -1083,6 +1190,10 @@ export const Bookings: React.FC = () => {
           direccion: form.nuevaDireccion.trim() || undefined,
         });
         huespedId = nuevo.id_huesped;
+        // Auto-vincular como colaborador si la reserva es de empresa
+        if (form.esCredito && form.empresaId) {
+          addColaboradorEmpresa(form.empresaId, nuevo.id_huesped).catch(() => null);
+        }
       }
 
       if (!huespedId) { showToast('Selecciona o registra un huésped.', 'err'); setSaving(false); return; }
@@ -1100,8 +1211,8 @@ export const Bookings: React.FC = () => {
 
       if (form.estado === 'check_in' && (!editingReserva || editingReserva.estado !== 'check_in')) {
         const todayStr = toDateKey(new Date());
-        if (getOnlyDate(finalCheckIn) !== todayStr) {
-          showToast(`El check-in solo se puede registrar si la fecha de entrada es el día de hoy (${todayStr}).`, 'err');
+        if (getOnlyDate(finalCheckIn) > todayStr) {
+          showToast(`El check-in no se puede registrar antes de la fecha de entrada programada (${getOnlyDate(finalCheckIn)}).`, 'err');
           setSaving(false);
           return;
         }
@@ -1131,7 +1242,7 @@ export const Bookings: React.FC = () => {
           observaciones: form.observaciones,
           estado_pago: calcEstadoPago(editingReserva.pagos ?? [], totalEstimado),
           es_cortesia: form.esCortesia,
-          id_empresa: form.esCredito ? form.empresaId : null,
+          id_empresa: form.empresaId || null,
           cama_extra: form.camaExtra,
           limpieza_diaria: form.limpiezaDiaria,
           neverita: form.neverita,
@@ -1139,6 +1250,7 @@ export const Bookings: React.FC = () => {
           tipo_reserva: form.tipoReserva,
         } as any);
         showToast('Reserva actualizada.');
+        closeEditor();
       } else {
         await createReserva({
           id_huesped: huespedId,
@@ -1154,17 +1266,26 @@ export const Bookings: React.FC = () => {
           estado_pago: form.esCredito ? 'credito' : form.esCortesia ? 'cortesia' : 'reservada',
           anticipo: 0,
           es_cortesia: form.esCortesia,
-          id_empresa: form.esCredito ? form.empresaId : undefined,
+          id_empresa: form.empresaId || undefined,
           cama_extra: form.camaExtra,
           limpieza_diaria: form.limpiezaDiaria,
           neverita: form.neverita,
           plancha: form.plancha,
           tipo_reserva: form.tipoReserva,
         });
-        showToast('Reserva creada exitosamente.');
+        const guestName = form.registrarNuevo
+          ? form.nuevoNombre.trim()
+          : huespedes.find(h => h.id_huesped === form.huespedId)?.nombre_completo ?? 'Huésped';
+        const habName = habitaciones.find(h => h.id_habitacion === form.habitacionId);
+        closeEditor();
+        setSuccessAnim({
+          guestName,
+          habitacion: habName?.nombre_alias ?? habName?.nombre_habitacion ?? '',
+          noches: form.noches,
+        });
+        setTimeout(() => setSuccessAnim(null), 4200);
       }
 
-      closeEditor();
       void load();
     } catch (e: any) {
       showToast(e?.message ?? 'Error al guardar la reserva.', 'err');
@@ -1226,13 +1347,13 @@ export const Bookings: React.FC = () => {
               100% { background-position: -200% 0; }
             }
           `}</style>
-          <div 
-            style={{ 
-              position: 'fixed', top: 0, left: 0, right: 0, height: 3, 
-              background: 'linear-gradient(90deg, #3b82f6, #60a5fa, #3b82f6)', zIndex: 99999, 
+          <div
+            style={{
+              position: 'fixed', top: 0, left: 0, right: 0, height: 3,
+              background: 'linear-gradient(90deg, #3b82f6, #60a5fa, #3b82f6)', zIndex: 99999,
               backgroundSize: '200% 100%',
               animation: 'loading-bar 1.5s infinite linear',
-            }} 
+            }}
           />
         </>
       )}
@@ -1261,7 +1382,7 @@ export const Bookings: React.FC = () => {
           <button onClick={() => setViewMonth(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))} style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', background: '#fff', display: 'flex', alignItems: 'center' }}>
             <ChevronLeft size={14} />
           </button>
-          
+
           <div style={{ display: 'flex', gap: 4, alignItems: 'center', minWidth: 160, justifyContent: 'center' }}>
             <select
               value={viewMonth.getMonth()}
@@ -1322,15 +1443,22 @@ export const Bookings: React.FC = () => {
           >
             <span>{modoBloqueo ? '🔒 Modo Bloqueo: Activo' : '🔓 Modo Bloqueo: Inactivo'}</span>
           </button>
-          <select 
-            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 disabled:opacity-60 disabled:cursor-not-allowed" 
-            value={hotelFiltro} 
+          <select
+            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 disabled:opacity-60 disabled:cursor-not-allowed"
+            value={hotelFiltro}
             onChange={e => setHotelFiltro(e.target.value)}
             disabled={localStorage.getItem('active_hotel_id') !== 'all'}
           >
             <option value="todos">Todos los hoteles</option>
             {hoteles.map(h => <option key={h.id_hotel} value={h.id_hotel}>{h.nombre_hotel}</option>)}
           </select>
+          <button
+            onClick={() => setImportadorOpen(true)}
+            title="Importar reservas desde Excel"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: 8, cursor: 'pointer', fontWeight: 500 }}
+          >
+            <FileSpreadsheet size={14} /> Importar Excel
+          </button>
           <button onClick={() => openNewReserva()} className="flex items-center gap-1.5 bg-gray-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors">
             <Plus size={14} /> Nueva reserva
           </button>
@@ -1339,7 +1467,7 @@ export const Bookings: React.FC = () => {
 
       {/* ── Legend ── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, padding: '6px 20px', borderBottom: '1px solid #f1f5f9', flexShrink: 0, alignItems: 'center' }}>
-        {(['reservada', 'confirmada', 'check_in', 'pagada', 'abonada', 'cortesia', 'completada', 'cancelada'] as DisplayStatus[]).map(s => (
+        {(['cotizacion', 'reservada', 'confirmada', 'check_in', 'pagada', 'abonada', 'cortesia', 'completada', 'cancelada'] as DisplayStatus[]).map(s => (
           <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#64748b' }}>
             <div style={{ width: 10, height: 10, borderRadius: 2, background: getStatusColor(s) + '55', border: `1.5px solid ${getStatusColor(s)}` }} />
             {getStatusLabel(s)}
@@ -1394,7 +1522,7 @@ export const Bookings: React.FC = () => {
                   <tr
                     key={dayKey}
                     onMouseEnter={() => {
-                      if (resizingState && !resizingState.isPendingConfirm && resizingState.reserva.id_habitacion) {
+                      if (resizingState && resizingState.direction !== null && resizingState.reserva.id_habitacion) {
                         setResizingState(s => s ? { ...s, hoveredDate: dayKey } : null);
                       }
                     }}
@@ -1405,21 +1533,30 @@ export const Bookings: React.FC = () => {
                     </td>
                     {habitacionesFiltradas.map((hab, habIdx) => {
                       const cell = colGrid[habIdx]?.get(dayKey);
-                      if (!cell || cell.type === 'skip') return null;
+
+                      // Omitir celdas vacías que caen dentro del rowSpan extendido tentativamente
+                      if (!cell || cell.type === 'skip') {
+                        if (resizingState && hab.id_habitacion === resizingState.reserva.id_habitacion) {
+                          const origCo = getOnlyDate(resizingState.reserva.check_out);
+                          if (dayKey >= origCo && dayKey < resizingState.tentativeCo) return null;
+                        }
+                        if (!cell || cell.type === 'skip') return null;
+                      }
+
                       if (cell.type === 'start') {
                         const activeIndex = carouselTick % cell.reservas.length;
                         const r = cell.reservas[activeIndex];
                         const nightInfo = getNightStatusInfo(r, dayKey);
                         const status = nightInfo?.status ?? 'reservada';
                         const color = getStatusColor(status);
-                        
+
                         const isFirstNight = dayKey === getOnlyDate(r.check_in);
                         const prevDay = addDays(new Date(dayKey + 'T12:00:00'), -1);
                         const prevDayKey = toDateKey(prevDay);
                         const prevNightInfo = getNightStatusInfo(r, prevDayKey);
                         const showLabel = !prevNightInfo || prevNightInfo.status !== status;
                         const isLastNight = r.tipo_reserva === 'hora' || dayKey === toDateKey(addDays(new Date(r.check_out), -1));
-                        
+
                         const isWeb = r.origen_reserva === 'web' || r.observaciones?.includes('[WEB]');
                         const isIa = r.origen_reserva === 'ia' || r.observaciones?.includes('[IA]');
                         const formatTime = (isoString: string) => {
@@ -1440,15 +1577,17 @@ export const Bookings: React.FC = () => {
                           }
                         };
 
+                        const effectiveRowSpan = cell.rowSpan;
+
                         return (
                           <td
                             key={hab.id_habitacion}
-                            rowSpan={cell.rowSpan}
+                            rowSpan={effectiveRowSpan}
                             className={`reserva-cell ${resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel ? 'is-resizing' : ''}`}
                             onContextMenu={e => openCtxMenu(e, r)}
                             onMouseEnter={() => { if (movingReserva && r.tipo_reserva !== 'hora') setMoveTarget({ habId: hab.id_habitacion, dayKey }); }}
                             onMouseMove={e => {
-                              if (resizingState && !resizingState.isPendingConfirm && r.tipo_reserva !== 'hora') {
+                              if (resizingState && resizingState.direction !== null && r.tipo_reserva !== 'hora') {
                                 const rect = e.currentTarget.getBoundingClientRect();
                                 const offsetY = e.clientY - rect.top;
                                 const rowIndex = Math.floor(offsetY / 48);
@@ -1463,66 +1602,69 @@ export const Bookings: React.FC = () => {
                             title={`${r.huesped} · ${getStatusLabel(status)} · ${r.tipo_reserva === 'hora' ? 'Horas' : 'Noche'} del ${dayKey} — clic derecho`}
                             style={{
                               position: 'relative',
+                              height: effectiveRowSpan * 48,
+                              boxSizing: 'border-box',
                               background: (movingReserva && moveTarget?.habId === hab.id_habitacion) ? '#dbeafe' : color + '20',
                               borderLeft: r.tipo_reserva === 'hora' ? '3px solid #a855f7' : (movingReserva && moveTarget?.habId === hab.id_habitacion) ? '2px solid #2563eb' : 'none',
                               borderRight: (movingReserva && moveTarget?.habId === hab.id_habitacion) ? '2px solid #2563eb' : 'none',
                               borderBottom: (movingReserva && moveTarget?.habId === hab.id_habitacion) ? '2px solid #2563eb' : 'none',
                               borderTop: isFirstNight ? `3px solid ${color}` : (movingReserva && moveTarget?.habId === hab.id_habitacion) ? '2px solid #2563eb' : 'none',
                               padding: '5px 8px',
-                              cursor: (resizingState && !resizingState.isPendingConfirm && r.tipo_reserva !== 'hora') ? 'ns-resize' : movingReserva ? 'crosshair' : 'context-menu',
+                              cursor: (resizingState && resizingState.direction !== null && r.tipo_reserva !== 'hora') ? 'ns-resize' : (resizingState && r.id_reserva_hotel === resizingState.reserva.id_reserva_hotel) ? 'default' : movingReserva ? 'crosshair' : 'context-menu',
                               verticalAlign: 'top',
-                              overflow: 'hidden',
+                              overflow: (resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel) ? 'visible' : 'hidden',
                               maxWidth: 0,
                               userSelect: 'none',
                               transition: 'background 0.15s, border 0.15s',
                             }}
                           >
                             {/* Handle superior — arrastra para cambiar check-in */}
-                            {resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel && r.tipo_reserva !== 'hora' && isFirstNight && (
-                              <div
-                                onMouseDown={e => { e.preventDefault(); e.stopPropagation(); startResize(r, 'top'); }}
-                                className="resize-handle"
-                                style={{
-                                  position: 'absolute', top: 0, left: 0, right: 0, height: 10,
-                                  cursor: 'n-resize', zIndex: 5,
-                                  display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-                                }}
-                              >
-                                <div style={{ width: 24, height: 4, background: color, borderBottomLeftRadius: 4, borderBottomRightRadius: 4 }} />
-                              </div>
-                            )}
+                            {resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel && r.tipo_reserva !== 'hora' && isFirstNight && (() => {
+                              const { newCi } = getResizePreview(resizingState);
+                              return (
+                                <div
+                                  onMouseDown={e => { e.preventDefault(); e.stopPropagation(); startResize(r, 'top'); }}
+                                  className="resize-handle"
+                                  style={{
+                                    position: 'absolute', top: nightsBetween(getOnlyDate(r.check_in), newCi) * 48, left: 0, right: 0, height: 10,
+                                    cursor: 'n-resize', zIndex: 5,
+                                    display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+                                  }}
+                                >
+                                  <div style={{ width: 24, height: 4, background: color, borderBottomLeftRadius: 4, borderBottomRightRadius: 4 }} />
+                                </div>
+                              );
+                            })()}
 
                             {/* Resize preview mask */}
-                            {resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel && r.tipo_reserva !== 'hora' && (() => {
+                            {resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel && r.tipo_reserva !== 'hora' && isFirstNight && (() => {
                               const { newCi, newCo } = getResizePreview(resizingState);
                               const origCi = getOnlyDate(r.check_in);
                               const origCo = getOnlyDate(r.check_out);
-                              const totalNights = nightsBetween(origCi, origCo) || 1;
                               const masks = [];
-                              
-                              if (newCo < origCo && isLastNight) {
-                                const keptDays = nightsBetween(origCi, newCo);
-                                const removePct = Math.max(0, 100 - (keptDays / totalNights) * 100);
+                              const ROW_H = 48;
+
+                              if (newCo < origCo) {
+                                const removedNights = nightsBetween(newCo, origCo);
                                 masks.push(
                                   <div key="bottom-mask" style={{
-                                    position: 'absolute', bottom: 0, left: 0, right: 0,
-                                    height: `${removePct}%`,
-                                    background: 'repeating-linear-gradient(45deg,#94a3b8 0,#94a3b8 3px,transparent 3px,transparent 8px)',
-                                    opacity: 0.55, pointerEvents: 'none',
-                                    borderTop: '2px dashed #64748b',
+                                    position: 'absolute', top: nightsBetween(origCi, newCo) * ROW_H, left: 0, right: 0, height: removedNights * ROW_H,
+                                    background: 'repeating-linear-gradient(45deg,#fca5a5 0,#fca5a5 4px,#fee2e2 4px,#fee2e2 10px)',
+                                    opacity: 0.85, pointerEvents: 'none',
+                                    borderTop: '2px dashed #ef4444',
+                                    zIndex: 4,
                                   }} />
                                 );
                               }
-                              if (newCi > origCi && isFirstNight) {
-                                const removedDays = nightsBetween(origCi, newCi);
-                                const removePct = (removedDays / totalNights) * 100;
+                              if (newCi > origCi) {
+                                const removedNights = nightsBetween(origCi, newCi);
                                 masks.push(
                                   <div key="top-mask" style={{
-                                    position: 'absolute', top: 0, left: 0, right: 0,
-                                    height: `${removePct}%`,
-                                    background: 'repeating-linear-gradient(45deg,#94a3b8 0,#94a3b8 3px,transparent 3px,transparent 8px)',
-                                    opacity: 0.55, pointerEvents: 'none',
-                                    borderBottom: '2px dashed #64748b',
+                                    position: 'absolute', top: 0, left: 0, right: 0, height: removedNights * ROW_H,
+                                    background: 'repeating-linear-gradient(45deg,#fca5a5 0,#fca5a5 4px,#fee2e2 4px,#fee2e2 10px)',
+                                    opacity: 0.85, pointerEvents: 'none',
+                                    borderBottom: '2px dashed #ef4444',
+                                    zIndex: 4,
                                   }} />
                                 );
                               }
@@ -1561,7 +1703,7 @@ export const Bookings: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            
+
                             {isFirstNight && (
                               <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: '4px', marginTop: 2 }}>
                                 {isIa && <span title="Creada por Asistente IA" style={{ fontSize: '11px', cursor: 'help' }}>🤖</span>}
@@ -1577,19 +1719,22 @@ export const Bookings: React.FC = () => {
                             )}
 
                             {/* Handle inferior — arrastra para cambiar check-out */}
-                            {resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel && r.tipo_reserva !== 'hora' && isLastNight && (
-                              <div
-                                onMouseDown={e => { e.preventDefault(); e.stopPropagation(); startResize(r, 'bottom'); }}
-                                className="resize-handle"
-                                style={{
-                                  position: 'absolute', bottom: 0, left: 0, right: 0, height: 10,
-                                  cursor: 's-resize', zIndex: 5,
-                                  display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-                                }}
-                              >
-                                <div style={{ width: 24, height: 4, background: color, borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
-                              </div>
-                            )}
+                            {resizingState?.reserva.id_reserva_hotel === r.id_reserva_hotel && r.tipo_reserva !== 'hora' && isFirstNight && (() => {
+                              const { newCo } = getResizePreview(resizingState);
+                              return (
+                                <div
+                                  onMouseDown={e => { e.preventDefault(); e.stopPropagation(); startResize(r, 'bottom'); }}
+                                  className="resize-handle"
+                                  style={{
+                                    position: 'absolute', top: nightsBetween(getOnlyDate(r.check_in), newCo) * 48 - 10, left: 0, right: 0, height: 10,
+                                    cursor: 's-resize', zIndex: 5,
+                                    display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+                                  }}
+                                >
+                                  <div style={{ width: 24, height: 4, background: color, borderTopLeftRadius: 4, borderTopRightRadius: 4 }} />
+                                </div>
+                              );
+                            })()}
                           </td>
                         );
                       }
@@ -1690,10 +1835,10 @@ export const Bookings: React.FC = () => {
       {ctxMenu && (() => {
         const todayStr = toDateKey(new Date());
         const isPast = ctxMenu.reserva.estado === 'check_in' ||
-                       ctxMenu.reserva.estado === 'check_out' || 
-                       ctxMenu.reserva.estado === 'cancelada' || 
-                       getOnlyDate(ctxMenu.reserva.check_in) < todayStr ||
-                       getOnlyDate(ctxMenu.reserva.check_out) < todayStr;
+          ctxMenu.reserva.estado === 'check_out' ||
+          ctxMenu.reserva.estado === 'cancelada' ||
+          getOnlyDate(ctxMenu.reserva.check_in) < todayStr ||
+          getOnlyDate(ctxMenu.reserva.check_out) < todayStr;
         return (
           <div
             style={{ position: 'fixed', inset: 0, zIndex: 2000 }}
@@ -1729,23 +1874,23 @@ export const Bookings: React.FC = () => {
               {[
                 ctxMenu.reserva.tipo_reserva === 'hora' && { icon: '➕', label: 'Añadir reserva extra', action: () => { closeCtxMenu(); openNewReserva(ctxMenu!.reserva.id_habitacion, undefined, ctxMenu!.reserva); } },
                 ctxMenu.reserva.estado !== 'check_in' && ctxMenu.reserva.estado !== 'check_out' && ctxMenu.reserva.estado !== 'cancelada' &&
-                  { icon: '🔑', label: 'Marcar como Check-in', action: () => { closeCtxMenu(); void updateEstado(ctxMenu!.reserva.id_reserva_hotel, 'check_in'); } },
+                { icon: '🔑', label: 'Marcar como Check-in', action: () => { closeCtxMenu(); void updateEstado(ctxMenu!.reserva.id_reserva_hotel, 'check_in'); } },
                 ctxMenu.reserva.estado === 'check_in' &&
-                  { icon: '✅', label: 'Marcar como Check-out', action: () => { closeCtxMenu(); void updateEstado(ctxMenu!.reserva.id_reserva_hotel, 'check_out'); } },
+                { icon: '✅', label: 'Marcar como Check-out', action: () => { closeCtxMenu(); void updateEstado(ctxMenu!.reserva.id_reserva_hotel, 'check_out'); } },
                 { icon: '✏️', label: 'Editar', action: () => { closeCtxMenu(); openEditReserva(ctxMenu!.reserva); } },
-                !isPast && { icon: '↕️', label: 'Ampliar / Reducir noches', action: () => { closeCtxMenu(); startResize(ctxMenu!.reserva, 'bottom'); } },
+                !isPast && { icon: '↕️', label: 'Ampliar / Reducir noches', action: () => { closeCtxMenu(); activateResize(ctxMenu!.reserva); } },
                 !isPast && { icon: '🚚', label: 'Mover a otra habitación', action: () => startMoving(ctxMenu!.reserva) },
                 nightsBetween(ctxMenu.reserva.check_in, ctxMenu.reserva.check_out) > 1 &&
-                  ctxMenu.reserva.estado !== 'cancelada' &&
-                  ctxMenu.reserva.estado !== 'check_out' && {
-                    icon: '✂️',
-                    label: 'Dividir estancia (Split)',
-                    action: () => { closeCtxMenu(); handleOpenSplitStay(ctxMenu!.reserva); }
-                  },
+                ctxMenu.reserva.estado !== 'cancelada' &&
+                ctxMenu.reserva.estado !== 'check_out' && {
+                  icon: '✂️',
+                  label: 'Dividir estancia (Split)',
+                  action: () => { closeCtxMenu(); handleOpenSplitStay(ctxMenu!.reserva); }
+                },
                 { icon: '🔍', label: 'Ver detalles', action: () => { closeCtxMenu(); setDetailReserva(ctxMenu!.reserva); } },
                 null,
                 !isPast && { icon: '❌', label: 'Cancelar reserva', danger: true, action: () => { closeCtxMenu(); handleCancelClick(ctxMenu!.reserva.id_reserva_hotel); } },
-              ].filter((item): item is { icon: string; label: string; danger?: boolean; action: () => void } | null => item !== false).map((item, i) =>
+              ].filter((item: any) => item !== false).map((item: any, i: number) =>
                 item === null ? (
                   <div key={i} style={{ height: 1, background: '#f1f5f9', margin: '4px 0' }} />
                 ) : (
@@ -1802,7 +1947,7 @@ export const Bookings: React.FC = () => {
         const noches = nightsBetween(newCi, newCo);
         const fmt = (d: string) => new Date(d + 'T12:00:00Z').toLocaleDateString('es-HN', { day: 'numeric', month: 'short' });
 
-        if (resizingState.isPendingConfirm) {
+        if (resizingState.direction === null) {
           return (
             <div style={{
               position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
@@ -1903,6 +2048,7 @@ export const Bookings: React.FC = () => {
         const isCanceled = status === 'cancelada';
         const isCortesia = status === 'cortesia' || !!r.es_cortesia || r.estado_pago === 'cortesia';
         const isCredito = status === 'credito';
+        const isQuotePending = !!r.id_cotizacion && r.estado === 'pendiente';
         const isCheckIn = status === 'check_in';
         const isCheckOut = status === 'check_out';
         const pagado = (r.pagos ?? []).filter(p => p.estado !== 'anulado').reduce((s, p) => s + p.monto, 0);
@@ -2189,11 +2335,17 @@ export const Bookings: React.FC = () => {
                   Cerrar
                 </button>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {!isCanceled && !isCortesia && !isCredito && saldo > 0 && (
+                  {!isCanceled && !isCortesia && !isCredito && !isQuotePending && saldo > 0 && (
                     <button
                       onClick={() => { setDetailReserva(null); navigate(`/pagos?reserva=${r.id_reserva_hotel}`); }}
                       style={{ padding: '7px 14px', fontSize: 13, background: '#22c55e', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}
                     >Registrar pago</button>
+                  )}
+                  {isQuotePending && (
+                    <span
+                      title="Esta reserva proviene de una cotización pendiente de confirmación. El cliente debe aceptarla o el hotel debe confirmar la reserva manualmente para poder registrar pagos."
+                      style={{ padding: '7px 14px', fontSize: 12, background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', borderRadius: 8, fontWeight: 600 }}
+                    >Pendiente de confirmar cotización</span>
                   )}
                   {!isCanceled && (
                     <button
@@ -2212,10 +2364,10 @@ export const Bookings: React.FC = () => {
       {editorOpen && editingReserva && (() => {
         const todayStr = toDateKey(new Date());
         const isPastReserva = editingReserva.estado === 'check_in' ||
-                              editingReserva.estado === 'check_out' || 
-                              editingReserva.estado === 'cancelada' || 
-                              getOnlyDate(editingReserva.check_in) < todayStr ||
-                              getOnlyDate(editingReserva.check_out) < todayStr;
+          editingReserva.estado === 'check_out' ||
+          editingReserva.estado === 'cancelada' ||
+          getOnlyDate(editingReserva.check_in) < todayStr ||
+          getOnlyDate(editingReserva.check_out) < todayStr;
         return (
           <div
             style={{ position: 'fixed', inset: 0, background: '#0007', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
@@ -2283,29 +2435,27 @@ export const Bookings: React.FC = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 90px', gap: 10 }}>
                   <div>
                     <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Check-in</label>
-                    <input
+                    <DatePicker
                       disabled={isPastReserva}
-                      type="date"
                       value={getOnlyDate(form.checkIn)}
-                      onChange={e => {
-                        const d = e.target.value + 'T14:00';
+                      onChange={v => {
+                        const d = v + 'T14:00';
                         setForm(f => ({ ...f, checkIn: d, checkOut: checkOutFromNights(d, f.noches) }));
                       }}
-                      style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, boxSizing: 'border-box', background: isPastReserva ? '#f1f5f9' : '#fff', cursor: isPastReserva ? 'not-allowed' : 'default' }}
+                      placeholder="Check-in"
                     />
                   </div>
                   <div>
                     <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Check-out</label>
-                    <input
+                    <DatePicker
                       disabled={isPastReserva}
-                      type="date"
                       value={getOnlyDate(form.checkOut)}
                       min={getOnlyDate(form.checkIn)}
-                      onChange={e => {
-                        const d = e.target.value + 'T12:00';
+                      onChange={v => {
+                        const d = v + 'T12:00';
                         setForm(f => ({ ...f, checkOut: d, noches: nightsBetween(f.checkIn, d) }));
                       }}
-                      style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, boxSizing: 'border-box', background: isPastReserva ? '#f1f5f9' : '#fff', cursor: isPastReserva ? 'not-allowed' : 'default' }}
+                      placeholder="Check-out"
                     />
                   </div>
                   <div>
@@ -2341,7 +2491,12 @@ export const Bookings: React.FC = () => {
                         <span style={{ fontSize: 15, fontWeight: 700, minWidth: 22, textAlign: 'center', color: isPastReserva ? '#94a3b8' : '#000' }}>{form[field]}</span>
                         <button
                           type="button"
-                          disabled={isPastReserva}
+                          disabled={isPastReserva || (() => {
+                            const maxTotal = rates.capacidadBase + 1;
+                            const nextAdultos = field === 'adultos' ? form.adultos + 1 : form.adultos;
+                            const nextNinos = field === 'ninos' ? form.ninos + 1 : form.ninos;
+                            return (nextAdultos + nextNinos) > maxTotal;
+                          })()}
                           onClick={() => setForm(f => ({ ...f, [field]: f[field] + 1 }))}
                           style={{ border: '1px solid #e2e8f0', borderRadius: 6, width: 30, height: 30, cursor: isPastReserva ? 'not-allowed' : 'pointer', background: isPastReserva ? '#f1f5f9' : '#fff', color: isPastReserva ? '#94a3b8' : '#000', fontSize: 16, flexShrink: 0 }}
                         >+</button>
@@ -2371,7 +2526,7 @@ export const Bookings: React.FC = () => {
                                 const ciDate = new Date(form.checkIn);
                                 const coDate = new Date(ciDate.getTime() + 5 * 60 * 1000);
                                 const pad = (n: number) => String(n).padStart(2, '0');
-                                newCo = `${coDate.getFullYear()}-${pad(coDate.getMonth()+1)}-${pad(coDate.getDate())}T${pad(coDate.getHours())}:${pad(coDate.getMinutes())}`;
+                                newCo = `${coDate.getFullYear()}-${pad(coDate.getMonth() + 1)}-${pad(coDate.getDate())}T${pad(coDate.getHours())}:${pad(coDate.getMinutes())}`;
                               }
                               const originalNoches = (editingReserva.noches ?? nightsBetween(editingReserva.check_in, editingReserva.check_out)) || 1;
                               const actualNoches = Math.max(1, nightsBetween(form.checkIn, newCo));
@@ -2475,22 +2630,17 @@ export const Bookings: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Crédito empresa */}
-                <div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: isPastReserva ? 'not-allowed' : 'pointer', fontSize: 12, color: form.esCredito ? '#1d4ed8' : '#64748b', fontWeight: form.esCredito ? 600 : 400, marginBottom: form.esCredito ? 8 : 0 }}>
-                    <input
-                      disabled={isPastReserva}
-                      type="checkbox"
-                      checked={form.esCredito}
-                      onChange={e => setForm(f => ({ ...f, esCredito: e.target.checked, empresaId: '', esCortesia: e.target.checked ? false : f.esCortesia }))}
-                    />
-                    Reserva a crédito empresarial
-                  </label>
-                  {form.esCredito && (
+                {/* Empresa a facturar */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Empresa a facturar (Opcional)</label>
+                    <button type="button" onClick={() => setShowNuevaEmpresa(true)} style={{ fontSize: 11, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>+ Crear nueva</button>
+                  </div>
+                  {!showNuevaEmpresa && (
                     <select
                       disabled={isPastReserva}
                       value={form.empresaId}
-                      onChange={e => setForm(f => ({ ...f, empresaId: e.target.value }))}
+                      onChange={e => setForm(f => ({ ...f, empresaId: e.target.value, esCredito: !!e.target.value }))}
                       style={{ width: '100%', border: '1px solid #bfdbfe', borderRadius: 8, padding: '8px 10px', fontSize: 13, background: isPastReserva ? '#f1f5f9' : '#f0f9ff', color: isPastReserva ? '#94a3b8' : '#000', cursor: isPastReserva ? 'not-allowed' : 'default' }}
                     >
                       <option value="">— Seleccionar empresa —</option>
@@ -2532,7 +2682,16 @@ export const Bookings: React.FC = () => {
                   <button
                     onClick={() => void handleSave()}
                     disabled={saving || isPastReserva}
-                    style={{ padding: '7px 16px', fontSize: 13, background: (saving || isPastReserva) ? '#94a3b8' : '#1e293b', color: '#fff', border: 'none', borderRadius: 8, cursor: (saving || isPastReserva) ? 'not-allowed' : 'pointer', fontWeight: 600 }}
+                    style={{
+                      padding: '7px 16px',
+                      fontSize: 13,
+                      background: (saving || isPastReserva) ? '#94a3b8' : '#1e293b',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 8,
+                      cursor: (saving || isPastReserva) ? 'not-allowed' : 'pointer',
+                      fontWeight: 600
+                    }}
                   >
                     {saving ? 'Guardando…' : 'Guardar cambios'}
                   </button>
@@ -2549,7 +2708,7 @@ export const Bookings: React.FC = () => {
           style={{ position: 'fixed', inset: 0, background: '#0007', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
         >
           <div
-            style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 680, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px #0005' }}
+            style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 1020, maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 72px #0006' }}
             onClick={e => e.stopPropagation()}
           >
             {/* Modal header */}
@@ -2625,26 +2784,181 @@ export const Bookings: React.FC = () => {
               {/* ─── PASO 1: DATOS ─── */}
               {wizardStep === 'datos' && (
                 <div>
-                  <div style={{ marginBottom: 6 }}>
+                  <div style={{ marginBottom: 14 }}>
                     <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, color: '#94a3b8', fontWeight: 600 }}>Paso 1</span>
-                    <h4 style={{ fontSize: 15, fontWeight: 600, margin: '2px 0 12px' }}>Datos base</h4>
+                    <h4 style={{ fontSize: 15, fontWeight: 600, margin: '2px 0 0' }}>Datos base</h4>
+                  </div>
+
+                  {/* Layout 2 paneles */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, alignItems: 'start' }}>
+
+                  {/* ── Panel izquierdo: huésped + habitación + empresa ── */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                  {/* Habitación */}
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 6 }}>Habitación *</div>
+                    <select
+                      value={form.habitacionId}
+                      onChange={e => setForm(f => ({ ...f, habitacionId: e.target.value }))}
+                      style={{ width: '100%', border: form.habitacionId ? '2px solid #4f46e5' : '1.5px solid #e2e8f0', borderRadius: 10, padding: '9px 12px', fontSize: 13, background: form.habitacionId ? 'linear-gradient(135deg,#eef2ff,#f5f3ff)' : '#fff', color: form.habitacionId ? '#4f46e5' : '#64748b', outline: 'none', boxSizing: 'border-box' }}
+                    >
+                      <option value="">— Seleccionar habitación —</option>
+                      {habitacionesFiltradas.map(h => (
+                        <option key={h.id_habitacion} value={h.id_habitacion}>
+                          {h.nombre_alias ? `${h.nombre_alias} (${h.nombre_habitacion})` : h.nombre_habitacion}{h.hotel ? ` · ${h.hotel}` : ''}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    {/* Huésped */}
-                    {!form.registrarNuevo && (
-                      <label style={{ gridColumn: '1 / -1' }}>
-                        <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Huésped</div>
-                        <select
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                          value={form.huespedId}
-                          onChange={e => setForm(f => ({ ...f, huespedId: e.target.value }))}
-                        >
-                          <option value="">Selecciona huésped</option>
-                          {huespedes.map(h => <option key={h.id_huesped} value={h.id_huesped}>{h.nombre_completo}</option>)}
-                        </select>
-                      </label>
-                    )}
+                    {/* Huésped — búsqueda live */}
+                    {!form.registrarNuevo && (() => {
+                      const empresaActiva = form.esCredito && !!form.empresaId;
+                      const poolHuespedes = empresaActiva && !mostrarTodosHuespedes && colaboradoresIds.length > 0
+                        ? huespedes.filter(h => colaboradoresIds.includes(h.id_huesped))
+                        : huespedes;
+
+                      const filtered = guestQuery.trim().length > 0
+                        ? poolHuespedes.filter(h => {
+                            const q = guestQuery.toLowerCase();
+                            return (
+                              h.nombre_completo.toLowerCase().includes(q) ||
+                              (h.correo ?? '').toLowerCase().includes(q) ||
+                              (h.telefono ?? '').includes(q)
+                            );
+                          })
+                        : empresaActiva && !mostrarTodosHuespedes
+                          ? poolHuespedes
+                          : [];
+                      const selectedGuest2 = huespedes.find(h => h.id_huesped === form.huespedId);
+                      return (
+                        <div style={{ gridColumn: '1 / -1', position: 'relative' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b' }}>Huésped *</div>
+                            {empresaActiva && (
+                              <div style={{ fontSize: 11, color: '#0369a1', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                {mostrarTodosHuespedes ? (
+                                  <>
+                                    <span style={{ color: '#94a3b8' }}>Mostrando todos</span>
+                                    <button type="button" onClick={() => setMostrarTodosHuespedes(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0369a1', fontSize: 11, padding: 0, textDecoration: 'underline' }}>
+                                      Ver solo colaboradores
+                                    </button>
+                                  </>
+                                ) : colaboradoresIds.length === 0 ? (
+                                  <span style={{ color: '#f59e0b', fontWeight: 500 }}>Sin colaboradores registrados —&nbsp;
+                                    <button type="button" onClick={() => setMostrarTodosHuespedes(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0369a1', fontSize: 11, padding: 0, textDecoration: 'underline' }}>
+                                      buscar en todos
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <>
+                                    <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 6px', fontWeight: 600 }}>{colaboradoresIds.length} colaborador{colaboradoresIds.length !== 1 ? 'es' : ''}</span>
+                                    <button type="button" onClick={() => setMostrarTodosHuespedes(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0369a1', fontSize: 11, padding: 0, textDecoration: 'underline' }}>
+                                      ver todos
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Input de búsqueda */}
+                          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                            <span style={{ position: 'absolute', left: 10, fontSize: 14, color: '#94a3b8', pointerEvents: 'none' }}>🔍</span>
+                            <input
+                              type="text"
+                              placeholder={
+                                selectedGuest2
+                                  ? selectedGuest2.nombre_completo
+                                  : empresaActiva && !mostrarTodosHuespedes && colaboradoresIds.length > 0
+                                    ? 'Filtrar colaboradores…'
+                                    : 'Buscar por nombre, correo o teléfono…'
+                              }
+                              value={selectedGuest2 ? '' : guestQuery}
+                              onFocus={() => { if (selectedGuest2) setGuestQuery(''); }}
+                              onChange={e => {
+                                setGuestQuery(e.target.value);
+                                if (form.huespedId) setForm(f => ({ ...f, huespedId: '' }));
+                              }}
+                              style={{
+                                width: '100%', padding: '9px 36px 9px 34px',
+                                border: selectedGuest2 ? '2px solid #4f46e5' : '1.5px solid #e2e8f0',
+                                borderRadius: 10, fontSize: 13,
+                                background: selectedGuest2 ? 'linear-gradient(135deg,#eef2ff,#f5f3ff)' : '#fff',
+                                color: selectedGuest2 ? '#4f46e5' : '#1e293b',
+                                outline: 'none', boxSizing: 'border-box',
+                              }}
+                            />
+                            {/* Ícono huésped seleccionado / limpiar */}
+                            {selectedGuest2 ? (
+                              <button
+                                type="button"
+                                onClick={() => { setForm(f => ({ ...f, huespedId: '' })); setGuestQuery(''); }}
+                                style={{ position: 'absolute', right: 10, background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#94a3b8', lineHeight: 1 }}
+                                title="Limpiar selección"
+                              >✕</button>
+                            ) : guestQuery.length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => setGuestQuery('')}
+                                style={{ position: 'absolute', right: 10, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#94a3b8', lineHeight: 1 }}
+                              >✕</button>
+                            ) : null}
+                          </div>
+
+                          {/* Info del huésped seleccionado */}
+                          {selectedGuest2 && (
+                            <div style={{ marginTop: 6, padding: '8px 12px', background: '#eef2ff', borderRadius: 8, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: '#4f46e5' }}>✓ {selectedGuest2.nombre_completo}</span>
+                              {selectedGuest2.correo && <span style={{ fontSize: 11, color: '#6366f1' }}>✉ {selectedGuest2.correo}</span>}
+                              {selectedGuest2.telefono && <span style={{ fontSize: 11, color: '#6366f1' }}>📞 {selectedGuest2.telefono}</span>}
+                              {empresaActiva && !colaboradoresIds.includes(selectedGuest2.id_huesped) && (
+                                <span style={{ fontSize: 11, color: '#f59e0b', fontWeight: 500 }}>No es colaborador de la empresa</span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Dropdown de resultados */}
+                          {!selectedGuest2 && (guestQuery.trim().length > 0 || (empresaActiva && !mostrarTodosHuespedes && filtered.length > 0)) && (
+                            <div style={{
+                              position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                              background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10,
+                              boxShadow: '0 8px 24px rgba(0,0,0,0.10)', maxHeight: 220, overflowY: 'auto', marginTop: 4,
+                            }}>
+                              {filtered.length === 0 ? (
+                                <div style={{ padding: '12px 14px', fontSize: 13, color: '#94a3b8', textAlign: 'center' }}>Sin coincidencias</div>
+                              ) : filtered.map(h => (
+                                <button
+                                  key={h.id_huesped}
+                                  type="button"
+                                  onClick={() => { setForm(f => ({ ...f, huespedId: h.id_huesped })); setGuestQuery(''); }}
+                                  style={{
+                                    display: 'block', width: '100%', textAlign: 'left',
+                                    padding: '10px 14px', border: 'none', background: 'none',
+                                    cursor: 'pointer', borderBottom: '1px solid #f1f5f9',
+                                    transition: 'background 0.12s',
+                                  }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                                >
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    {h.nombre_completo}
+                                    {empresaActiva && colaboradoresIds.includes(h.id_huesped) && (
+                                      <span style={{ fontSize: 10, background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>colaborador</span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                                    {[h.correo, h.telefono, h.ciudad].filter(Boolean).join(' · ')}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Nuevo huésped toggle */}
                     <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
@@ -2681,35 +2995,112 @@ export const Bookings: React.FC = () => {
                       </>
                     )}
 
-                    {/* Habitación */}
-                             {/* Tipo de Reserva */}
-                    <div style={{ gridColumn: '1 / -1', marginTop: 4 }}>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 6 }}>Tipo de reserva</div>
-                      <div style={{ display: 'flex', gap: 16 }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
-                          <input
-                            type="radio"
-                            name="tipoReserva"
-                            value="noche"
-                            checked={form.tipoReserva === 'noche'}
-                            onChange={() => setForm(f => ({ ...f, tipoReserva: 'noche' }))}
-                          />
-                          Por Noche
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
-                          <input
-                            type="radio"
-                            name="tipoReserva"
-                            value="hora"
-                            checked={form.tipoReserva === 'hora'}
-                            onChange={() => setForm(f => ({ ...f, tipoReserva: 'hora' }))}
-                          />
-                          Por Horas
-                        </label>
-                      </div>
-                    </div>
+                    {/* Crédito */}
+                    <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '8px 10px', background: form.esCredito ? '#eff6ff' : '#f8fafc', borderRadius: 8, border: `1px solid ${form.esCredito ? '#bfdbfe' : '#e2e8f0'}` }}>
+                      <input
+                        type="checkbox"
+                        checked={form.esCredito}
+                        onChange={e => setForm(f => ({ ...f, esCredito: e.target.checked, empresaId: '', esCortesia: e.target.checked ? false : f.esCortesia }))}
+                      />
+                      <span style={{ fontSize: 12, color: form.esCredito ? '#1d4ed8' : '#64748b', fontWeight: form.esCredito ? 600 : 400 }}>Reserva a crédito empresarial</span>
+                    </label>
 
-                    {form.tipoReserva === 'hora' ? (() => {
+                    {/* Selector de empresa (solo si es crédito) */}
+                    {form.esCredito && (
+                      <div style={{ gridColumn: '1 / -1', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, padding: '14px 16px' }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#0369a1', marginBottom: 10 }}>🏢 Empresa a facturar</div>
+
+                        {!showNuevaEmpresa ? (
+                          <>
+                            <select
+                              value={form.empresaId}
+                              onChange={e => setForm(f => ({ ...f, empresaId: e.target.value }))}
+                              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #bae6fd', background: '#fff', fontSize: 13, marginBottom: 8 }}
+                            >
+                              <option value="">— Seleccionar empresa —</option>
+                              {empresas.map(emp => (
+                                <option key={emp.id_empresa} value={emp.id_empresa}>{emp.nombre}</option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => setShowNuevaEmpresa(true)}
+                              style={{ fontSize: 12, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                            >
+                              + Crear nueva empresa
+                            </button>
+                          </>
+                        ) : (
+                          <div style={{ display: 'grid', gap: 8 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                              <div>
+                                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>Nombre *</div>
+                                <input type="text" value={nuevaEmpresaNombre} onChange={e => setNuevaEmpresaNombre(e.target.value)} placeholder="Ej: Tecún S.A." style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #cbd5e1', fontSize: 13, boxSizing: 'border-box' }} />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>RTN (opcional)</div>
+                                <input type="text" value={nuevaEmpresaRtn} onChange={e => setNuevaEmpresaRtn(e.target.value)} placeholder="Ej: 0801-1990-12345" style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #cbd5e1', fontSize: 13, boxSizing: 'border-box' }} />
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button type="button" disabled={savingEmpresa || !nuevaEmpresaNombre.trim()} onClick={async () => {
+                                if (!nuevaEmpresaNombre.trim()) return;
+                                setSavingEmpresa(true);
+                                try {
+                                  const emp = await createEmpresa({ nombre: nuevaEmpresaNombre.trim(), rtn: nuevaEmpresaRtn.trim() || undefined });
+                                  setEmpresas(prev => [...prev, emp]);
+                                  setForm(f => ({ ...f, empresaId: emp.id_empresa }));
+                                  setShowNuevaEmpresa(false);
+                                  setNuevaEmpresaNombre('');
+                                  setNuevaEmpresaRtn('');
+                                } catch (e: any) {
+                                  showToast(e?.message ?? 'Error al crear empresa', 'err');
+                                } finally {
+                                  setSavingEmpresa(false);
+                                }
+                              }} style={{ flex: 1, padding: '8px 12px', borderRadius: 7, border: 'none', background: '#0369a1', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                                {savingEmpresa ? 'Guardando...' : 'Guardar empresa'}
+                              </button>
+                              <button type="button" onClick={() => { setShowNuevaEmpresa(false); setNuevaEmpresaNombre(''); setNuevaEmpresaRtn(''); }} style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid #cbd5e1', background: '#fff', fontSize: 12, cursor: 'pointer' }}>
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Cortesía */}
+                    {!form.esCredito && (
+                      <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '8px 10px', background: form.esCortesia ? '#f0fdf4' : '#f8fafc', borderRadius: 8, border: `1px solid ${form.esCortesia ? '#bbf7d0' : '#e2e8f0'}` }}>
+                        <input type="checkbox" checked={form.esCortesia} onChange={e => setForm(f => ({ ...f, esCortesia: e.target.checked }))} />
+                        <span style={{ fontSize: 12, color: form.esCortesia ? '#15803d' : '#64748b', fontWeight: form.esCortesia ? 600 : 400 }}>Cortesía (sin cobro)</span>
+                      </label>
+                    )}
+
+                  </div>{/* fin inner grid */}
+                  </div>{/* fin panel izquierdo */}
+
+                  {/* ── Panel derecho: tipo + fechas + personas + estado + obs ── */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                  {/* Tipo de Reserva */}
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 8 }}>Tipo de reserva</div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {(['noche', 'hora'] as const).map(tipo => (
+                        <button key={tipo} type="button"
+                          onClick={() => setForm(f => ({ ...f, tipoReserva: tipo }))}
+                          style={{ flex: 1, padding: '9px 12px', borderRadius: 9, border: form.tipoReserva === tipo ? '2px solid #4f46e5' : '1.5px solid #e2e8f0', background: form.tipoReserva === tipo ? 'linear-gradient(135deg,#eef2ff,#f5f3ff)' : '#fff', color: form.tipoReserva === tipo ? '#4f46e5' : '#64748b', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+                          {tipo === 'noche' ? 'Por Noche' : 'Por Horas'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Fechas */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {form.tipoReserva === 'hora' ? (() => {
                       const timeOptions = Array.from({ length: 48 }, (_, i) => {
                         const h = Math.floor(i / 2);
                         const m = i % 2 === 0 ? '00' : '30';
@@ -2747,318 +3138,104 @@ export const Bookings: React.FC = () => {
                         <>
                           <label style={{ gridColumn: '1 / -1' }}>
                             <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Fecha</div>
-                            <input
-                              type="date"
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                              value={form.fechaHoraDate}
-                              onChange={e => setForm(f => ({ ...f, fechaHoraDate: e.target.value }))}
-                            />
+                            <DatePicker value={form.fechaHoraDate} onChange={v => setForm(f => ({ ...f, fechaHoraDate: v }))} placeholder="Seleccionar fecha" />
                           </label>
                           <label>
                             <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Hora entrada</div>
-                            <select
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                              value={form.horaCheckIn}
-                              onChange={e => setForm(f => ({ ...f, horaCheckIn: e.target.value }))}
-                            >
-                              {timeOptions.map(opt => (
-                                <option key={opt.value} value={opt.value} disabled={isCheckInDisabled(opt.value)}>
-                                  {opt.label} {isCheckInDisabled(opt.value) ? '(Ocupado)' : ''}
-                                </option>
-                              ))}
+                            <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={form.horaCheckIn} onChange={e => setForm(f => ({ ...f, horaCheckIn: e.target.value }))}>
+                              {timeOptions.map(opt => <option key={opt.value} value={opt.value} disabled={isCheckInDisabled(opt.value)}>{opt.label}{isCheckInDisabled(opt.value) ? ' (Ocupado)' : ''}</option>)}
                             </select>
                           </label>
                           <label>
                             <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Hora salida</div>
-                            <select
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                              value={form.horaCheckOut}
-                              onChange={e => setForm(f => ({ ...f, horaCheckOut: e.target.value }))}
-                            >
-                              {timeOptions.map(opt => (
-                                <option key={opt.value} value={opt.value} disabled={isCheckOutDisabled(opt.value)}>
-                                  {opt.label} {isCheckOutDisabled(opt.value) ? '(Ocupado)' : ''}
-                                </option>
-                              ))}
+                            <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={form.horaCheckOut} onChange={e => setForm(f => ({ ...f, horaCheckOut: e.target.value }))}>
+                              {timeOptions.map(opt => <option key={opt.value} value={opt.value} disabled={isCheckOutDisabled(opt.value)}>{opt.label}{isCheckOutDisabled(opt.value) ? ' (Ocupado)' : ''}</option>)}
                             </select>
                           </label>
                         </>
                       );
                     })() : (
                       <>
-                        {/* Fecha entrada */}
                         <label>
                           <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Fecha entrada</div>
-                          <input
-                            type="date"
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                            value={getOnlyDate(form.checkIn)}
-                            onChange={e => {
-                              const d = e.target.value;
-                              setForm(f => ({
-                                ...f,
-                                checkIn: d + 'T14:00',
-                                checkOut: f.modoFechas === 'noches' ? checkOutFromNights(d + 'T14:00', f.noches) : f.checkOut,
-                              }));
-                            }}
-                          />
+                          <DatePicker value={getOnlyDate(form.checkIn)} onChange={d => setForm(f => ({ ...f, checkIn: d + 'T14:00', checkOut: f.modoFechas === 'noches' ? checkOutFromNights(d + 'T14:00', f.noches) : f.checkOut }))} placeholder="Fecha entrada" />
                         </label>
-
-                        {/* Modo estadía */}
                         <label>
                           <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Modo estadía</div>
-                          <select
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                            value={form.modoFechas}
-                            onChange={e => {
-                              const mode = e.target.value as EditorForm['modoFechas'];
-                              setForm(f => ({
-                                ...f,
-                                modoFechas: mode,
-                                checkOut: mode === 'noches' ? checkOutFromNights(f.checkIn, f.noches) : f.checkOut,
-                              }));
-                            }}
-                          >
+                          <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={form.modoFechas} onChange={e => { const mode = e.target.value as EditorForm['modoFechas']; setForm(f => ({ ...f, modoFechas: mode, checkOut: mode === 'noches' ? checkOutFromNights(f.checkIn, f.noches) : f.checkOut })); }}>
                             <option value="noches">Por noches</option>
                             <option value="rango">Por fecha salida</option>
                           </select>
                         </label>
-
-                        {/* Noches o fecha salida */}
                         {form.modoFechas === 'noches' ? (
                           <div style={{ gridColumn: '1 / -1' }}>
                             <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Noches</div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                              <button
-                                type="button"
-                                onClick={() => setForm(f => {
-                                  const n = Math.max(1, f.noches - 1);
-                                  return { ...f, noches: n, checkOut: checkOutFromNights(f.checkIn, n) };
-                                })}
-                                style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}
-                              >−</button>
+                              <button type="button" onClick={() => setForm(f => { const n = Math.max(1, f.noches - 1); return { ...f, noches: n, checkOut: checkOutFromNights(f.checkIn, n) }; })} style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}>−</button>
                               <span style={{ fontSize: 16, fontWeight: 700, minWidth: 30, textAlign: 'center' }}>{form.noches}</span>
-                              <button
-                                type="button"
-                                onClick={() => setForm(f => {
-                                  const n = f.noches + 1;
-                                  return { ...f, noches: n, checkOut: checkOutFromNights(f.checkIn, n) };
-                                })}
-                                style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}
-                              >+</button>
+                              <button type="button" onClick={() => setForm(f => { const n = f.noches + 1; return { ...f, noches: n, checkOut: checkOutFromNights(f.checkIn, n) }; })} style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}>+</button>
                               <span style={{ fontSize: 12, color: '#94a3b8' }}>Salida: {new Date(form.checkOut).toLocaleDateString('es-HN')}</span>
                             </div>
                           </div>
                         ) : (
                           <label>
                             <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Fecha salida</div>
-                            <input
-                              type="date"
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                              value={getOnlyDate(form.checkOut)}
-                              min={getOnlyDate(form.checkIn)}
-                              onChange={e => {
-                                const d = e.target.value + 'T12:00';
-                                setForm(f => ({ ...f, checkOut: d, noches: nightsBetween(f.checkIn, d) }));
-                              }}
-                            />
+                            <DatePicker value={getOnlyDate(form.checkOut)} min={getOnlyDate(form.checkIn)} onChange={v => { const d = v + 'T12:00'; setForm(f => ({ ...f, checkOut: d, noches: nightsBetween(f.checkIn, d) })); }} placeholder="Fecha salida" />
                           </label>
                         )}
                       </>
                     )}
+                  </div>{/* fin grid fechas */}
 
-                    {/* Adultos / Niños */}
+                  {/* Adultos / Niños */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     {(['adultos', 'ninos'] as const).map(field => (
                       <div key={field}>
-                        <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>
-                          {field === 'adultos' ? 'Adultos' : 'Niños'}
-                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>{field === 'adultos' ? 'Adultos' : 'Niños'}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <button
-                            type="button"
-                            onClick={() => setForm(f => ({ ...f, [field]: Math.max(field === 'adultos' ? 1 : 0, f[field] - 1) }))}
-                            style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}
-                          >−</button>
+                          <button type="button" onClick={() => setForm(f => ({ ...f, [field]: Math.max(field === 'adultos' ? 1 : 0, f[field] - 1) }))} style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}>−</button>
                           <span style={{ fontSize: 15, fontWeight: 700, minWidth: 24, textAlign: 'center' }}>{form[field]}</span>
                           <button
                             type="button"
+                            disabled={(() => {
+                              const maxTotal = rates.capacidadBase + 1;
+                              const nextAdultos = field === 'adultos' ? form.adultos + 1 : form.adultos;
+                              const nextNinos = field === 'ninos' ? form.ninos + 1 : form.ninos;
+                              return (nextAdultos + nextNinos) > maxTotal;
+                            })()}
                             onClick={() => setForm(f => ({ ...f, [field]: f[field] + 1 }))}
-                            style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16 }}
-                          >+</button>
+                            style={{ border: '1px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', background: '#fff', fontSize: 16, opacity: (() => { const max = rates.capacidadBase + 1; const nA = field === 'adultos' ? form.adultos + 1 : form.adultos; const nN = field === 'ninos' ? form.ninos + 1 : form.ninos; return (nA + nN) > max ? 0.35 : 1; })() }}>+</button>
                         </div>
                       </div>
                     ))}
-
-                    {/* Estado */}
-                    <label>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Estado</div>
-                      <select
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                        value={form.estado}
-                        onChange={e => setForm(f => ({ ...f, estado: e.target.value as EstadoReserva }))}
-                      >
-                        <option value="confirmada">Confirmada</option>
-                        <option value="pendiente">Pendiente</option>
-                        <option value="cancelada">Cancelada</option>
-                      </select>
-                    </label>
-
-                    {/* Observaciones */}
-                    <label style={{ gridColumn: '1 / -1' }}>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Observaciones</div>
-                      <input
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                        maxLength={200}
-                        placeholder="Nota breve (opcional)"
-                        value={form.observaciones}
-                        onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))}
-                      />
-                    </label>
-
-                    {/* Crédito */}
-                    <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={form.esCredito}
-                        onChange={e => setForm(f => ({ ...f, esCredito: e.target.checked, empresaId: '', esCortesia: e.target.checked ? false : f.esCortesia }))}
-                      />
-                      <span style={{ fontSize: 12, color: '#64748b' }}>Reserva a crédito empresarial</span>
-                    </label>
-
-                    {/* Selector de empresa (solo si es crédito) */}
-                    {form.esCredito && (
-                      <div style={{ gridColumn: '1 / -1', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, padding: '14px 16px' }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#0369a1', marginBottom: 10 }}>🏢 Empresa a facturar</div>
-
-                        {!showNuevaEmpresa ? (
-                          <>
-                            <select
-                              value={form.empresaId}
-                              onChange={e => setForm(f => ({ ...f, empresaId: e.target.value }))}
-                              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #bae6fd', background: '#fff', fontSize: 13, marginBottom: 8 }}
-                            >
-                              <option value="">— Seleccionar empresa —</option>
-                              {empresas.map(emp => (
-                                <option key={emp.id_empresa} value={emp.id_empresa}>{emp.nombre}</option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              onClick={() => setShowNuevaEmpresa(true)}
-                              style={{ fontSize: 12, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
-                            >
-                              + Crear nueva empresa
-                            </button>
-                          </>
-                        ) : (
-                          <div style={{ display: 'grid', gap: 8 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                              <div>
-                                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>Nombre *</div>
-                                <input
-                                  type="text"
-                                  value={nuevaEmpresaNombre}
-                                  onChange={e => setNuevaEmpresaNombre(e.target.value)}
-                                  placeholder="Ej: Tecún S.A."
-                                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #cbd5e1', fontSize: 13, boxSizing: 'border-box' }}
-                                />
-                              </div>
-                              <div>
-                                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>RTN (opcional)</div>
-                                <input
-                                  type="text"
-                                  value={nuevaEmpresaRtn}
-                                  onChange={e => setNuevaEmpresaRtn(e.target.value)}
-                                  placeholder="Ej: 0801-1990-12345"
-                                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #cbd5e1', fontSize: 13, boxSizing: 'border-box' }}
-                                />
-                              </div>
-                            </div>
-                            <div style={{ display: 'flex', gap: 8 }}>
-                              <button
-                                type="button"
-                                disabled={savingEmpresa || !nuevaEmpresaNombre.trim()}
-                                onClick={async () => {
-                                  if (!nuevaEmpresaNombre.trim()) return;
-                                  setSavingEmpresa(true);
-                                  try {
-                                    const emp = await createEmpresa({ nombre: nuevaEmpresaNombre.trim(), rtn: nuevaEmpresaRtn.trim() || undefined });
-                                    setEmpresas(prev => [...prev, emp]);
-                                    setForm(f => ({ ...f, empresaId: emp.id_empresa }));
-                                    setShowNuevaEmpresa(false);
-                                    setNuevaEmpresaNombre('');
-                                    setNuevaEmpresaRtn('');
-                                  } catch (e: any) {
-                                    showToast(e?.message ?? 'Error al crear empresa', 'err');
-                                  } finally {
-                                    setSavingEmpresa(false);
-                                  }
-                                }}
-                                style={{ flex: 1, padding: '8px 12px', borderRadius: 7, border: 'none', background: '#0369a1', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-                              >
-                                {savingEmpresa ? 'Guardando...' : 'Guardar empresa'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { setShowNuevaEmpresa(false); setNuevaEmpresaNombre(''); setNuevaEmpresaRtn(''); }}
-                                style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid #cbd5e1', background: '#fff', fontSize: 12, cursor: 'pointer' }}
-                              >
-                                Cancelar
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Cortesía */}
-                    {!form.esCredito && (
-                      <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={form.esCortesia}
-                          onChange={e => setForm(f => ({ ...f, esCortesia: e.target.checked }))}
-                        />
-                        <span style={{ fontSize: 12, color: '#64748b' }}>Cortesía (sin cobro)</span>
-                      </label>
-                    )}
-
-                    <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 4 }}>
-                      <input
-                        type="checkbox"
-                        checked={form.camaExtra}
-                        onChange={e => setForm(f => ({ ...f, camaExtra: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: 12, color: '#64748b' }}>🛏️ Solicitar cama extra unipersonal</span>
-                    </label>
-
-                    <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 4 }}>
-                      <input
-                        type="checkbox"
-                        checked={form.limpiezaDiaria}
-                        onChange={e => setForm(f => ({ ...f, limpiezaDiaria: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: 12, color: '#64748b' }}>🧹 Servicio de limpieza diaria</span>
-                    </label>
-
-                    <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 4 }}>
-                      <input
-                        type="checkbox"
-                        checked={form.neverita}
-                        onChange={e => setForm(f => ({ ...f, neverita: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: 12, color: '#64748b' }}>🧊 Neverita / Minibar</span>
-                    </label>
-
-                    <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 4 }}>
-                      <input
-                        type="checkbox"
-                        checked={form.plancha}
-                        onChange={e => setForm(f => ({ ...f, plancha: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: 12, color: '#64748b' }}>💨 Plancha de ropa</span>
-                    </label>
                   </div>
+
+                  {/* Observaciones */}
+                  <label>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Observaciones</div>
+                    <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" maxLength={200} placeholder="Nota breve (opcional)" value={form.observaciones} onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))} />
+                  </label>
+
+                  </div>{/* fin panel derecho */}
+                  </div>{/* fin layout 2 paneles */}
+
+                  {/* Comodidades (ancho completo) */}
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #f1f5f9' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 8 }}>Comodidades de la habitación</div>
+                    {(() => {
+                      const comodidades: string[] = (selectedHabitacion as any)?.comodidades ?? [];
+                      if (!selectedHabitacion) return <div style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>Selecciona una habitación para ver sus comodidades.</div>;
+                      if (comodidades.length === 0) return <div style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>No hay comodidades registradas para esta habitación.</div>;
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {comodidades.map((c, i) => (
+                            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, background: '#f0f9ff', border: '1px solid #bae6fd', fontSize: 11, fontWeight: 600, color: '#0369a1' }}>✦ {c}</span>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                 </div>
               )}
 
@@ -3067,116 +3244,183 @@ export const Bookings: React.FC = () => {
                 <div>
                   <div style={{ marginBottom: 6 }}>
                     <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, color: '#94a3b8', fontWeight: 600 }}>Paso 2</span>
-                    <h4 style={{ fontSize: 15, fontWeight: 600, margin: '2px 0 12px' }}>Tarifa y cobro</h4>
+                    <h4 style={{ fontSize: 15, fontWeight: 600, margin: '2px 0 4px' }}>Tarifa y cobro</h4>
+                    <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>
+                      {form.tipoReserva === 'hora' ? 'Define el cobro total para la estadía por horas.' :
+                       form.tipoReserva === 'pasadia' ? 'Define el cobro para el pasadía.' :
+                       `Selecciona la tarifa para ${form.noches} noche${form.noches !== 1 ? 's' : ''}.`}
+                    </p>
                   </div>
 
                   {form.esCortesia ? (
-                    <div style={{ background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 10, padding: '16px 20px', textAlign: 'center', color: '#0d9488' }}>
-                      <strong>Cortesía</strong> — Esta reserva no genera cobro.
+                    <div style={{ background: 'linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%)', border: '1px solid #99f6e4', borderRadius: 12, padding: '20px 24px', textAlign: 'center', color: '#0d9488' }}>
+                      <div style={{ fontSize: 28, marginBottom: 8 }}>🎁</div>
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>Cortesía</div>
+                      <div style={{ fontSize: 12, marginTop: 4, color: '#14b8a6' }}>Esta reserva no genera cobro al huésped.</div>
                     </div>
-                  ) : form.tipoReserva === 'hora' ? (
-                    <>
-                      {/* Tarifa por horas */}
-                      <label style={{ display: 'block', marginBottom: 16 }}>
-                        <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Precio total por horas (HNL) *</div>
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                          placeholder="Ingrese precio total"
-                          value={form.tarifaManual || ''}
-                          onChange={e => setForm(f => ({ ...f, tarifaManual: Math.max(0, Number(e.target.value) || 0) }))}
-                        />
-                      </label>
+                  ) : (() => {
+                    const esPersonalizada = form.tarifaManual > 0 && !tarifasFiltradas.some(t => t.valorActivo === form.tarifaManual);
+                    const esSistema = tarifasFiltradas.some(t => t.valorActivo === form.tarifaManual);
+                    const esBase = !esPersonalizada && !esSistema && form.tipoReserva === 'noche';
+                    const cardSt = (active: boolean): React.CSSProperties => ({
+                      padding: '14px 16px', borderRadius: 12,
+                      border: active ? '2px solid #4f46e5' : '1.5px solid #e2e8f0',
+                      background: active ? 'linear-gradient(135deg,#eef2ff 0%,#f5f3ff 100%)' : '#ffffff',
+                      cursor: 'pointer', transition: 'all 0.2s ease',
+                      boxShadow: active ? '0 4px 12px rgba(79,70,229,.12)' : '0 1px 3px rgba(0,0,0,.04)',
+                      textAlign: 'left' as const, display: 'block', width: '100%',
+                    });
+                    return (
+                    <div style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', gap: 24, alignItems: 'start' }}>
+                      {/* ── Izquierda: selector de tarifas ── */}
+                      <div>
+                      {/* ── Sección: Modos de tarifa ── */}
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>Esquema de cobro</div>
+                        <div style={{ display: 'grid', gap: 8 }}>
 
-                      {/* Breakdown */}
-                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
-                        {[
-                          { label: 'Subtotal por horas', value: `L ${rates.subtotalBruto.toFixed(2)}` },
-                          { label: `ISV (${(rates.isvRate * 100).toFixed(0)}%)`, value: `L ${rates.isv.toFixed(2)}` },
-                          { label: `Tasa Turística (${(rates.turisticaRate * 100).toFixed(0)}%)`, value: `L ${rates.tasaTuristica.toFixed(2)}` },
-                        ].map((row, i) => (
-                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', fontSize: 13, color: '#64748b' }}>
-                            <span>{row.label}</span>
-                            <span style={{ fontWeight: 500 }}>{row.value}</span>
-                          </div>
-                        ))}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', fontSize: 15, fontWeight: 700, color: '#1e293b', background: '#f8fafc' }}>
-                          <span>Total (HNL)</span>
-                          <span>L {rates.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</span>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      {/* Base price from room */}
-                      <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Precio base de habitación</div>
-                        <div style={{ fontSize: 20, fontWeight: 700, color: '#1e293b' }}>
-                          L {precioBase.toLocaleString('es-HN', { minimumFractionDigits: 2 })} <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8' }}>/noche</span>
-                        </div>
-                      </div>
-
-                      {/* Tarifa manual */}
-                      <label style={{ display: 'block', marginBottom: 16 }}>
-                        <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 4 }}>Tarifa personalizada (HNL / noche)</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.01}
-                            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                            style={{ width: 160 }}
-                            placeholder={`${precioBase}`}
-                            value={form.tarifaManual || ''}
-                            onChange={e => setForm(f => ({ ...f, tarifaManual: Math.max(0, Number(e.target.value) || 0) }))}
-                          />
-                          {form.tarifaManual > 0 && (
-                            <button
-                              type="button"
-                              style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}
-                              onClick={() => setForm(f => ({ ...f, tarifaManual: 0 }))}
-                            >
-                              Usar base
+                          {/* Tarifa Base */}
+                          {form.tipoReserva === 'noche' && precioBase > 0 && (
+                            <button type="button" onClick={() => setForm(f => ({ ...f, tarifaManual: 0 }))} style={cardSt(esBase)}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                    <span style={{ fontSize: 14 }}>🏷️</span>
+                                    <span style={{ fontSize: 12, fontWeight: 700, color: esBase ? '#4f46e5' : '#374151' }}>Tarifa Base</span>
+                                    {esBase && <span style={{ fontSize: 9, background: '#4f46e5', color: '#fff', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>ACTIVA</span>}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#94a3b8' }}>Precio estándar de la habitación</div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 16, fontWeight: 800, color: esBase ? '#4f46e5' : '#1e293b' }}>L {precioBase.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</div>
+                                  <div style={{ fontSize: 10, color: '#94a3b8' }}>/ noche</div>
+                                </div>
+                              </div>
                             </button>
                           )}
-                        </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
-                          Deja en 0 para usar el precio base de la habitación.
-                        </div>
-                      </label>
 
-                      {/* Descuento */}
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 20 }}>
-                        <input
-                          type="checkbox"
-                          checked={form.aplicarDescuento}
-                          onChange={e => setForm(f => ({ ...f, aplicarDescuento: e.target.checked }))}
-                        />
-                        <span style={{ fontSize: 12, color: '#64748b' }}>Aplicar descuento tercera edad (15%)</span>
-                      </label>
+                          {/* Tarifas del Sistema */}
+                          {tarifasFiltradas.length > 0 && (
+                            <div style={{ border: esSistema ? '2px solid #4f46e5' : '1.5px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', boxShadow: esSistema ? '0 4px 12px rgba(79,70,229,.12)' : '0 1px 3px rgba(0,0,0,.04)', transition: 'all 0.2s ease' }}>
+                              <div style={{ padding: '12px 16px', background: esSistema ? 'linear-gradient(135deg,#eef2ff 0%,#f5f3ff 100%)' : '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 14 }}>⚡</span>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: esSistema ? '#4f46e5' : '#374151' }}>Tarifas del Sistema</span>
+                                {esSistema && <span style={{ fontSize: 9, background: '#4f46e5', color: '#fff', borderRadius: 4, padding: '1px 5px', fontWeight: 700, marginLeft: 2 }}>ACTIVA</span>}
+                                <span style={{ marginLeft: 'auto', fontSize: 10, color: '#94a3b8' }}>{selectedHabitacion?.tipo ?? ''} · {form.tipoReserva === 'hora' ? 'Por horas' : form.tipoReserva === 'pasadia' ? 'Pasadía' : 'Por noche'}</span>
+                              </div>
+                              <div style={{ background: '#fff' }}>
+                                {tarifasFiltradas.map((t, idx) => {
+                                  const isSel = form.tarifaManual === t.valorActivo;
+                                  return (
+                                    <button key={t.id_tarifa} type="button" onClick={() => setForm(f => ({ ...f, tarifaManual: t.valorActivo }))} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 16px', background: isSel ? '#f0f0ff' : '#fff', border: 'none', borderBottom: idx < tarifasFiltradas.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer', transition: 'background .15s', textAlign: 'left' }}>
+                                      <div>
+                                        <div style={{ fontSize: 12, fontWeight: 600, color: isSel ? '#4f46e5' : '#374151' }}>{t.categoria}</div>
+                                        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>{t.vigente_hasta ? `Hasta ${new Date(t.vigente_hasta + 'T00:00:00').toLocaleDateString('es-HN')}` : 'Tarifa vigente'}</div>
+                                      </div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <div style={{ fontSize: 15, fontWeight: 800, color: isSel ? '#4f46e5' : '#1e293b' }}>L {t.valorActivo.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</div>
+                                        <div style={{ width: 18, height: 18, borderRadius: '50%', border: isSel ? '5px solid #4f46e5' : '2px solid #cbd5e1', background: '#fff', flexShrink: 0, transition: 'all .15s' }} />
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
 
-                      {/* Breakdown */}
-                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
-                        {[
-                          { label: 'Subtotal estadía', value: `L ${rates.subtotalBruto.toFixed(2)}` },
-                          form.aplicarDescuento ? { label: 'Descuento (15%)', value: `− L ${rates.discount.toFixed(2)}` } : null,
-                          { label: `ISV (${(rates.isvRate * 100).toFixed(0)}%)`, value: `L ${rates.isv.toFixed(2)}` },
-                          { label: `Tasa Turística (${(rates.turisticaRate * 100).toFixed(0)}%)`, value: `L ${rates.tasaTuristica.toFixed(2)}` },
-                        ].filter(Boolean).map((row, i) => (
-                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', fontSize: 13, color: '#64748b' }}>
-                            <span>{row!.label}</span>
-                            <span style={{ fontWeight: 500 }}>{row!.value}</span>
-                          </div>
-                        ))}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', fontSize: 15, fontWeight: 700, color: '#1e293b', background: '#f8fafc' }}>
-                          <span>Total (HNL)</span>
-                          <span>L {rates.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</span>
+                          {/* Sin tarifas del sistema */}
+                          {tarifasFiltradas.length === 0 && (
+                            <div style={{ padding: '12px 16px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 12, color: '#92400e', display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <span>⚠️</span>
+                              <span>Sin tarifas del sistema para este tipo de habitación y modalidad.</span>
+                            </div>
+                          )}
+
+                          {/* Personalizada */}
+                          <button type="button" onClick={() => { if (!esPersonalizada) { const seed = form.tipoReserva === 'noche' ? (precioBase || 500) : form.tipoReserva === 'pasadia' ? 300 : 150; setForm(f => ({ ...f, tarifaManual: seed })); } }} style={cardSt(esPersonalizada)}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                  <span style={{ fontSize: 14 }}>✏️</span>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: esPersonalizada ? '#4f46e5' : '#374151' }}>Valor Personalizado</span>
+                                  {esPersonalizada && <span style={{ fontSize: 9, background: '#4f46e5', color: '#fff', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>ACTIVA</span>}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#94a3b8' }}>Ingresa un monto manual</div>
+                              </div>
+                              {esPersonalizada ? (
+                                <div style={{ fontSize: 16, fontWeight: 800, color: '#4f46e5' }}>L {form.tarifaManual.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</div>
+                              ) : (
+                                <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Clic para activar</div>
+                              )}
+                            </div>
+                          </button>
                         </div>
                       </div>
-                    </>
-                  )}
+
+                      {/* Input personalizado (solo cuando está activo) */}
+                      {esPersonalizada && (
+                        <div style={{ marginBottom: 16, padding: '14px 16px', background: 'linear-gradient(135deg,#eef2ff 0%,#f5f3ff 100%)', borderRadius: 12, border: '1.5px solid #c7d2fe' }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Monto personalizado</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', background: '#fff', border: '1.5px solid #a5b4fc', borderRadius: 8, overflow: 'hidden', flex: 1, maxWidth: 220 }}>
+                              <span style={{ padding: '8px 12px', fontSize: 13, fontWeight: 700, color: '#6366f1', borderRight: '1px solid #e0e7ff', background: '#f5f3ff', flexShrink: 0 }}>L</span>
+                              <input
+                                type="number" min={0} step={0.01}
+                                style={{ border: 'none', outline: 'none', padding: '8px 12px', fontSize: 15, fontWeight: 700, color: '#1e293b', width: '100%', background: 'transparent' }}
+                                value={form.tarifaManual || ''}
+                                onChange={e => setForm(f => ({ ...f, tarifaManual: Math.max(0, Number(e.target.value) || 0) }))}
+                                autoFocus
+                              />
+                            </div>
+                            <span style={{ fontSize: 11, color: '#6366f1' }}>{form.tipoReserva === 'hora' ? '/ estancia' : form.tipoReserva === 'pasadia' ? '/ pasadía' : '/ noche'}</span>
+                            <button type="button" onClick={() => setForm(f => ({ ...f, tarifaManual: 0 }))} style={{ fontSize: 11, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0 }}>Cancelar</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Descuento Tercera Edad */}
+                      {form.tipoReserva === 'noche' && (() => {
+                        const pctDisplay = Math.round((hotelConfig?.descuento_tercera_edad ?? 25));
+                        return (
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 16, padding: '10px 14px', background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                            <input type="checkbox" checked={form.aplicarDescuento} onChange={e => setForm(f => ({ ...f, aplicarDescuento: e.target.checked }))} style={{ width: 16, height: 16, accentColor: '#4f46e5' }} />
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Descuento tercera edad</div>
+                              <div style={{ fontSize: 10, color: '#94a3b8' }}>Aplica {pctDisplay}% de descuento (configurado en ajustes del hotel)</div>
+                            </div>
+                            {form.aplicarDescuento && <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: '#16a34a' }}>−{pctDisplay}%</span>}
+                          </label>
+                        );
+                      })()}
+
+                      </div>{/* fin izquierda */}
+
+                      {/* ── Derecha: desglose sticky ── */}
+                      <div style={{ position: 'sticky', top: 0 }}>
+                        <div style={{ border: '1.5px solid #e2e8f0', borderRadius: 14, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                          <div style={{ padding: '12px 16px', background: 'linear-gradient(135deg,#f8fafc,#f1f5f9)', borderBottom: '1px solid #e2e8f0' }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6 }}>Desglose de cobro</span>
+                          </div>
+                          {[
+                            { label: form.tipoReserva === 'hora' ? 'Subtotal por horas' : form.tipoReserva === 'pasadia' ? 'Subtotal pasadía' : `Subtotal (${form.noches} noche${form.noches !== 1 ? 's' : ''})`, value: `L ${rates.subtotalBruto.toFixed(2)}` },
+                            form.aplicarDescuento && form.tipoReserva === 'noche' ? { label: `Descuento 3ª edad (${Math.round((hotelConfig?.descuento_tercera_edad ?? 25))}%)`, value: `− L ${rates.discount.toFixed(2)}`, color: '#16a34a' } : null,
+                            form.tipoReserva === 'noche' && (rates.cargoPersonaExtra ?? 0) > 0 ? { label: `Persona extra (cap. base: ${rates.capacidadBase})`, value: `L ${(rates.cargoPersonaExtra ?? 0).toFixed(2)}`, color: '#b45309' } : null,
+                            { label: `ISV (${(rates.isvRate * 100).toFixed(0)}%)`, value: `L ${rates.isv.toFixed(2)}` },
+                            { label: `Tasa Turística (${(rates.turisticaRate * 100).toFixed(0)}%)`, value: `L ${rates.tasaTuristica.toFixed(2)}` },
+                          ].filter(Boolean).map((row, i) => (
+                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', fontSize: 13, color: (row as any).color ?? '#64748b' }}>
+                              <span>{row!.label}</span>
+                              <span style={{ fontWeight: 500 }}>{row!.value}</span>
+                            </div>
+                          ))}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', fontSize: 17, fontWeight: 800, color: '#1e293b', background: 'linear-gradient(135deg,#f8fafc,#f1f5f9)' }}>
+                            <span>Total (HNL)</span>
+                            <span style={{ color: rates.total > 0 ? '#4f46e5' : '#94a3b8' }}>{rates.total > 0 ? `L ${rates.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}` : '—'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>);
+                  })()}
                 </div>
               )}
 
@@ -3275,6 +3519,113 @@ export const Bookings: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── Animación reserva exitosa ── */}
+      {successAnim && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 2000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none',
+        }}>
+          {/* Backdrop difuso */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'radial-gradient(ellipse at center, rgba(79,70,229,0.18) 0%, rgba(0,0,0,0.35) 100%)',
+            animation: 'fadeInOut 4.2s ease forwards',
+          }} />
+
+          {/* Tarjeta central */}
+          <div style={{
+            position: 'relative', zIndex: 1,
+            background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%)',
+            borderRadius: 24, padding: '44px 56px', textAlign: 'center',
+            boxShadow: '0 32px 80px rgba(79,70,229,0.45), 0 0 0 1px rgba(167,139,250,0.2)',
+            animation: 'successCardIn 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards',
+            minWidth: 340,
+          }}>
+            {/* Círculo con check */}
+            <div style={{
+              width: 80, height: 80, borderRadius: '50%',
+              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 20px',
+              boxShadow: '0 0 0 12px rgba(99,102,241,0.15), 0 0 40px rgba(139,92,246,0.4)',
+              animation: 'checkPop 0.4s 0.3s cubic-bezier(0.34,1.56,0.64,1) both',
+            }}>
+              <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+                <path d="M8 18L15 25L28 11" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ strokeDasharray: 30, strokeDashoffset: 30, animation: 'drawCheck 0.4s 0.5s ease forwards' }} />
+              </svg>
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8 }}>
+              Reserva registrada
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#ffffff', marginBottom: 6, lineHeight: 1.2 }}>
+              {successAnim.guestName}
+            </div>
+            {successAnim.habitacion && (
+              <div style={{ fontSize: 14, color: '#c4b5fd', marginBottom: 4 }}>
+                {successAnim.habitacion}
+              </div>
+            )}
+            {successAnim.noches > 0 && (
+              <div style={{ fontSize: 13, color: '#7c3aed', background: 'rgba(167,139,250,0.15)', borderRadius: 20, padding: '4px 14px', display: 'inline-block', marginTop: 6 }}>
+                {successAnim.noches} noche{successAnim.noches !== 1 ? 's' : ''}
+              </div>
+            )}
+
+            {/* Partículas */}
+            {[...Array(8)].map((_, i) => (
+              <div key={i} style={{
+                position: 'absolute',
+                width: 6 + (i % 3) * 3, height: 6 + (i % 3) * 3,
+                borderRadius: i % 2 === 0 ? '50%' : 3,
+                background: ['#818cf8','#a78bfa','#c4b5fd','#6366f1','#7c3aed','#8b5cf6','#a855f7','#c084fc'][i],
+                top: `${10 + (i * 11) % 70}%`,
+                left: `${5 + (i * 13) % 90}%`,
+                animation: `particleFly${i % 4} 0.9s ${0.2 + i * 0.07}s ease-out both`,
+              }} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes fadeInOut {
+          0%   { opacity: 0 }
+          15%  { opacity: 1 }
+          75%  { opacity: 1 }
+          100% { opacity: 0 }
+        }
+        @keyframes successCardIn {
+          from { opacity: 0; transform: scale(0.6) translateY(40px); }
+          to   { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        @keyframes checkPop {
+          from { transform: scale(0); }
+          to   { transform: scale(1); }
+        }
+        @keyframes drawCheck {
+          to { stroke-dashoffset: 0; }
+        }
+        @keyframes particleFly0 {
+          from { transform: translate(0,0) scale(0); opacity:1; }
+          to   { transform: translate(-28px,-52px) scale(1); opacity:0; }
+        }
+        @keyframes particleFly1 {
+          from { transform: translate(0,0) scale(0); opacity:1; }
+          to   { transform: translate(32px,-48px) scale(1); opacity:0; }
+        }
+        @keyframes particleFly2 {
+          from { transform: translate(0,0) scale(0); opacity:1; }
+          to   { transform: translate(-40px,36px) scale(1); opacity:0; }
+        }
+        @keyframes particleFly3 {
+          from { transform: translate(0,0) scale(0); opacity:1; }
+          to   { transform: translate(44px,40px) scale(1); opacity:0; }
+        }
+      `}</style>
 
       {/* ── Modal Confirmación Cancelación ── */}
       {cancelModalOpen && cancelModalData && (
@@ -3452,6 +3803,31 @@ export const Bookings: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Modal: Importador de Reservas Excel ── */}
+      {importadorOpen && (
+        <ImportadorReservas
+          onClose={() => setImportadorOpen(false)}
+          hotelId={hotelFiltro !== 'todos' ? hotelFiltro : (hoteles[0]?.id_hotel ?? '')}
+          hoteles={hoteles}
+          habitaciones={habitaciones}
+          onImportComplete={() => { void load(); }}
+        />
+      )}
+
+      {/* ── Modal: Email Studio ── */}
+      {emailStudioReserva && hasEmailStudio && (
+        <EmailStudioModal
+          isOpen={!!emailStudioReserva}
+          onClose={() => setEmailStudioReserva(null)}
+          bookingId={emailStudioReserva.id_reserva_hotel}
+          defaultType={
+            emailStudioReserva.estado === 'cancelada'
+              ? 'cancellation'
+              : 'confirmation'
+          }
+        />
       )}
     </div>
   );

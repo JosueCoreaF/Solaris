@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import * as perfilService from '../../api/perfilService';
 import type { SavedAccount } from '../../api/perfilService';
-
 /* ── Input de línea única con label flotante ─────────── */
 interface LineInputProps {
   id: string;
@@ -44,7 +43,6 @@ const LineInput: React.FC<LineInputProps> = ({ id, label, type = 'text', value, 
 /* ── Página de Login ─────────────────────────────────── */
 export const Login: React.FC = () => {
   const { signIn } = useAuth();
-  const navigate = useNavigate();
 
   // Cargar email guardado si "recordar dispositivo" estaba habilitado
   const [email, setEmail] = useState(() => {
@@ -78,30 +76,39 @@ export const Login: React.FC = () => {
     }
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !password) return;
+  // Inicia sesión y, si "recordar dispositivo" está habilitado, actualiza la
+  // contraseña guardada de la cuenta para futuros accesos automáticos.
+  const performLogin = async (loginEmail: string, loginPassword: string) => {
     setLoading(true);
     setError(null);
-    const { error: err } = await signIn(email, password);
+
+    // El GuestGuard redirige a "/" en cuanto signIn() actualiza la sesión,
+    // lo que desmonta este componente antes de que pueda mostrar la
+    // animación. Se deja la marca ANTES de llamar a signIn para que esté
+    // disponible sin importar qué tan rápido ocurra la redirección; el
+    // Layout la consume al montar.
+    const cuentaPrevia = perfilService.obtenerCuentasRecordadas().find(a => a.email === loginEmail);
+    const nombrePrevio = cuentaPrevia?.nombre || loginEmail.split('@')[0];
+    sessionStorage.setItem('pendingWelcomeNombre', nombrePrevio.charAt(0).toUpperCase() + nombrePrevio.slice(1));
+
+    const { error: err } = await signIn(loginEmail, loginPassword);
     setLoading(false);
     if (err) {
+      sessionStorage.removeItem('pendingWelcomeNombre');
       setError(translateError(err));
       return;
     }
 
-    // Login exitoso - guardar contraseña si "recordar dispositivo" está habilitado
     const prefs = localStorage.getItem('userPreferences');
     if (prefs) {
       try {
         const parsed = JSON.parse(prefs);
         if (parsed.recordar_dispositivo) {
-          // Actualizar cuenta recordada con la contraseña
-          const savedAccounts = perfilService.obtenerCuentasRecordadas();
-          const accountIndex = savedAccounts.findIndex(a => a.email === email);
+          const accounts = perfilService.obtenerCuentasRecordadas();
+          const accountIndex = accounts.findIndex(a => a.email === loginEmail);
           if (accountIndex >= 0) {
-            savedAccounts[accountIndex].password = password;
-            localStorage.setItem('savedAccounts', JSON.stringify(savedAccounts));
+            accounts[accountIndex].password = loginPassword;
+            localStorage.setItem('savedAccounts', JSON.stringify(accounts));
           }
         }
       } catch (e) {
@@ -109,15 +116,24 @@ export const Login: React.FC = () => {
       }
     }
 
-    navigate('/');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    await performLogin(email, password);
   };
 
   const handleSelectAccount = (account: SavedAccount) => {
     setEmail(account.email);
-    if (account.password) {
-      setPassword(account.password);
-    }
     setShowAccounts(false);
+    if (account.password) {
+      // Cuenta recordada con contraseña guardada: ingresar de una vez
+      setPassword(account.password);
+      performLogin(account.email, account.password);
+    } else {
+      setPassword('');
+    }
   };
 
   const handleRemoveAccount = (email: string, e: React.MouseEvent) => {

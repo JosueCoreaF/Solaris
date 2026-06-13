@@ -7,9 +7,8 @@ export interface Invitacion {
   id_hotel: string;
   rol_sugerido: string;
   usado: boolean;
-  usuario_id: string | null;
-  creado_en: string;
-  actualizado_en: string;
+  user_id: string | null;
+  created_at: string;
 }
 
 // Generar código único aleatorio (6 caracteres)
@@ -17,40 +16,39 @@ const generarCodigo = (): string => {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 };
 
-// Crear invitación (id_hotel puede ser opcional inicialmente)
+// Crear invitación y enviar correo vía backend (incluye envío de email automático)
 export const crearInvitacion = async (email: string, id_hotel: string | null, rol_sugerido: string): Promise<Invitacion | null> => {
-  // Validar que no exista una invitación activa para este email
-  const { data: existentes, error: errCheck } = await supabase
-    .from('invitaciones')
-    .select('*')
-    .eq('email', email)
-    .eq('usado', false);
+  try {
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session) {
+      console.error('No se pudo determinar la sesión activa');
+      return null;
+    }
 
-  if (!errCheck && existentes && existentes.length > 0) {
-    console.error('Ya existe una invitación activa para este email');
+    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+    };
+    if (id_hotel) headers['x-hotel-id'] = id_hotel;
+
+    const res = await fetch(`${base}/hotel/usuarios/invitar`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ email, rol_sugerido }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.error('Error al crear invitación:', err);
+      return null;
+    }
+
+    return await res.json();
+  } catch (err) {
+    console.error('Error al crear invitación:', err);
     return null;
   }
-
-  const codigo = generarCodigo();
-  
-  const { data, error } = await supabase
-    .from('invitaciones')
-    .insert([{ 
-      email, 
-      codigo_unico: codigo, 
-      id_hotel: id_hotel || null, 
-      rol_sugerido,
-      usado: false 
-    }])
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error al crear invitación:', error);
-    return null;
-  }
-
-  return data;
 };
 
 // Obtener invitaciones por hotel
@@ -59,7 +57,7 @@ export const obtenerInvitacionesPorHotel = async (id_hotel: string): Promise<Inv
     .from('invitaciones')
     .select('*')
     .eq('id_hotel', id_hotel)
-    .order('creado_en', { ascending: false });
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error al obtener invitaciones:', error);
@@ -74,7 +72,7 @@ export const obtenerTodasInvitaciones = async (): Promise<Invitacion[]> => {
   const { data, error } = await supabase
     .from('invitaciones')
     .select('*')
-    .order('creado_en', { ascending: false });
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error al obtener invitaciones:', error);
@@ -90,7 +88,7 @@ export const obtenerInvitacionesActivas = async (): Promise<Invitacion[]> => {
     .from('invitaciones')
     .select('*')
     .eq('usado', false)
-    .order('creado_en', { ascending: false });
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error al obtener invitaciones activas:', error);
@@ -100,27 +98,32 @@ export const obtenerInvitacionesActivas = async (): Promise<Invitacion[]> => {
   return data || [];
 };
 
-// Validar código de invitación
-export const validarInvitacion = async (email: string, codigo: string): Promise<{ valida: boolean; id_hotel?: string; rol_sugerido?: string }> => {
-  const { data, error } = await supabase
-    .rpc('fn_validar_invitacion', { p_email: email, p_codigo: codigo });
-
-  if (error || !data || data.length === 0) {
-    return { valida: false };
+// Validar código de invitación (vía backend para evitar restricciones de RLS)
+export const validarInvitacion = async (
+  email: string,
+  codigo: string,
+): Promise<{ valida: boolean; id_hotel?: string; rol_sugerido?: string; owner_id?: string; razon?: string }> => {
+  try {
+    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+    const res = await fetch(`${base}/public/invitacion/validar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, codigo }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { valida: false, razon: data.error };
+    return data;
+  } catch (err) {
+    console.error('Error validando invitación:', err);
+    return { valida: false, razon: 'Error de conexión' };
   }
-
-  return {
-    valida: data[0].valida,
-    id_hotel: data[0].id_hotel,
-    rol_sugerido: data[0].rol_sugerido,
-  };
 };
 
 // Marcar invitación como usada
-export const marcarInvitacionComoUsada = async (codigo: string, usuario_id: string): Promise<boolean> => {
+export const marcarInvitacionComoUsada = async (codigo: string, user_id: string): Promise<boolean> => {
   const { error } = await supabase
     .from('invitaciones')
-    .update({ usado: true, usuario_id })
+    .update({ usado: true, user_id })
     .eq('codigo_unico', codigo);
 
   if (error) {

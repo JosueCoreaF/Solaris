@@ -11,6 +11,7 @@ import {
 } from '../api/chatService';
 import { fetchReservas, fetchPagos, fetchHabitaciones, fetchHuespedes } from '../api/bookingsService';
 import { useRole } from '../hooks/useRole';
+import { canAccessChannel, canDo } from '../config/rbac';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtTime(iso: string): string {
@@ -193,6 +194,48 @@ const CSS = `
 .chat-sug-tab-btn{background:var(--shell-bg);border:1px solid var(--shell-border-strong);color:var(--muted);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.15s;display:flex;align-items:center;gap:4px;}
 .chat-sug-tab-btn:hover{background:var(--sidebar-item-hover);color:var(--text-h);border-color:var(--shell-border-strong);}
 .chat-sug-tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 2px 6px rgba(37,99,235,0.25);}
+.chat-root.in-sidebar {
+  height: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+.chat-root.in-sidebar .chat-sidebar {
+  width: 170px;
+  margin: 8px 0 8px 8px;
+  border-radius: 12px;
+}
+.chat-root.in-sidebar .chat-main {
+  margin: 8px;
+  border-radius: 12px;
+}
+.chat-root.in-sidebar .chat-ch-item {
+  padding: 6px 8px 6px 10px;
+  gap: 6px;
+}
+.chat-root.in-sidebar .chat-ch-name {
+  font-size: 11.5px;
+}
+.chat-root.in-sidebar .chat-sidebar-title {
+  font-size: 12px;
+  gap: 4px;
+}
+.chat-root.in-sidebar .chat-user-foot {
+  padding: 8px;
+  gap: 6px;
+}
+.chat-root.in-sidebar .chat-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 9px;
+}
+.chat-root.in-sidebar .chat-bubble {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.chat-root.in-sidebar .chat-main-head {
+  padding: 8px 12px;
+}
 `;
 
 interface SuggestionItem {
@@ -203,14 +246,15 @@ interface SuggestionItem {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-const ChatOperativo: React.FC = () => {
-  const { user } = useAuth();
+const ChatOperativo: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
+  const { user, session, loading: authLoading } = useAuth();
   const { role } = useRole();
   const { addToast } = useToast();
   const navigate = useNavigate();
 
-  const userId   = user?.email ?? user?.id ?? 'guest';
-  const userName = user?.email?.split('@')[0] ?? 'Usuario';
+  // sender_id en chat_messages es UUID (auth.users.id), usar id primero
+  const userId   = user?.id ?? user?.email ?? 'guest';
+  const userName = user?.user_metadata?.full_name ?? user?.email?.split('@')[0] ?? 'Usuario';
   const [channels, setChannels]     = useState<ChatChannel[]>([]);
   const [activeId, setActiveId]     = useState<string | null>(null);
   const [messages, setMessages]     = useState<ChatMessage[]>([]);
@@ -482,19 +526,21 @@ const ChatOperativo: React.FC = () => {
   const prevCh      = useRef<string | null>(null);
 
 
-  // load channels
+  // load channels — filtrados por rol
   const loadChannels = useCallback(async () => {
     try {
       const data = await fetchChannels();
-      setChannels(data);
+      // Solo mostrar canales a los que el rol tiene acceso
+      const visible = data.filter(ch => canAccessChannel(role, ch.tipo ?? ch.channel_type ?? 'general'));
+      setChannels(visible);
       const map: Record<string, number> = {};
-      data.forEach(ch => { map[ch.id] = ch.unread_count ?? 0; });
+      visible.forEach(ch => { map[ch.id] = ch.unread_count ?? 0; });
       setUnread(map);
       if (!activeId && data.length > 0) setActiveId(data[0].id);
     } finally { setLoadingCh(false); }
   }, [activeId]);
 
-  useEffect(() => { void loadChannels(); }, [loadChannels]);
+  useEffect(() => { if (!authLoading && user && session?.access_token) void loadChannels(); }, [loadChannels, authLoading, user, session?.access_token]);
 
   // load messages on channel switch
   useEffect(() => {
@@ -625,7 +671,7 @@ const ChatOperativo: React.FC = () => {
     if (!text.trim() || !activeId || sending) return;
     const c = text.trim(); setText(''); setSending(true);
     if (activeId) emitStopTyping(activeId, { userId, userName });
-    try { await sendMessage(activeId, c); } catch { setText(c); } finally { setSending(false); }
+    try { await sendMessage(activeId, c, 'text', { sender_name: userName }); } catch { setText(c); } finally { setSending(false); }
   }, [text, activeId, sending, userId, userName]);
 
   const handleTyping = (val: string) => {
@@ -647,6 +693,7 @@ const ChatOperativo: React.FC = () => {
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
+    if (!canDo(role, 'chat', 'crear_canal')) return;
     try {
       const ch = await createChannel({ name: newName.trim(), channel_type: newType });
       setChannels(p => [...p, ch]); setActiveId(ch.id); setShowModal(false); setNewName('');
@@ -669,7 +716,7 @@ const ChatOperativo: React.FC = () => {
   return (
     <>
       <style>{CSS}</style>
-      <div className="chat-root">
+      <div className={`chat-root${embedded ? ' in-sidebar' : ''}`}>
 
         {/* ── Sidebar ── */}
         <div className="chat-sidebar">
@@ -679,7 +726,9 @@ const ChatOperativo: React.FC = () => {
               Chat
               {totalUnread > 0 && <span className="chat-sidebar-badge">{totalUnread}</span>}
             </span>
-            <button className="chat-sidebar-add" onClick={() => setShowModal(true)} title="Nuevo canal">+</button>
+            {canDo(role, 'chat', 'crear_canal') && (
+              <button className="chat-sidebar-add" onClick={() => setShowModal(true)} title="Nuevo canal">+</button>
+            )}
           </div>
 
           <div className="chat-ch-list">
@@ -699,7 +748,9 @@ const ChatOperativo: React.FC = () => {
                   <ChannelIcon type={ch.channel_type} size={15} />
                   <span className="chat-ch-name" style={{ paddingRight: u > 0 ? 0 : 20 }}>{ch.name}</span>
                   {u > 0 && <span className="chat-ch-unread">{u}</span>}
-                  <button className="chat-ch-del" onClick={(e) => void handleDelete(ch, e)} title="Eliminar canal">✕</button>
+                  {canDo(role, 'chat', 'eliminar_canal') && (
+                    <button className="chat-ch-del" onClick={(e) => void handleDelete(ch, e)} title="Eliminar canal">✕</button>
+                  )}
                 </div>
               );
             })}
@@ -722,7 +773,9 @@ const ChatOperativo: React.FC = () => {
           {!active ? (
             <div className="chat-welcome-container">
               <div className="chat-welcome-card">
-                <div className="chat-welcome-icon">💬</div>
+                <div className="chat-welcome-icon">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                </div>
                 <h3 style={{ color: 'var(--text-h)', fontWeight: 700, fontSize: 16, margin: 0 }}>Buzón Operativo Verona</h3>
                 <p style={{ fontSize: 13, lineHeight: 1.5, margin: 0 }}>Selecciona un canal de la barra lateral para ver mensajes o iniciar una conversación.</p>
               </div>
@@ -794,13 +847,13 @@ const ChatOperativo: React.FC = () => {
                                       onClick={() => handleMentionClick(p.type!, p.id!)}
                                     >
                                       <span className="mention-icon">
-                                        {p.type === 'reserva' && '📅'}
-                                        {p.type === 'pago' && '💵'}
-                                        {p.type === 'huesped' && '👤'}
-                                        {p.type === 'habitacion' && '🏨'}
-                                        {p.type === 'factura' && '📄'}
-                                        {p.type === 'cierre' && '📊'}
-                                        {p.type === 'personal' && '💼'}
+                                        {p.type === 'reserva' && 'R'}
+                                        {p.type === 'pago' && 'P'}
+                                        {p.type === 'huesped' && 'H'}
+                                        {p.type === 'habitacion' && 'Hab'}
+                                        {p.type === 'factura' && 'F'}
+                                        {p.type === 'cierre' && 'C'}
+                                        {p.type === 'personal' && 'Per'}
                                       </span>
                                       <span className="mention-text">@{p.type}:{p.id?.slice(0, 8)}</span>
                                     </span>
@@ -838,45 +891,45 @@ const ChatOperativo: React.FC = () => {
                   <div className="chat-suggestions-dropdown">
                     <div className="chat-suggestion-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span>Menciones (Usa ⇅ para navegar, Enter para insertar)</span>
-                      <button 
+                      <button
                         onClick={() => setShowSuggestions(false)}
                         style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}
                       >
-                        Cerrar ✕
+                        Cerrar
                       </button>
                     </div>
                     
                     {/* Filtros rápidos interactivos */}
                     <div className="chat-suggestion-tabs">
-                      <button 
+                      <button
                         className={`chat-sug-tab-btn ${suggestionFilter === 'all' ? 'active' : ''}`}
                         onClick={() => { setSuggestionFilter('all'); setSelectedSugIdx(0); }}
                       >
-                        🏷️ Todos
+                        Todos
                       </button>
-                      <button 
+                      <button
                         className={`chat-sug-tab-btn ${suggestionFilter === 'reserva' ? 'active' : ''}`}
                         onClick={() => { setSuggestionFilter('reserva'); setSelectedSugIdx(0); }}
                       >
-                        📅 Reservas
+                        Reservas
                       </button>
-                      <button 
+                      <button
                         className={`chat-sug-tab-btn ${suggestionFilter === 'pago' ? 'active' : ''}`}
                         onClick={() => { setSuggestionFilter('pago'); setSelectedSugIdx(0); }}
                       >
-                        💵 Pagos
+                        Pagos
                       </button>
-                      <button 
+                      <button
                         className={`chat-sug-tab-btn ${suggestionFilter === 'habitacion' ? 'active' : ''}`}
                         onClick={() => { setSuggestionFilter('habitacion'); setSelectedSugIdx(0); }}
                       >
-                        🏨 Habitaciones
+                        Habitaciones
                       </button>
-                      <button 
+                      <button
                         className={`chat-sug-tab-btn ${suggestionFilter === 'huesped' ? 'active' : ''}`}
                         onClick={() => { setSuggestionFilter('huesped'); setSelectedSugIdx(0); }}
                       >
-                        👤 Huéspedes
+                        Huéspedes
                       </button>
                     </div>
 
@@ -889,10 +942,6 @@ const ChatOperativo: React.FC = () => {
                         >
                           <div className="chat-sug-title">
                             <span className={`chat-sug-badge ${item.type}`}>
-                              {item.type === 'reserva' && '📅'}
-                              {item.type === 'pago' && '💵'}
-                              {item.type === 'habitacion' && '🏨'}
-                              {item.type === 'huesped' && '👤'}
                               {item.type.toUpperCase()}
                             </span>
                             <span style={{ fontWeight: 600 }}>{item.label}</span>
@@ -967,8 +1016,8 @@ const ChatOperativo: React.FC = () => {
                   >
                     @
                   </button>
-                  <button className="chat-emoji-toggle-btn" onClick={() => setShowEmojiPicker(p => !p)} title="Insertar emoji">
-                    😊
+                  <button className="chat-emoji-toggle-btn" onClick={() => setShowEmojiPicker(p => !p)} title="Insertar emoji" style={{ fontSize: 14, fontWeight: 700 }}>
+                    +
                   </button>
                   <button className="chat-send-btn" disabled={!text.trim() || sending} onClick={() => void handleSend()}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -996,11 +1045,11 @@ const ChatOperativo: React.FC = () => {
               value={newType}
               onChange={e => setNewType(e.target.value as ChatChannel['channel_type'])}
             >
-              <option value="general">💬 General</option>
-              <option value="hotel">🏨 Hotel</option>
-              <option value="operativo">⚙️ Operativo</option>
-              <option value="privado">🔒 Privado</option>
-              <option value="cierre">📊 Cierre</option>
+              <option value="general">General</option>
+              <option value="hotel">Hotel</option>
+              <option value="operativo">Operativo</option>
+              <option value="privado">Privado</option>
+              <option value="cierre">Cierre</option>
             </select>
             <div className="chat-modal-row">
               <button className="chat-modal-btn cancel" onClick={() => setShowModal(false)}>Cancelar</button>

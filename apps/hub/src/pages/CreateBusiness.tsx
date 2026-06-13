@@ -4,7 +4,7 @@ import { supabase } from '../services/supabaseClient';
 import axios from 'axios';
 import { Loader2, ArrowLeft, Building2, Dumbbell, Utensils, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import PlanSelector from '../components/PlanSelector';
+
 
 export const CreateBusiness = () => {
   const navigate = useNavigate();
@@ -78,31 +78,7 @@ export const CreateBusiness = () => {
     }
   };
 
-  const handleSelectPlan = async (planId: string) => {
-    setFormData({ ...formData, plan_id: planId });
-    setError('');
-    
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
-      const returnUrl = `${window.location.origin}/create-business?step=3&module=${formData.tipo_modulo}`;
 
-      const response = await axios.post(`${API_BASE_URL}/hub/billing/checkout`, {
-        plan_id: planId,
-        return_url: returnUrl
-      }, {
-        headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
-      });
-
-      if (response.data.url && response.data.url !== returnUrl) {
-        window.location.href = response.data.url;
-      } else {
-        setStep(3);
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al procesar la suscripción.');
-    }
-  };
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -138,23 +114,7 @@ export const CreateBusiness = () => {
     }
   };
 
-  const handleBuyAddon = async () => {
-    setLoading(true);
-    try {
-      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
-      const { data: sessionData } = await supabase.auth.getSession();
-      
-      await axios.post(`${API_BASE_URL}/hub/billing/addon`, {}, {
-        headers: { Authorization: `Bearer ${sessionData.session?.access_token}` }
-      });
-      
-      // Intentar crear de nuevo el negocio
-      await handleSubmit();
-    } catch (err: any) {
-      setError('Ocurrió un error al comprar el cupo extra.');
-      setLoading(false);
-    }
-  };
+
 
   const renderStep1 = () => (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">

@@ -11,10 +11,22 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
     const checkUserStatus = async () => {
       if (session?.user) {
         try {
+          // El propietario directo no tiene fila en usuarios_roles — verificar en owners
+          const { data: ownerData } = await supabase
+            .from('owners')
+            .select('id_owner')
+            .eq('id_owner', session.user.id)
+            .maybeSingle();
+
+          if (ownerData?.id_owner) {
+            setUserStatus('approved');
+            return;
+          }
+
           const { data, error } = await supabase
             .from('usuarios_roles')
             .select('estado')
-            .eq('usuario_id', session.user.id);
+            .eq('user_id', session.user.id);
 
           const roleRecord = data && data.length > 0 ? data[0] : null;
 

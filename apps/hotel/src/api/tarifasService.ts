@@ -1,7 +1,7 @@
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   const res = await fetch(`${API}${path}`, {
     ...options,
     headers: { 
@@ -96,6 +96,37 @@ export async function actualizarTarifa(
 
 export async function eliminarTarifa(id: string): Promise<{ success: boolean }> {
   return apiFetch<{ success: boolean }>(`/tarifas/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function crearCategoria(data: {
+  nombre: string;
+  descripcion?: string;
+  activa?: boolean;
+}): Promise<Categoria> {
+  return apiFetch<Categoria>('/tarifas/categorias', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function actualizarCategoria(
+  id: string,
+  data: {
+    nombre?: string;
+    descripcion?: string;
+    activa?: boolean;
+  }
+): Promise<Categoria> {
+  return apiFetch<Categoria>(`/tarifas/categorias/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function eliminarCategoria(id: string): Promise<{ success: boolean; message?: string }> {
+  return apiFetch<{ success: boolean; message?: string }>(`/tarifas/categorias/${id}`, {
     method: 'DELETE',
   });
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Search, X, CheckCircle, AlertCircle, RefreshCw, Download, AlertTriangle } from 'lucide-react';
+import { Plus, Search, X, CheckCircle, AlertCircle, RefreshCw, Download, AlertTriangle, DollarSign, CreditCard, Clock } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
+import { DatePicker, DateRangePicker } from '../../components/DatePicker';
 import {
   fetchPagos,
   fetchReservas,
@@ -16,6 +17,7 @@ import {
   addDays,
   getOnlyDate,
 } from '../../api/bookingsService';
+import { useHasFeature } from '../../hooks/usePlanFeature';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -94,36 +96,41 @@ interface SaldoEntry {
   monto: number;
   descripcion: string;
   tipo: string;
-  fecha_creacion: string;
+  created_at: string;
   aplicado: boolean;
 }
 
-const API_BASE = 'http://localhost:4000/api';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+
+async function getAuthHeaders(contentType = false): Promise<Record<string, string>> {
+  const hotelId = localStorage.getItem('active_hotel_id') || '';
+  const hdrs: Record<string, string> = { 'X-Hotel-ID': hotelId };
+  if (contentType) hdrs['Content-Type'] = 'application/json';
+  try {
+    const { supabase } = await import('../../api/supabase');
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.access_token) hdrs['Authorization'] = `Bearer ${data.session.access_token}`;
+  } catch (_) {}
+  return hdrs;
+}
 
 async function fetchSaldosHuesped(id_huesped: string): Promise<SaldoEntry[]> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || 'all';
-  const headers: Record<string, string> = {};
-  if (activeHotelId && activeHotelId !== 'all') {
-    headers['X-Hotel-ID'] = activeHotelId;
-  }
-  const r = await fetch(`${API_BASE}/bookings/saldos`, { headers });
+  const r = await fetch(`${API_BASE}/bookings/saldos`, { headers: await getAuthHeaders() });
   if (!r.ok) return [];
   const all: SaldoEntry[] = await r.json();
   return all.filter(s => s.id_huesped === id_huesped && !s.aplicado && s.tipo === 'credito');
 }
 
 async function aplicarSaldoAReserva(id_saldo: string, id_reserva_hotel: string): Promise<{ monto_aplicado: number; diferencia: number }> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || 'all';
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (activeHotelId && activeHotelId !== 'all') {
-    headers['X-Hotel-ID'] = activeHotelId;
-  }
   const r = await fetch(`${API_BASE}/bookings/saldos/${id_saldo}/aplicar`, {
     method: 'POST',
-    headers,
+    headers: await getAuthHeaders(true),
     body: JSON.stringify({ id_reserva_hotel }),
   });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) {
+    const b = await r.json().catch(() => ({}));
+    throw new Error(b.error ?? await r.text());
+  }
   return r.json();
 }
 
@@ -154,6 +161,7 @@ const defaultForm = (): PagoForm => ({
 export const Pagos: React.FC = () => {
   const today = toDateKey(new Date());
   const [searchParams] = useSearchParams();
+  const hasMultimoneda = useHasFeature('multimoneda');
 
   const [desde, setDesde] = useState(() => toDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
   const [hasta, setHasta] = useState(today);
@@ -289,7 +297,12 @@ export const Pagos: React.FC = () => {
           });
         const totalDeuda = reservasEmp.reduce((s, r) => s + r.saldo, 0);
         const reservasPendientesEmp = reservasEmp.filter(r => r.saldo > 0.01);
-        const reservasVencidas = reservasPendientesEmp.filter(r => new Date(r.check_out).setHours(0,0,0,0) <= todayMs);
+        const diasCredito = emp.dias_credito ?? 30;
+        const reservasVencidas = reservasPendientesEmp.filter(r => {
+          const checkOutMs = new Date(r.check_out).setHours(0,0,0,0);
+          const diasDesdeCheckout = Math.floor((Date.now() - checkOutMs) / 86400000);
+          return diasDesdeCheckout > diasCredito && checkOutMs <= todayMs;
+        });
         return { empresa: emp, reservas: reservasEmp, totalDeuda, pendientes: reservasPendientesEmp.length, vencidas: reservasVencidas.length };
       })
       .filter(e => e.reservas.length > 0)
@@ -358,7 +371,7 @@ export const Pagos: React.FC = () => {
 
   const reservasPendientes = useMemo(() => {
     return reservas
-      .filter(r => r.estado !== 'cancelada' && !r.es_cortesia)
+      .filter(r => r.estado !== 'cancelada' && !r.es_cortesia && !r.id_empresa)
       .map(r => {
         const pagado = (r.pagos ?? []).filter(p => p.estado !== 'anulado').reduce((s, p) => s + p.monto, 0);
         const saldo = r.total_reserva - pagado;
@@ -609,7 +622,7 @@ export const Pagos: React.FC = () => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: '#f8fafc' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--shell-bg)' }}>
 
       {/* Toast */}
       {toast && (
@@ -626,94 +639,91 @@ export const Pagos: React.FC = () => {
       )}
 
       {/* ── Header ── */}
-      <div style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0', flexShrink: 0, background: '#fff' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>Pagos</div>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>Registro y seguimiento de cobros</div>
+      <div style={{ padding: '18px 24px 14px', borderBottom: '1px solid var(--shell-border-subtle)', flexShrink: 0, background: 'var(--card-bg)' }}>
+        <div className="page-header" style={{ marginBottom: 0 }}>
+          <div className="page-header-left" style={{ position: 'relative', paddingLeft: 18 }}>
+            <div style={{ position: 'absolute', left: 0, top: 2, bottom: 4, width: 4, borderRadius: 99, background: 'linear-gradient(to bottom, #10b981, #3b82f6)' }} />
+            <span className="page-kicker">Contabilidad</span>
+            <h1 className="page-title" style={{ fontSize: 22, background: 'linear-gradient(135deg, var(--text-h) 0%, #10b981 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+              Pagos
+            </h1>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 16 }}>
-            <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
-              style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '5px 8px', fontSize: 12, color: '#374151', background: '#fff' }} />
-            <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
-            <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
-              style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '5px 8px', fontSize: 12, color: '#374151', background: '#fff' }} />
-            <button onClick={load} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '5px 8px', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-              <RefreshCw size={14} style={{ color: '#64748b' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <DateRangePicker
+              from={desde} to={hasta}
+              onFromChange={setDesde} onToChange={setHasta}
+              placeholderFrom="Desde" placeholderTo="Hasta"
+              gap={6}
+            />
+            <button onClick={load}
+              title="Actualizar"
+              style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--shell-border-strong)', background: 'var(--card-bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', transition: 'all .18s ease' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-h)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--shell-border-strong)'; }}
+            >
+              <RefreshCw size={13} />
             </button>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
             <button
               onClick={() => exportCSV(pagosFiltrados.filter(p => p.estado !== 'anulado'))}
-              style={{ display: 'flex', alignItems: 'center', gap: 5, border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 12px', background: '#fff', cursor: 'pointer', fontSize: 12, color: '#374151', fontWeight: 500 }}>
+              className="btn-premium btn-premium-secondary"
+              style={{ height: 34, gap: 6, fontSize: 12 }}>
               <Download size={13} /> Exportar CSV
             </button>
             <button onClick={() => openNew()}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1e293b', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-              <Plus size={14} /> Nuevo pago
+              className="btn-premium btn-premium-primary"
+              style={{ height: 34, gap: 6, fontSize: 12 }}>
+              <Plus size={13} /> Nuevo pago
             </button>
           </div>
         </div>
       </div>
 
       {/* ── Stats Cards ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, padding: '12px 20px', flexShrink: 0 }}>
-        {[
-          {
-            label: 'Cobrado HNL',
-            value: `L ${totales.totalHNL.toLocaleString('es-HN', { minimumFractionDigits: 2 })}`,
-            sub: `${totales.count} pago${totales.count !== 1 ? 's' : ''} activos`,
-            color: '#22c55e', bg: '#f0fdf4',
-          },
-          {
-            label: 'Cobrado USD',
-            value: totales.totalUSD > 0 ? `$ ${totales.totalUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—',
-            sub: 'Dólares en período',
-            color: '#3b82f6', bg: '#eff6ff',
-          },
-          {
-            label: 'Pagos registrados',
-            value: String(totales.count),
-            sub: `${pagosFiltrados.filter(p => p.estado === 'anulado').length} anulados`,
-            color: '#8b5cf6', bg: '#f5f3ff',
-          },
-          {
-            label: 'Saldos pendientes',
-            value: String(reservasPendientes.length),
-            sub: reservasPendientes.length > 0
-              ? `${reservasPendientes.filter(r => new Date(r.check_out).setHours(0, 0, 0, 0) <= todayMs).length} vencidos`
-              : 'Todo al día ✓',
-            color: reservasPendientes.length > 0 ? '#f97316' : '#22c55e',
-            bg: reservasPendientes.length > 0 ? '#fff7ed' : '#f0fdf4',
-          },
-        ].map(card => (
-          <div key={card.label} style={{ background: card.bg, border: `1px solid ${card.color}25`, borderRadius: 12, padding: '12px 16px' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: card.color, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>{card.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>{card.value}</div>
-            <div style={{ fontSize: 11, color: '#64748b' }}>{card.sub}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, padding: '14px 24px', flexShrink: 0 }}>
+        <div className="kpi-card kpi-card-emerald" style={{ animationDelay: '0ms', padding: '16px 18px' }}>
+          <div className="kpi-icon-wrap"><DollarSign size={16} /></div>
+          <div className="kpi-label">Cobrado HNL</div>
+          <div className="kpi-value" style={{ fontSize: 20 }}>L {totales.totalHNL.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</div>
+          <div className="kpi-sub"><span className="kpi-sub-text">{totales.count} pago{totales.count !== 1 ? 's' : ''} activos</span></div>
+        </div>
+        <div className="kpi-card kpi-card-blue" style={{ animationDelay: '50ms', padding: '16px 18px' }}>
+          <div className="kpi-icon-wrap"><CreditCard size={16} /></div>
+          <div className="kpi-label">Cobrado USD</div>
+          <div className="kpi-value" style={{ fontSize: 20 }}>{totales.totalUSD > 0 ? `$ ${totales.totalUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—'}</div>
+          <div className="kpi-sub"><span className="kpi-sub-text">Dólares en período</span></div>
+        </div>
+        <div className="kpi-card kpi-card-violet" style={{ animationDelay: '100ms', padding: '16px 18px' }}>
+          <div className="kpi-icon-wrap"><CheckCircle size={16} /></div>
+          <div className="kpi-label">Pagos registrados</div>
+          <div className="kpi-value" style={{ fontSize: 20 }}>{totales.count}</div>
+          <div className="kpi-sub"><span className="kpi-sub-text">{pagosFiltrados.filter(p => p.estado === 'anulado').length} anulados</span></div>
+        </div>
+        <div className={`kpi-card ${reservasPendientes.length > 0 ? 'kpi-card-amber' : 'kpi-card-emerald'}`} style={{ animationDelay: '150ms', padding: '16px 18px' }}>
+          <div className="kpi-icon-wrap"><Clock size={16} /></div>
+          <div className="kpi-label">Saldos pendientes</div>
+          <div className="kpi-value" style={{ fontSize: 20 }}>{reservasPendientes.length}</div>
+          <div className="kpi-sub">
+            {reservasPendientes.length > 0
+              ? <><span className="kpi-trend-badge kpi-trend-down" style={{ fontSize: 10 }}>{reservasPendientes.filter(r => new Date(r.check_out).setHours(0,0,0,0) <= todayMs).length} vencidos</span></>
+              : <span className="kpi-trend-badge kpi-trend-up" style={{ fontSize: 10 }}>Todo al día</span>
+            }
           </div>
-        ))}
+        </div>
       </div>
 
       {/* ── Tabs ── */}
-      <div style={{ display: 'flex', padding: '0 20px', borderBottom: '2px solid #e2e8f0', flexShrink: 0, background: '#fff' }}>
+      <div style={{ display: 'flex', padding: '10px 24px', borderBottom: '1px solid var(--shell-border-subtle)', flexShrink: 0, background: 'var(--card-bg)', gap: 4 }}>
         {[
           { id: 'historial', label: 'Historial de pagos' },
-          {
-            id: 'pendientes',
-            label: `Saldos pendientes${reservasPendientes.length > 0 ? ` (${reservasPendientes.length})` : ''}`,
-          },
-          {
-            id: 'empresas',
-            label: `Crédito empresarial${empresasConCredito.filter(e => e.totalDeuda > 0.01).length > 0 ? ` (${empresasConCredito.filter(e => e.totalDeuda > 0.01).length})` : ''}`,
-          },
+          { id: 'pendientes', label: `Saldos pendientes${reservasPendientes.length > 0 ? ` (${reservasPendientes.length})` : ''}` },
+          { id: 'empresas', label: `Crédito empresarial${empresasConCredito.filter(e => e.totalDeuda > 0.01).length > 0 ? ` (${empresasConCredito.filter(e => e.totalDeuda > 0.01).length})` : ''}` },
         ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id as typeof activeTab)} style={{
-            padding: '10px 20px', border: 'none', background: 'none', cursor: 'pointer',
-            fontSize: 13, fontWeight: activeTab === tab.id ? 700 : 500,
-            color: activeTab === tab.id ? '#1e293b' : '#94a3b8',
-            borderBottom: activeTab === tab.id ? '2px solid #1e293b' : '2px solid transparent',
-            marginBottom: -2,
+            padding: '7px 16px', borderRadius: 9, border: 'none', cursor: 'pointer',
+            fontSize: 12.5, fontWeight: 600, transition: 'all .18s ease',
+            background: activeTab === tab.id ? 'var(--accent)' : 'transparent',
+            color: activeTab === tab.id ? '#ffffff' : 'var(--muted)',
+            boxShadow: activeTab === tab.id ? '0 2px 8px rgba(37,99,235,.22)' : 'none',
           }}>
             {tab.label}
           </button>
@@ -724,38 +734,38 @@ export const Pagos: React.FC = () => {
       {activeTab === 'historial' ? (
         <>
           {/* Filtros + totales por método */}
-          <div style={{ display: 'flex', gap: 8, padding: '10px 20px', borderBottom: '1px solid #f1f5f9', flexShrink: 0, background: '#fff', flexWrap: 'wrap', alignItems: 'center' }}>
-            <select value={filtroMetodo} onChange={e => setFiltroMetodo(e.target.value)}
-              style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '5px 10px', fontSize: 12, color: '#374151' }}>
+          <div style={{ display: 'flex', gap: 8, padding: '10px 24px', borderBottom: '1px solid var(--shell-border-subtle)', flexShrink: 0, background: 'var(--card-bg)', flexWrap: 'wrap', alignItems: 'center' }}>
+            <select value={filtroMetodo} onChange={e => setFiltroMetodo(e.target.value)} className="input-premium" style={{ width: 'auto', padding: '6px 10px', fontSize: 12 }}>
               <option value="todos">Todos los métodos</option>
               {METODOS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
-            <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}
-              style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '5px 10px', fontSize: 12, color: '#374151' }}>
+            <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} className="input-premium" style={{ width: 'auto', padding: '6px 10px', fontSize: 12 }}>
               <option value="todos">Todos los estados</option>
               <option value="registrado">Registrado</option>
               <option value="aplicado">Aplicado</option>
               <option value="anulado">Anulado</option>
             </select>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #e2e8f0', borderRadius: 8, padding: '5px 10px', background: '#fff' }}>
-              <Search size={13} style={{ color: '#94a3b8' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1.5px solid var(--shell-border-strong)', borderRadius: 10, padding: '5px 12px', background: 'var(--card-bg)', transition: 'border-color .18s' }}
+              onFocusCapture={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+              onBlurCapture={e => (e.currentTarget.style.borderColor = 'var(--shell-border-strong)')}
+            >
+              <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
               <input value={searchText} onChange={e => setSearchText(e.target.value)}
                 placeholder="Buscar huésped, habitación, referencia…"
-                style={{ border: 'none', outline: 'none', fontSize: 12, color: '#374151', width: 220 }} />
+                style={{ border: 'none', outline: 'none', fontSize: 12, color: 'var(--text-h)', background: 'transparent', width: 220, fontFamily: 'var(--sans)' }} />
             </div>
-            {/* Desglose por método */}
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               {Object.entries(totales.porMetodo).map(([metodo, monto]) => (
                 <div key={metodo} style={{
                   display: 'flex', alignItems: 'center', gap: 5,
-                  background: (METODO_COLORS[metodo] ?? '#94a3b8') + '15',
-                  border: `1px solid ${(METODO_COLORS[metodo] ?? '#94a3b8')}30`,
-                  borderRadius: 20, padding: '2px 10px',
+                  background: (METODO_COLORS[metodo] ?? '#94a3b8') + '12',
+                  border: `1px solid ${(METODO_COLORS[metodo] ?? '#94a3b8')}25`,
+                  borderRadius: 99, padding: '3px 11px',
                 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: METODO_COLORS[metodo] ?? '#94a3b8', textTransform: 'uppercase' }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: METODO_COLORS[metodo] ?? 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
                     {METODOS.find(m => m.value === metodo)?.label ?? metodo}
                   </span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#1e293b' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-h)' }}>
                     L {monto.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
                   </span>
                 </div>
@@ -766,101 +776,98 @@ export const Pagos: React.FC = () => {
           {/* Tabla historial */}
           <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
             {loading ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: '#94a3b8', fontSize: 13 }}>Cargando…</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--muted)', fontSize: 13, gap: 8 }}>
+                <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} /> Cargando…
+              </div>
             ) : error ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: '#ef4444', fontSize: 13 }}>{error}</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--danger)', fontSize: 13, gap: 8 }}>
+                <AlertCircle size={16} /> {error}
+              </div>
             ) : pagosFiltrados.length === 0 ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: '#94a3b8', fontSize: 13 }}>
-                No hay pagos en el rango seleccionado.
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--muted)', gap: 8 }}>
+                <DollarSign size={28} color="var(--shell-border-strong)" />
+                <span style={{ fontSize: 13, fontWeight: 500 }}>No hay pagos en el rango seleccionado</span>
               </div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #e2e8f0', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
+              <table className="table-premium">
+                <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                  <tr>
                     {['Fecha', 'ID Reserva', 'Huésped', 'Habitación', 'Período', 'Método', 'Referencia', 'Factura / Notas', 'Monto', 'Estado', ''].map(h => (
-                      <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap' }}>{h}</th>
+                      <th key={h} style={{ whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {pagosFiltrados.map((p, i) => (
-                    <tr key={p.id_pago_hotel}
-                      style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa', opacity: p.estado === 'anulado' ? 0.45 : 1 }}>
-                      <td style={{ padding: '10px 14px', whiteSpace: 'nowrap', color: '#374151' }}>{fmtDate(p.fecha_pago)}</td>
-                      <td style={{ padding: '10px 14px', whiteSpace: 'nowrap', color: '#64748b', fontSize: 12, fontFamily: 'monospace', fontWeight: 600 }} title={p.id_reserva_hotel}>{abreviarId(p.id_reserva_hotel)}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#1e293b', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.huesped ?? '—'}</td>
-                      <td style={{ padding: '10px 14px', color: '#64748b', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {p.habitacion ?? '—'}{p.hotel ? <span style={{ color: '#94a3b8', fontSize: 11 }}> · {p.hotel}</span> : null}
+                  {pagosFiltrados.map((p) => (
+                    <tr key={p.id_pago_hotel} style={{ opacity: p.estado === 'anulado' ? 0.5 : 1 }}>
+                      <td style={{ whiteSpace: 'nowrap', color: 'var(--text-h)' }}>{fmtDate(p.fecha_pago)}</td>
+                      <td style={{ whiteSpace: 'nowrap', color: 'var(--muted)', fontSize: 11.5, fontFamily: 'monospace', fontWeight: 600 }} title={p.id_reserva_hotel}>{abreviarId(p.id_reserva_hotel)}</td>
+                      <td style={{ fontWeight: 600, color: 'var(--text-h)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.huesped ?? '—'}</td>
+                      <td style={{ color: 'var(--muted)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {p.habitacion ?? '—'}{p.hotel ? <span style={{ color: 'var(--muted)', fontSize: 11, opacity: .7 }}> · {p.hotel}</span> : null}
                       </td>
-                      <td style={{ padding: '10px 14px', color: '#94a3b8', fontSize: 11, whiteSpace: 'nowrap' }}>
+                      <td style={{ color: 'var(--muted)', fontSize: 11, whiteSpace: 'nowrap' }}>
                         {p.check_in ? `${p.check_in.split('T')[0]} → ${p.check_out?.split('T')[0]}` : '—'}
                       </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                           <span style={{
-                            fontSize: 11, fontWeight: 700,
-                            color: METODO_COLORS[p.metodo_pago] ?? '#94a3b8',
-                            background: (METODO_COLORS[p.metodo_pago] ?? '#94a3b8') + '15',
-                            padding: '2px 8px', borderRadius: 20, textTransform: 'capitalize',
+                            fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 99, whiteSpace: 'nowrap',
+                            color: METODO_COLORS[p.metodo_pago] ?? 'var(--muted)',
+                            background: (METODO_COLORS[p.metodo_pago] ?? '#94a3b8') + '14',
+                            border: `1px solid ${(METODO_COLORS[p.metodo_pago] ?? '#94a3b8')}28`,
                           }}>
                             {METODOS.find(m => m.value === p.metodo_pago)?.label ?? p.metodo_pago}
                           </span>
                           {p.estado !== 'anulado' && p.fecha_pago && p.check_in && getOnlyDate(p.fecha_pago) < getOnlyDate(p.check_in) && (
-                            <span style={{
-                              fontSize: 9, fontWeight: 800,
-                              color: '#1d4ed8', background: '#eff6ff',
-                              border: '1px solid #bfdbfe',
-                              padding: '1px 5px', borderRadius: 4,
-                            }} title="Pago registrado antes del check-in">
-                              Anticipado
+                            <span style={{ fontSize: 9, fontWeight: 800, color: 'var(--accent)', background: 'var(--accent-bg)', border: '1px solid var(--accent-border)', padding: '1px 5px', borderRadius: 4 }} title="Pago antes del check-in">
+                              Anticipo
                             </span>
                           )}
                         </div>
                       </td>
-                      <td style={{ padding: '10px 14px', color: '#64748b', fontSize: 12 }}>{p.referencia || '—'}</td>
-                      <td style={{ padding: '10px 14px', maxWidth: 200 }}>
+                      <td style={{ color: 'var(--muted)', fontSize: 12 }}>{p.referencia || '—'}</td>
+                      <td style={{ maxWidth: 200 }}>
                         {(() => {
                           const notas = p.notas ?? '';
-                          // Extraer "Factura: XXXX" si existe
                           const match = notas.match(/Factura:\s*([^|]+)/);
                           const numFactura = match ? match[1].trim() : null;
                           const resto = notas.replace(/Factura:\s*[^|]+\|?\s*/, '').trim();
                           return notas ? (
                             <div title={notas}>
                               {numFactura && (
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#dbeafe', color: '#1d4ed8', fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 20, whiteSpace: 'nowrap' }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--accent-bg)', color: 'var(--accent)', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99, whiteSpace: 'nowrap', border: '1px solid var(--accent-border)' }}>
                                   🧾 {numFactura}
                                 </span>
                               )}
                               {resto && (
-                                <div style={{ fontSize: 11, color: p.estado === 'anulado' ? '#dc2626' : '#94a3b8', fontWeight: p.estado === 'anulado' ? 600 : 400, marginTop: numFactura ? 2 : 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }} title={resto}>
+                                <div style={{ fontSize: 11, color: p.estado === 'anulado' ? 'var(--danger)' : 'var(--muted)', fontWeight: p.estado === 'anulado' ? 600 : 400, marginTop: numFactura ? 3 : 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }} title={resto}>
                                   {resto}
                                 </div>
                               )}
                             </div>
-                          ) : <span style={{ color: '#e2e8f0' }}>—</span>;
+                          ) : <span style={{ color: 'var(--shell-border-strong)' }}>—</span>;
                         })()}
                       </td>
-                      <td style={{ padding: '10px 14px', fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap' }}>{fmtMoney(p.monto, p.moneda)}</td>
-                      <td style={{ padding: '10px 14px' }}>
+                      <td style={{ fontWeight: 700, color: 'var(--text-h)', whiteSpace: 'nowrap' }}>{fmtMoney(p.monto, p.moneda)}</td>
+                      <td>
                         <span style={{
-                          fontSize: 11, fontWeight: 700,
-                          color: ESTADO_COLORS[p.estado] ?? '#94a3b8',
-                          background: (ESTADO_COLORS[p.estado] ?? '#94a3b8') + '15',
-                          padding: '2px 8px', borderRadius: 20,
+                          fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 99,
+                          color: ESTADO_COLORS[p.estado] ?? 'var(--muted)',
+                          background: (ESTADO_COLORS[p.estado] ?? '#94a3b8') + '14',
+                          border: `1px solid ${(ESTADO_COLORS[p.estado] ?? '#94a3b8')}28`,
                         }}>
                           {p.estado}
                         </span>
                       </td>
-                      <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                      <td style={{ whiteSpace: 'nowrap' }}>
                         {p.estado !== 'anulado' && (
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button onClick={() => openEdit(p)}
-                              style={{ fontSize: 11, color: '#3b82f6', background: 'none', border: '1px solid #bfdbfe', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
+                          <div style={{ display: 'flex', gap: 5 }}>
+                            <button onClick={() => openEdit(p)} className="btn-premium btn-premium-secondary" style={{ fontSize: 11, padding: '3px 10px', height: 'auto' }}>
                               Editar
                             </button>
                             <button onClick={() => void handleAnular(p.id_pago_hotel)}
-                              style={{ fontSize: 11, color: '#ef4444', background: 'none', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
+                              style={{ fontSize: 11, color: 'var(--danger)', background: 'rgba(239,68,68,.06)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 7, padding: '3px 10px', cursor: 'pointer', fontWeight: 600, transition: 'all .18s' }}>
                               Anular
                             </button>
                           </div>
@@ -1015,11 +1022,11 @@ export const Pagos: React.FC = () => {
               <div style={{ color: '#94a3b8', fontSize: 12 }}>Todas las reservas están al día</div>
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #e2e8f0', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
+            <table className="table-premium">
+              <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                <tr>
                   {['Huésped', 'Habitación', 'Check-in', 'Check-out', 'Total', 'Pagado', 'Saldo pendiente', 'Estado', ''].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} style={{ whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -1083,23 +1090,24 @@ export const Pagos: React.FC = () => {
 
       {/* ── Modal ── */}
       {modalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: '#0007', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-          onClick={closeModal}>
-          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 520, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px #0005' }}
+        <div className="modal-backdrop-premium" onClick={closeModal}>
+          <div className="modal-content-premium" style={{ width: '100%', maxWidth: 520 }}
             onClick={e => e.stopPropagation()}>
 
             {/* Header modal */}
-            <div style={{ padding: '18px 22px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '20px 24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--shell-border-subtle)', paddingBottom: 16 }}>
               <div>
-                <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: '#1e293b' }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text-h)' }}>
                   {editingId ? 'Editar pago' : 'Registrar pago'}
                 </h3>
-                <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>
+                <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>
                   {editingId ? 'Modifica los datos del pago' : 'Asocia un cobro a una reserva'}
                 </p>
               </div>
-              <button onClick={closeModal} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}>
-                <X size={20} />
+              <button onClick={closeModal} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 8, display: 'flex', transition: 'color .15s' }}
+                onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-h)'}
+                onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted)'}>
+                <X size={18} />
               </button>
             </div>
 
@@ -1223,7 +1231,7 @@ export const Pagos: React.FC = () => {
                               <div key={s.id_saldo} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderBottom: i < saldosCliente.length - 1 ? '1px solid #f0fdf4' : 'none' }}>
                                 <div style={{ minWidth: 0 }}>
                                   <div style={{ fontSize: 11, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.descripcion}</div>
-                                  <div style={{ fontSize: 10, color: '#94a3b8' }}>{new Date(s.fecha_creacion).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                                  <div style={{ fontSize: 10, color: '#94a3b8' }}>{new Date(s.created_at).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
                                 </div>
                                 <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a', flexShrink: 0, marginLeft: 8 }}>HNL {s.monto.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</span>
                               </div>
@@ -1292,15 +1300,15 @@ export const Pagos: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Fecha de pago</label>
-                  <input type="date" value={form.fecha_pago} onChange={e => setForm(f => ({ ...f, fecha_pago: e.target.value }))}
-                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 10px', fontSize: 13 }} />
+                  <DatePicker value={form.fecha_pago} onChange={v => setForm(f => ({ ...f, fecha_pago: v }))} placeholder="Seleccionar fecha" />
                 </div>
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Moneda</label>
                   <select value={form.moneda} onChange={e => setForm(f => ({ ...f, moneda: e.target.value }))}
-                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 8px', fontSize: 13 }}>
+                    disabled={!hasMultimoneda}
+                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 8px', fontSize: 13, ...(hasMultimoneda ? {} : { background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }) }}>
                     <option value="HNL">HNL</option>
-                    <option value="USD">USD</option>
+                    {hasMultimoneda && <option value="USD">USD</option>}
                   </select>
                 </div>
               </div>
@@ -1450,13 +1458,11 @@ export const Pagos: React.FC = () => {
             </div>
 
             {/* Footer */}
-            <div style={{ padding: '14px 22px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button onClick={closeModal}
-                style={{ padding: '8px 16px', fontSize: 13, border: '1px solid #e2e8f0', color: '#64748b', borderRadius: 8, cursor: 'pointer', background: '#fff' }}>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--shell-border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={closeModal} className="btn-premium btn-premium-secondary">
                 Cancelar
               </button>
-              <button onClick={() => void handleSave()} disabled={saving}
-                style={{ padding: '8px 18px', fontSize: 13, background: '#1e293b', color: '#fff', border: 'none', borderRadius: 8, cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: saving ? 0.7 : 1 }}>
+              <button onClick={() => void handleSave()} disabled={saving} className="btn-premium btn-premium-primary" style={{ opacity: saving ? 0.7 : 1, cursor: saving ? 'not-allowed' : 'pointer' }}>
                 {saving ? 'Guardando…' : editingId ? 'Guardar cambios' : 'Registrar pago'}
               </button>
             </div>
@@ -1466,18 +1472,17 @@ export const Pagos: React.FC = () => {
 
       {/* ── Modal Pago Empresarial ── */}
       {empresaModalOpen && empresaModalData && (
-        <div style={{ position: 'fixed', inset: 0, background: '#0007', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-          onClick={() => setEmpresaModalOpen(false)}>
-          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 580, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px #0005' }}
+        <div className="modal-backdrop-premium" onClick={() => setEmpresaModalOpen(false)}>
+          <div className="modal-content-premium" style={{ width: '100%', maxWidth: 580 }}
             onClick={e => e.stopPropagation()}>
             {/* Header */}
-            <div style={{ padding: '18px 22px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ padding: '20px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--shell-border-subtle)' }}>
               <div>
-                <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: '#1d4ed8' }}>🏢 Registrar cobro empresarial</h3>
-                <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 0' }}>{empresaModalData!.empresa.nombre}</p>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--accent)' }}>🏢 Registrar cobro empresarial</h3>
+                <p style={{ fontSize: 13, color: 'var(--muted)', margin: '4px 0 0' }}>{empresaModalData!.empresa.nombre}</p>
               </div>
-              <button onClick={() => setEmpresaModalOpen(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}>
-                <X size={20} />
+              <button onClick={() => setEmpresaModalOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 8, display: 'flex' }}>
+                <X size={18} />
               </button>
             </div>
 
@@ -1563,9 +1568,10 @@ export const Pagos: React.FC = () => {
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Moneda</label>
                   <select value={form.moneda} onChange={e => setForm(f => ({ ...f, moneda: e.target.value }))}
-                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, background: '#fff' }}>
+                    disabled={!hasMultimoneda}
+                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, background: hasMultimoneda ? '#fff' : '#f1f5f9', color: hasMultimoneda ? undefined : '#94a3b8', cursor: hasMultimoneda ? undefined : 'not-allowed' }}>
                     <option value="HNL">HNL</option>
-                    <option value="USD">USD</option>
+                    {hasMultimoneda && <option value="USD">USD</option>}
                   </select>
                 </div>
               </div>
@@ -1579,8 +1585,7 @@ export const Pagos: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Fecha</label>
-                  <input type="date" value={form.fecha_pago} onChange={e => setForm(f => ({ ...f, fecha_pago: e.target.value }))}
-                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, boxSizing: 'border-box' }} />
+                  <DatePicker value={form.fecha_pago} onChange={v => setForm(f => ({ ...f, fecha_pago: v }))} placeholder="Seleccionar fecha" />
                 </div>
               </div>
               {METODOS.find(m => m.value === form.metodo_pago)?.requireRef && (
@@ -1599,13 +1604,11 @@ export const Pagos: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ padding: '14px 22px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button onClick={() => setEmpresaModalOpen(false)}
-                style={{ padding: '8px 16px', fontSize: 13, border: '1px solid #e2e8f0', color: '#64748b', borderRadius: 8, cursor: 'pointer', background: '#fff' }}>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--shell-border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setEmpresaModalOpen(false)} className="btn-premium btn-premium-secondary">
                 Cancelar
               </button>
-              <button onClick={() => void handleSaveEmpresaPago()} disabled={saving}
-                style={{ padding: '8px 18px', fontSize: 13, background: saving ? '#94a3b8' : '#1d4ed8', color: '#fff', border: 'none', borderRadius: 8, cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
+              <button onClick={() => void handleSaveEmpresaPago()} disabled={saving} className="btn-premium btn-premium-primary" style={{ opacity: saving ? 0.7 : 1, cursor: saving ? 'not-allowed' : 'pointer' }}>
                 {saving ? 'Registrando…' : 'Registrar cobro'}
               </button>
             </div>

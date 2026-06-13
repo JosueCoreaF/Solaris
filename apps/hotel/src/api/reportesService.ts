@@ -1,7 +1,7 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
 const apiFetch = async (endpoint: string, options?: RequestInit): Promise<any> => {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers: {
@@ -91,25 +91,14 @@ export const obtenerOcupacion = async (startDate?: string, endDate?: string): Pr
 };
 
 // Obtener datos de ingresos
-export const obtenerIngresos = async (startDate?: string, endDate?: string, agruparPor: string = 'dia'): Promise<IngresosData> => {
-  let url = `/reportes/ingresos?agruparPor=${agruparPor}`;
-  if (startDate) url += `&startDate=${startDate}`;
-  if (endDate) url += `&endDate=${endDate}`;
-  
-  const data = await apiFetch(url);
+export const obtenerIngresos = async (periodo: string = 'mes'): Promise<IngresosData> => {
+  const data = await apiFetch(`/reportes/ingresos?periodo=${periodo}`);
   return data as IngresosData;
 };
 
 // Obtener análisis de reservas
-export const obtenerReservas = async (estado?: string, startDate?: string, endDate?: string): Promise<ReservasData> => {
-  let url = '/reportes/reservas';
-  const params = new URLSearchParams();
-  if (estado) params.append('estado', estado);
-  if (startDate) params.append('startDate', startDate);
-  if (endDate) params.append('endDate', endDate);
-  if (params.toString()) url += `?${params.toString()}`;
-  
-  const data = await apiFetch(url);
+export const obtenerReservas = async (periodo: string = 'mes'): Promise<ReservasData> => {
+  const data = await apiFetch(`/reportes/reservas?periodo=${periodo}`);
   return data as ReservasData;
 };
 

@@ -12,7 +12,10 @@
     "dev:hotel": "npm run dev --workspace=@solaris/hotel",
     "dev:gym": "npm run dev --workspace=@solaris/gym",
     "dev:restaurant": "npm run dev --workspace=@solaris/restaurant",
-    "dev": "concurrently -c \"cyan,magenta,yellow\" \"npm run dev:backend\" \"npm run dev:hub\" \"npm run dev:hotel\"",
+    "dev:portal": "npm run dev --workspace=@solaris/portal",
+    "dev": "concurrently -c \"cyan,magenta,yellow,green\" \"npm run dev:backend\" \"npm run dev:hub\" \"npm run dev:hotel\" \"npm run dev:portal\"",
+    "build": "npm run build --workspaces --if-present",
+    "start": "npm run start --workspace=partnercentral-backend",
     "install:all": "npm install"
   },
   "devDependencies": {
@@ -22,6 +25,7 @@
     "axios": "^1.16.1",
     "blessed": "^0.1.81",
     "blessed-contrib": "^4.11.0",
+    "postgres": "^3.4.9",
     "prompts": "^2.4.2"
   }
 }

@@ -1,109 +1,172 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../api/supabase';
+import type { UserRole } from '../hooks/useRole';
+
+const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+
+export type AccountBlockedReason = 'ACCOUNT_SUSPENDED' | 'ACCOUNT_INACTIVE' | 'MODULE_SUSPENDED' | 'INVALID_SESSION' | null;
 
 interface AuthContextValue {
-  session: Session | null;
-  user: User | null;
-  loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: string | null; user_id?: string }>;
+  session:        Session | null;
+  user:           User | null;
+  loading:        boolean;
+  role:           UserRole;
+  loadingRole:    boolean;
+  accountBlocked: AccountBlockedReason;
+  refreshRole:    () => Promise<void>;
+  signIn:  (email: string, password: string) => Promise<{ error: string | null }>;
+  signUp:  (email: string, password: string, metadata?: Record<string, any>) => Promise<{ error: string | null; user_id?: string }>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+async function fetchRole(token: string): Promise<UserRole> {
+  try {
+    const res = await fetch(`${API}/roles/mi-rol`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return 'INVITADO';
+    const data = await res.json();
+    return (data.rol as UserRole) || 'INVITADO';
+  } catch {
+    return 'INVITADO';
+  }
+}
+
+async function fetchAccountStatus(token: string): Promise<AccountBlockedReason> {
+  try {
+    const res = await fetch(`${API}/hotel/account-status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) return null;
+    if (res.status === 403) {
+      const data = await res.json();
+      const code = data.error;
+      if (code === 'ACCOUNT_SUSPENDED' || code === 'ACCOUNT_INACTIVE' || code === 'MODULE_SUSPENDED') {
+        return code as AccountBlockedReason;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [session,        setSession]        = useState<Session | null>(null);
+  const [user,           setUser]           = useState<User | null>(null);
+  const [loading,        setLoading]        = useState(true);
+  const [role,           setRole]           = useState<UserRole>('INVITADO');
+  const [loadingRole,    setLoadingRole]    = useState(false);
+  const [accountBlocked, setAccountBlocked] = useState<AccountBlockedReason>(null);
+
+  const refreshRole = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) { setRole('INVITADO'); return; }
+    setLoadingRole(true);
+    const fetched = await fetchRole(token);
+    setRole(fetched);
+    setLoadingRole(false);
+  }, []);
+
+  // Escuchar el evento que dispara el interceptor de Axios cuando llega un 403/401 de bloqueo
+  useEffect(() => {
+    const handleBlocked = (e: Event) => {
+      const { reason } = (e as CustomEvent<{ reason: AccountBlockedReason }>).detail;
+      setAccountBlocked(reason);
+    };
+    window.addEventListener('solarys:account-blocked', handleBlocked);
+    return () => window.removeEventListener('solarys:account-blocked', handleBlocked);
+  }, []);
 
   useEffect(() => {
-    const handleUrlAuth = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const accessToken = params.get('access_token');
+    const init = async () => {
+      const params       = new URLSearchParams(window.location.search);
+      const accessToken  = params.get('access_token');
       const refreshToken = params.get('refresh_token');
-      const hotelId = params.get('hotel_id') || params.get('business_id');
-
-      if (accessToken && refreshToken) {
-        setLoading(true);
-        try {
-          const { data, error } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken
-          });
-          if (error) {
-            console.error('Error restoring session from URL:', error);
-          } else if (data.session) {
-            setSession(data.session);
-            setUser(data.session.user);
-          }
-        } catch (err) {
-          console.error('Failed to set session from URL:', err);
-        }
-      }
+      const hotelId      = params.get('hotel_id') || params.get('business_id');
 
       if (hotelId) {
         localStorage.setItem('active_hotel_id', hotelId);
+      } else if (accessToken) {
+        localStorage.removeItem('active_hotel_id');
       }
-
-      // Limpiar URL si procesamos tokens
       if (accessToken || refreshToken || hotelId) {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
 
-      // Si no restauramos tokens o ya terminamos, cargar sesión normal si es necesario
-      if (!accessToken) {
+      let activeSession: Session | null = null;
+
+      if (accessToken && refreshToken) {
         try {
-          const { data } = await supabase.auth.getSession();
-          setSession(data?.session ?? null);
-          setUser(data?.session?.user ?? null);
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken, refresh_token: refreshToken,
+          });
+          if (!error && data.session) activeSession = data.session;
         } catch (err) {
-          console.error('getSession error:', err);
+          console.error('[AuthContext] setSession error:', err);
         }
       }
-      
+
+      if (!activeSession) {
+        const { data } = await supabase.auth.getSession();
+        activeSession = data?.session ?? null;
+      }
+
+      setSession(activeSession);
+      setUser(activeSession?.user ?? null);
+
+      if (activeSession?.access_token) {
+        // Verificar estado antes de bajar loading — evita que SyncProvider
+        // monte y haga requests mientras la cuenta está bloqueada.
+        const blocked = await fetchAccountStatus(activeSession.access_token);
+        setAccountBlocked(blocked);
+
+        if (!blocked) {
+          setLoadingRole(true);
+          const fetched = await fetchRole(activeSession.access_token);
+          setRole(fetched);
+          setLoadingRole(false);
+        }
+      }
+
       setLoading(false);
     };
 
-    handleUrlAuth();
+    init();
 
-    // Listen for auth changes
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
-      setUser(s?.user ?? null);
-    });
-
-    return () => {
-      listener.subscription.unsubscribe();
-    };
-  }, []);
-
-  const aplicarLoginAutomatico = async (): Promise<boolean> => {
-    try {
-      const autoLoginData = localStorage.getItem('autoLoginSession');
-      if (!autoLoginData) return false;
-
-      const { access_token, refresh_token } = JSON.parse(autoLoginData);
-
-      // Intentar restablecer la sesión
-      const { data, error } = await supabase.auth.setSession({
-        access_token,
-        refresh_token,
-      });
-
-      if (error) {
-        console.warn('Auto-login failed:', error);
-        localStorage.removeItem('autoLoginSession');
-        return false;
+    const { data: listener } = supabase.auth.onAuthStateChange(async (event, s) => {
+      // INITIAL_SESSION y TOKEN_REFRESHED no requieren re-chequear el estado
+      // de la cuenta: el primero ya lo maneja init(), el segundo es solo
+      // renovación silenciosa del JWT.
+      if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
+        setSession(s);
+        setUser(s?.user ?? null);
+        return;
       }
 
-      return !!data.session;
-    } catch (error) {
-      console.error('Error applying auto-login:', error);
-      return false;
-    }
-  };
+      setSession(s);
+      setUser(s?.user ?? null);
+      if (s?.access_token) {
+        const blocked = await fetchAccountStatus(s.access_token);
+        setAccountBlocked(blocked);
+        if (!blocked) {
+          setLoadingRole(true);
+          const fetched = await fetchRole(s.access_token);
+          setRole(fetched);
+          setLoadingRole(false);
+        }
+      } else {
+        setRole('INVITADO');
+        setAccountBlocked(null);
+      }
+    });
+
+    return () => { listener.subscription.unsubscribe(); };
+  }, []);
 
   const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -111,23 +174,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error: null };
   };
 
-  const signUp = async (email: string, password: string): Promise<{ error: string | null; user_id?: string }> => {
+  const signUp = async (
+    email: string,
+    password: string,
+    metadata?: Record<string, any>,
+  ): Promise<{ error: string | null; user_id?: string }> => {
     const maxRetries = 3;
     let lastError: any = null;
-
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const { data, error } = await supabase.auth.signUp({ email, password });
-        
+        const { data, error } = await supabase.auth.signUp({
+          email, password,
+          options: metadata ? { data: metadata } : undefined,
+        });
         if (error) {
-          // Check if it's a rate limiting error
           if (error.status === 429) {
             lastError = error;
             if (attempt < maxRetries - 1) {
-              // Exponential backoff: 2^attempt * 1000ms (1s, 2s, 4s)
-              const delayMs = Math.pow(2, attempt) * 1000;
-              console.log(`Rate limited. Retrying in ${delayMs}ms...`);
-              await new Promise(resolve => setTimeout(resolve, delayMs));
+              await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
               continue;
             }
           }
@@ -137,27 +201,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (err) {
         lastError = err;
         if (attempt < maxRetries - 1) {
-          const delayMs = Math.pow(2, attempt) * 1000;
-          await new Promise(resolve => setTimeout(resolve, delayMs));
-          continue;
+          await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
         }
       }
     }
-
-    // All retries exhausted
     if (lastError?.status === 429) {
-      return { error: 'Demasiados intentos. Por favor, espera unos minutos antes de intentar de nuevo.' };
+      return { error: 'Demasiados intentos. Por favor, espera unos minutos.' };
     }
     return { error: lastError?.message || 'Error desconocido' };
   };
 
   const signOut = async () => {
     localStorage.removeItem('autoLoginSession');
+    setRole('INVITADO');
+    setAccountBlocked(null);
     await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{
+      session, user, loading,
+      role, loadingRole, accountBlocked,
+      refreshRole,
+      signIn, signUp, signOut,
+    }}>
       {children}
     </AuthContext.Provider>
   );

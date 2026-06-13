@@ -15,7 +15,19 @@ import {
   CheckCircle2,
   MessageSquare,
   Bell,
+  Globe,
+  ExternalLink,
 } from 'lucide-react';
+
+const PORTAL_BASE = import.meta.env.VITE_PORTAL_BASE_URL || 'http://localhost:5177';
+
+// URLs de cada módulo — en dev usa localhost, en prod usa las env vars de Vercel
+const MODULE_URLS: Record<string, string> = {
+  hotel:      import.meta.env.VITE_HOTEL_URL      || 'http://localhost:5173',
+  gym:        import.meta.env.VITE_GYM_URL        || 'http://localhost:5175',
+  restaurant: import.meta.env.VITE_RESTAURANT_URL || 'http://localhost:5176',
+  store:      import.meta.env.VITE_STORE_URL      || 'http://localhost:5178',
+};
 
 interface DashboardContextType {
   modules: any[];
@@ -99,24 +111,16 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     await supabase.auth.signOut();
   };
 
-  const routeByModuleType = (type: string) => {
-    const normalized = type?.toLowerCase?.() ?? 'hotel';
-    switch (normalized) {
-      case 'gym': return 5175;
-      case 'restaurant': return 5176;
-      case 'store': return 5177;
-      case 'hotel':
-      default: return 5173;
-    }
-  };
-
-  const handleEnterBusiness = (moduleType: string, referenceId: string) => {
-    const port = routeByModuleType(moduleType);
+  const handleEnterBusiness = (moduleType: string, referenceId: string, hotelId?: string | null) => {
+    const normalized = moduleType?.toLowerCase?.() ?? 'hotel';
+    const base = MODULE_URLS[normalized] || MODULE_URLS.hotel;
+    const params = new URLSearchParams({ business_id: referenceId });
+    if (hotelId) params.set('hotel_id', hotelId);
     if (session) {
-      window.location.href = `http://localhost:${port}/?access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}&business_id=${encodeURIComponent(referenceId)}`;
-    } else {
-      window.location.href = `http://localhost:${port}/?business_id=${encodeURIComponent(referenceId)}`;
+      params.set('access_token', session.access_token);
+      params.set('refresh_token', session.refresh_token);
     }
+    window.location.href = `${base}/?${params.toString()}`;
   };
 
   const urgentNotifCount = notifications.filter(n => n.severity === 'high').length;
@@ -166,26 +170,40 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                   </div>
                 ) : modules.length > 0 ? (
                   modules.map(mod => (
-                    <button
-                      key={mod.id}
-                      onClick={() => handleEnterBusiness(mod.type, mod.reference_id)}
-                      className="flex items-center justify-between w-full px-4 py-2.5 hover:bg-slate-800 hover:text-white rounded-xl transition-all text-left text-sm text-slate-400"
-                    >
-                      <div className="flex items-center gap-3">
-                        {mod.type === 'hotel' ? (
-                          <Building2 size={17} className="text-emerald-400 shrink-0" />
-                        ) : mod.type === 'gym' ? (
-                          <Dumbbell size={17} className="text-blue-400 shrink-0" />
-                        ) : mod.type === 'restaurant' ? (
-                          <Coffee size={17} className="text-orange-400 shrink-0" />
-                        ) : (
-                          <Sparkles size={17} className="text-violet-400 shrink-0" />
-                        )}
-                        <span className="font-medium truncate">{mod.name || `Módulo ${mod.type?.toUpperCase()}`}</span>
-                      </div>
-                      {mod.is_active && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />}
-                    </button>
+                    <div key={mod.id} className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleEnterBusiness(mod.type, mod.reference_id, mod.hotel_id)}
+                        className="flex items-center justify-between flex-1 px-4 py-2.5 hover:bg-slate-800 hover:text-white rounded-xl transition-all text-left text-sm text-slate-400"
+                      >
+                        <div className="flex items-center gap-3">
+                          {mod.type === 'hotel' ? (
+                            <Building2 size={17} className="text-emerald-400 shrink-0" />
+                          ) : mod.type === 'gym' ? (
+                            <Dumbbell size={17} className="text-blue-400 shrink-0" />
+                          ) : mod.type === 'restaurant' ? (
+                            <Coffee size={17} className="text-orange-400 shrink-0" />
+                          ) : (
+                            <Sparkles size={17} className="text-violet-400 shrink-0" />
+                          )}
+                          <span className="font-medium truncate">{mod.name || `Módulo ${mod.type?.toUpperCase()}`}</span>
+                        </div>
+                        {mod.is_active && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />}
+                      </button>
+                      {mod.type === 'hotel' && (
+                        <button
+                          onClick={() => {
+                            const key = mod.slug || mod.hotel_id;
+                            window.open(key ? `${PORTAL_BASE}/${key}` : PORTAL_BASE, '_blank');
+                          }}
+                          className="p-2 rounded-xl hover:bg-slate-800 text-slate-600 hover:text-emerald-400 transition-all shrink-0"
+                          title="Ver portal público"
+                        >
+                          <Globe size={14} />
+                        </button>
+                      )}
+                    </div>
                   ))
+
                 ) : (
                   <p className="px-4 py-2 text-xs text-slate-600 italic">Sin módulos activos</p>
                 )}
@@ -197,6 +215,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
               <p className="px-4 text-[11px] font-semibold text-slate-500 uppercase tracking-widest mb-1">Administración</p>
               <nav className="space-y-0.5">
                 {[
+                  { label: 'Portal de Reservas', icon: <Globe size={17} />, path: '__portal__', match: [], portalKey: (() => { const m = modules.find((m: any) => m.type === 'hotel'); return m?.slug || m?.hotel_id || null; })() },
                   { label: 'Facturación y Planes', icon: <CreditCard size={17} />, path: '/billing', match: ['/billing', '/upgrade'] },
                   { label: 'Notificaciones', icon: <Bell size={17} />, path: '/notifications', match: ['/notifications'], badge: urgentNotifCount },
                   { label: 'Chat Operativo', icon: <MessageSquare size={17} />, path: '/chat', match: ['/chat'] },
@@ -207,7 +226,10 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                   return (
                     <button
                       key={item.label}
-                      onClick={() => item.path !== '#' && navigate(item.path)}
+                      onClick={() => {
+                        if (item.path === '__portal__') window.open((item as any).portalKey ? `${PORTAL_BASE}/${(item as any).portalKey}` : PORTAL_BASE, '_blank');
+                        else if (item.path !== '#') navigate(item.path);
+                      }}
                       className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-all text-left text-sm font-medium ${
                         active ? 'bg-indigo-500/15 text-indigo-400' : 'hover:bg-slate-800 hover:text-white text-slate-400'
                       }`}
@@ -216,7 +238,9 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                         {item.icon}
                         <span>{item.label}</span>
                       </div>
-                      {item.badge && item.badge > 0 ? (
+                      {item.path === '__portal__' ? (
+                        <ExternalLink size={12} className="text-slate-600" />
+                      ) : item.badge && item.badge > 0 ? (
                         <span className="bg-rose-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
                           {item.badge}
                         </span>

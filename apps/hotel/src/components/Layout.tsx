@@ -1,18 +1,32 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { getSocket, fetchChannels } from '../api/chatService';
 import { useToast } from './Toast';
 import { useAuth } from '../context/AuthContext';
-import { AsistenteAI } from './AsistenteAI';
+import { RightSidebarChat } from './RightSidebarChat';
+import { WelcomeAnimation } from './WelcomeAnimation';
 
 export const Layout: React.FC = () => {
   const location = useLocation();
   const isChatPage = location.pathname === '/chat';
   const { addToast } = useToast();
-  const { user } = useAuth();
+  const { user, session, loading: authLoading } = useAuth();
   const userId = user?.email || 'anon';
   const userName = user?.email?.split('@')[0] || 'Personal';
+  // Token directo desde el contexto (siempre disponible cuando session existe)
+  const accessToken = session?.access_token ?? null;
+
+  // Animación de bienvenida tras un login exitoso. El Login no puede mostrarla
+  // porque el GuestGuard redirige a "/" en cuanto la sesión se actualiza.
+  const [welcomeNombre, setWelcomeNombre] = useState<string | null>(null);
+  useEffect(() => {
+    const pendiente = sessionStorage.getItem('pendingWelcomeNombre');
+    if (pendiente) {
+      sessionStorage.removeItem('pendingWelcomeNombre');
+      setWelcomeNombre(pendiente);
+    }
+  }, []);
 
   useEffect(() => {
     const s = getSocket();
@@ -82,6 +96,8 @@ export const Layout: React.FC = () => {
     };
 
     const onUnreadUpdate = () => {
+      // Solo hacer fetch si tenemos token disponible
+      if (!accessToken) return;
       fetchChannels()
         .then(chs => {
           const total = chs.reduce((sum, ch) => sum + (ch.unread_count ?? 0), 0);
@@ -94,6 +110,8 @@ export const Layout: React.FC = () => {
     };
 
     const joinAllChannels = () => {
+      // Solo hacer fetch si tenemos token disponible
+      if (!accessToken) return;
       fetchChannels()
         .then(chs => {
           chs.forEach(ch => {
@@ -146,21 +164,23 @@ export const Layout: React.FC = () => {
       let extMsg = '';
       if (data.reserva) {
         const opts = [];
-        if (data.reserva.cama_extra) opts.push('🛏️ Cama extra');
-        if (data.reserva.limpieza_diaria) opts.push('🧹 Limpieza');
-        if (data.reserva.neverita) opts.push('🧊 Neverita');
-        if (data.reserva.plancha) opts.push('💨 Plancha');
+        if (data.reserva.cama_extra) opts.push('Cama extra');
+        if (data.reserva.limpieza_diaria) opts.push('Limpieza');
+        if (data.reserva.neverita) opts.push('Neverita');
+        if (data.reserva.plancha) opts.push('Plancha');
         if (opts.length > 0) {
           extMsg = ` (Solicita: ${opts.join(', ')})`;
         }
       }
-      addToast((data.mensaje || 'Nueva solicitud de reserva web recibida 📝') + extMsg, 'success', 10000);
+      addToast((data.mensaje || 'Nueva solicitud de reserva web recibida') + extMsg, 'success', 10000);
       playReservationArpeggio();
     };
 
-    // Fetch inicial de canales para contar no leídos y unirse a sus salas
-    onUnreadUpdate();
-    joinAllChannels();
+    // Fetch inicial de canales — solo cuando tengamos sesión con token válido
+    if (!authLoading && user && accessToken) {
+      onUnreadUpdate();
+      joinAllChannels();
+    }
 
     s.on('new_message', onNewMsg);
     s.on('unread_update', onUnreadUpdate);
@@ -175,17 +195,23 @@ export const Layout: React.FC = () => {
       s.off('new_client_chat', onNewClientChat);
       s.off('nueva_solicitud_reserva', onNewBooking);
     };
-  }, [location.pathname, userId, userName, addToast]);
+  }, [location.pathname, userId, userName, addToast, authLoading, user, accessToken]);
 
   return (
     <div className="dashboard-root">
+      {welcomeNombre && (
+        <WelcomeAnimation
+          nombre={welcomeNombre}
+          onDone={() => setWelcomeNombre(null)}
+        />
+      )}
       <Sidebar />
       <div className="dashboard-shell" style={isChatPage ? { overflow: 'hidden' } : {}}>
         <div className={isChatPage ? 'chat-route-stage' : 'dashboard-route-stage'}>
           <Outlet />
         </div>
       </div>
-      <AsistenteAI />
+      <RightSidebarChat />
     </div>
   );
 };

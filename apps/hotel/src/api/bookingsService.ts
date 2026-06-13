@@ -4,7 +4,7 @@ import { supabase } from './supabase';
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   const token = (await supabase.auth.getSession()).data.session?.access_token || '';
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -89,6 +89,7 @@ export interface Reserva {
   es_cortesia?: boolean;
   id_empresa?: string;
   estado_pago?: 'pagado' | 'cortesia' | 'credito' | 'deuda' | 'capital_pendiente' | 'reservada' | 'abonada' | 'n/a';
+  id_cotizacion?: string | null;
   estado_habitacion?: string;
   estado_display?: string; // Guardado en BD, calculado por trigger SQL
   cama_extra?: boolean;
@@ -127,7 +128,7 @@ export interface BloqueHabitacion {
 
 export type EstadoReserva = Reserva['estado'];
 
-export type DisplayStatus = 'reservada' | 'pagada' | 'abonada' | 'pendiente' | 'credito' | 'cortesia' | 'check_out' | 'cancelada' | 'confirmada' | 'check_in' | 'en_el_hotel' | 'check_in_pendiente' | 'completada' | 'por_confirmar' | 'cambio';
+export type DisplayStatus = 'reservada' | 'pagada' | 'abonada' | 'pendiente' | 'credito' | 'cortesia' | 'check_out' | 'cancelada' | 'confirmada' | 'check_in' | 'en_el_hotel' | 'check_in_pendiente' | 'completada' | 'por_confirmar' | 'cambio' | 'cotizacion';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -163,6 +164,7 @@ export function getStatusLabel(status: DisplayStatus): string {
     completada: 'Completada',
     por_confirmar: 'Por Confirmar',
     cambio: 'Cambio Habitación',
+    cotizacion: 'Cotización (sin confirmar)',
   };
   return labels[status] ?? status;
 }
@@ -184,6 +186,7 @@ export function getStatusColor(status: DisplayStatus): string {
     completada: '#15803d', // Dark green for completed past stay
     por_confirmar: '#eab308', // Yellow for por confirmar
     cambio: '#db2777', // Magenta for room change
+    cotizacion: '#f59e0b', // Amber: bloqueo temporal en espera de confirmación de cotización
   };
   return colors[status] ?? '#94a3b8';
 }
@@ -231,7 +234,7 @@ export async function fetchHoteles(): Promise<Hotel[]> {
 }
 
 export async function fetchHabitaciones(): Promise<Habitacion[]> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   return withCache(`habitaciones:${activeHotelId}`, TTL_LARGA, () => apiFetch<Habitacion[]>('/bookings/habitaciones'));
 }
 
@@ -260,8 +263,30 @@ export async function createEmpresa(params: {
   return result;
 }
 
+export interface ColaboradorRow {
+  id_huesped: string;
+  cargo: string | null;
+  huespedes: {
+    id_huesped: string;
+    nombre_completo: string;
+    correo: string | null;
+    telefono: string | null;
+  } | null;
+}
+
+export async function fetchColaboradoresEmpresa(idEmpresa: string): Promise<ColaboradorRow[]> {
+  return apiFetch<ColaboradorRow[]>(`/bookings/empresas/${idEmpresa}/colaboradores`);
+}
+
+export async function addColaboradorEmpresa(idEmpresa: string, idHuesped: string, cargo?: string): Promise<void> {
+  await apiFetch(`/bookings/empresas/${idEmpresa}/colaboradores`, {
+    method: 'POST',
+    body: JSON.stringify({ id_huesped: idHuesped, cargo: cargo ?? null }),
+  });
+}
+
 export async function fetchReservas(desde: string, hasta: string): Promise<Reserva[]> {
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
   const key = `reservas:${activeHotelId}:${desde}:${hasta}`;
   return withCache(key, TTL_CORTA, () =>
     apiFetch<Reserva[]>(`/bookings/reservas?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`),
@@ -404,5 +429,103 @@ export async function splitReserva(idReservaHotel: string, fechaSplit: string): 
   return apiFetch<any>('/bookings/split', {
     method: 'POST',
     body: JSON.stringify({ id_reserva_hotel: idReservaHotel, fecha_split: fechaSplit }),
+  });
+}
+
+export async function simulateImportReservas(file: File): Promise<any[]> {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+  const token = (await supabase.auth.getSession()).data.session?.access_token || '';
+  const headers: Record<string, string> = {
+    'X-Hotel-ID': activeHotelId,
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}/bookings/simulate-import`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `Error ${res.status}`);
+  }
+
+  return res.json();
+}
+
+export async function confirmImportReservas(reservas: Reserva[], hotelId: string): Promise<{ insertadas: number; errores: number }> {
+  return apiFetch<{ insertadas: number; errores: number }>('/bookings/bulk-import', {
+    method: 'POST',
+    headers: {
+      'X-Hotel-ID': hotelId,
+    },
+    body: JSON.stringify({ reservas }),
+  });
+}
+
+export interface EmailPreviewResponse {
+  subject: string;
+  html: string;
+  guestEmail: string;
+  guestName: string;
+}
+
+export async function fetchEmailPreview(idReserva: string, type: 'confirmation' | 'update' | 'cancellation', changes?: string[]): Promise<EmailPreviewResponse> {
+  return apiFetch<EmailPreviewResponse>(`/bookings/reservas/${idReserva}/email-preview`, {
+    method: 'POST',
+    body: JSON.stringify({ type, changes }),
+  });
+}
+
+export async function sendCustomEmailApi(idReserva: string, to: string, subject: string, html: string): Promise<{ success: boolean; data?: any }> {
+  return apiFetch<{ success: boolean; data?: any }>(`/bookings/reservas/${idReserva}/send-custom-email`, {
+    method: 'POST',
+    body: JSON.stringify({ to, subject, html }),
+  });
+}
+
+export interface CustomTemplate {
+  id_plantilla?: string;
+  id_hotel?: string;
+  tipo_plantilla: 'confirmacion' | 'actualizacion' | 'cancelacion' | 'cotizacion';
+  asunto: string;
+  cuerpo_personalizado?: string;
+  estilos: {
+    color_cabecera?: string;
+    fuente?: string;
+    tamano_letra?: string;
+    logo_url?: string;
+    firma?: string;
+    bloques?: any[];
+  };
+  created_at?: string;
+  updated_at?: string;
+}
+
+export async function fetchCustomTemplates(): Promise<CustomTemplate[]> {
+  return apiFetch<CustomTemplate[]>('/bookings/plantillas');
+}
+
+export async function fetchCustomTemplateByType(tipo: string): Promise<CustomTemplate | null> {
+  return apiFetch<CustomTemplate | null>(`/bookings/plantillas/${tipo}`);
+}
+
+export async function saveCustomTemplate(template: Partial<CustomTemplate>): Promise<CustomTemplate> {
+  return apiFetch<CustomTemplate>('/bookings/plantillas', {
+    method: 'POST',
+    body: JSON.stringify(template),
+  });
+}
+
+export async function previewCustomTemplate(template: Partial<CustomTemplate>): Promise<{ subject: string; html: string }> {
+  return apiFetch<{ subject: string; html: string }>('/bookings/plantillas/preview', {
+    method: 'POST',
+    body: JSON.stringify(template),
   });
 }

@@ -20,7 +20,7 @@ export const SetupOwner = () => {
 
   useEffect(() => {
     if (session?.user?.email) {
-      setForm((prev) => ({ ...prev, email_contacto: session.user.email }));
+      setForm((prev) => ({ ...prev, email_contacto: session.user.email || '' }));
     }
   }, [session]);
 
@@ -45,7 +45,7 @@ export const SetupOwner = () => {
         telefono_contacto: form.telefono_contacto.trim() || null,
       });
       setDone(true);
-      setTimeout(() => navigate('/dashboard', { replace: true }), 2000);
+      setTimeout(() => navigate('/onboarding', { replace: true }), 2000);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Error al crear el perfil de propietario. Intenta de nuevo.');
     } finally {

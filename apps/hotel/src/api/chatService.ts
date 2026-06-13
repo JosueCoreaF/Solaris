@@ -2,14 +2,14 @@ import { io, Socket } from 'socket.io-client';
 import { supabase } from './supabase';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
-const WS_URL   = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').replace('/api', '');
+const WS_URL   = API_BASE.replace(/\/api\/?$/, '');
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ChatChannel {
   id: string;
   name: string;
-  channel_type: 'general' | 'hotel' | 'operativo' | 'cliente' | 'privado' | 'cierre';
+  channel_type: 'general' | 'operativo' | 'cliente' | 'privado';
   created_by: string;
   created_at: string;
   is_active: boolean;
@@ -25,7 +25,7 @@ export interface ChatChannel {
 
 export interface ChatReference {
   id: string;
-  entity_type: 'reserva' | 'pago' | 'huesped' | 'habitacion' | 'factura' | 'cierre' | 'personal';
+  entity_type: 'reserva' | 'pago' | 'huesped' | 'habitacion' | 'factura';
   entity_id: string;
   entity_data?: Record<string, any>;
 }
@@ -37,7 +37,7 @@ export interface ChatMessage {
   sender_name: string;
   sender_avatar?: string;
   content: string;
-  message_type: 'text' | 'data_card' | 'cierre_share' | 'system' | 'file';
+  message_type: 'text' | 'data_card' | 'system' | 'file';
   file_url?: string;
   file_name?: string;
   metadata?: Record<string, any>;
@@ -54,21 +54,43 @@ export interface TypingUser {
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
-async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  // Obtener token de Supabase — import estático, igual que el resto del proyecto
+async function getToken(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  const activeHotelId = localStorage.getItem('active_hotel_id') || '2816eaed-e555-44b1-a7dc-f5772e4784de';
+  if (data.session?.access_token) return data.session.access_token;
+  // Retry up to 3 times with increasing delays (150ms, 400ms, 800ms)
+  for (const delay of [150, 400, 800]) {
+    await new Promise(r => setTimeout(r, delay));
+    const { data: retry } = await supabase.auth.getSession();
+    if (retry.session?.access_token) return retry.session.access_token;
+  }
+  return null;
+}
 
-  const res = await fetch(`${API_BASE}${path}`, {
+async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  let token = await getToken();
+  if (!token) throw new Error('No autenticado');
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+
+  const makeRequest = async (t: string) => fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       'X-Hotel-ID': activeHotelId,
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      Authorization: `Bearer ${t}`,
       ...options.headers,
     },
   });
+
+  let res = await makeRequest(token);
+
+  if (res.status === 401) {
+    // Intento de refresco forzado si el backend rechaza el token
+    const { data: refreshData } = await supabase.auth.refreshSession();
+    if (refreshData?.session?.access_token) {
+      token = refreshData.session.access_token;
+      res = await makeRequest(token);
+    }
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -93,9 +115,10 @@ export async function sendMessage(
   messageType: ChatMessage['message_type'] = 'text',
   metadata: Record<string, any> = {},
 ): Promise<ChatMessage> {
+  const { sender_name, ...restMeta } = metadata;
   return apiFetch<ChatMessage>(`/chat/channels/${channelId}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ content, message_type: messageType, metadata }),
+    body: JSON.stringify({ content, message_type: messageType, metadata: restMeta, sender_name }),
   });
 }
 
@@ -190,14 +213,14 @@ export function getChannelColor(type: ChatChannel['channel_type']): string {
 
 /** Parse @entity:uuid mentions from message content */
 export function parseMentions(content: string): Array<{ full: string; type: string; id: string }> {
-  const regex = /@(reserva|pago|huesped|habitacion|factura|cierre|personal):([0-9a-f-]{36})/gi;
+  const regex = /@(reserva|pago|huesped|habitacion|factura):([0-9a-f-]{36})/gi;
   const matches = [...content.matchAll(regex)];
   return matches.map(m => ({ full: m[0], type: m[1], id: m[2] }));
 }
 
 /** Format content so @entity:uuid becomes a clickable chip */
 export function formatMessageContent(content: string): { parts: Array<{ text: string; isMention: boolean; type?: string; id?: string }> } {
-  const regex = /@(reserva|pago|huesped|habitacion|factura|cierre|personal):([0-9a-f-]{36})/gi;
+  const regex = /@(reserva|pago|huesped|habitacion|factura):([0-9a-f-]{36})/gi;
   const parts: Array<{ text: string; isMention: boolean; type?: string; id?: string }> = [];
   let last = 0;
   let match: RegExpExecArray | null;
