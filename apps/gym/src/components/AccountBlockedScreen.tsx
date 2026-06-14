@@ -1,6 +1,7 @@
 import React from 'react';
 import { ShieldOff, AlertTriangle, LogOut, Mail } from 'lucide-react';
 import type { AccountBlockedReason } from '../context/AuthContext';
+import SolarisLogo from './SolarisLogo';
 
 interface Props {
   reason: AccountBlockedReason;
@@ -55,11 +56,7 @@ export const AccountBlockedScreen: React.FC<Props> = ({ reason, onSignOut }) => 
       <div style={{ width: '100%', maxWidth: 420 }}>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 28 }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 6, background: 'var(--accent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'var(--accent-ink)', fontFamily: 'var(--display)', fontSize: 14,
-          }}>G</div>
+          <SolarisLogo variant="gym" size={36} />
           <span style={{ color: 'var(--text-h)', fontFamily: 'var(--display)', fontSize: 18, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
             Solaris Gym
           </span>

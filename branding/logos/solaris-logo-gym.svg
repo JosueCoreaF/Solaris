@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-240 -240 480 480" width="480" height="480" role="img" aria-label="Solaris">
   <defs>
-    <linearGradient id="solaris-grad-main" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#f59e0b" />
-      <stop offset="100%" stop-color="#2563eb" />
+    <linearGradient id="solaris-grad-gym" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#047857" />
+      <stop offset="100%" stop-color="#4f46e5" />
     </linearGradient>
   </defs>
-  <g fill="url(#solaris-grad-main)">
+  <g fill="url(#solaris-grad-gym)">
         <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(0)" />
         <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(30)" />
         <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(60)" />
@@ -18,6 +18,11 @@
         <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(270)" />
         <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(300)" />
         <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(330)" />
-        <circle cx="0" cy="0" r="65" />
+        
+    <g transform="scale(2.5)">
+      <rect x="-22" y="-5" width="44" height="10" rx="2" />
+      <rect x="-32" y="-14" width="12" height="28" rx="3" />
+      <rect x="20" y="-14" width="12" height="28" rx="3" />
+    </g>
   </g>
 </svg>

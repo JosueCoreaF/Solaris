@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Hotel, Shield, Zap, Smartphone, Search, MapPin, Calendar, Users, ChevronRight } from 'lucide-react';
 import { buscarHoteles, type HotelSuggestion } from '../services/api';
+import SolarisLogo from '../components/SolarisLogo';
 
 const features = [
   { 
@@ -121,13 +122,8 @@ export default function LandingPage() {
       {/* Nav */}
       <nav className="bg-white/70 backdrop-blur-md border-b border-stone-200/40 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-5 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <a href="/" className="group flex items-center gap-3 z-10">
-            <div className="w-9 h-9 rounded-xl bg-stone-900 flex items-center justify-center shadow-lg transition-transform duration-300 group-hover:scale-105 border border-stone-850">
-              <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 3L21 12L12 21L3 12L12 3Z" strokeLinecap="round" strokeLinejoin="round" />
-                <circle cx="12" cy="12" r="3" className="fill-amber-500 stroke-none" />
-              </svg>
-            </div>
+          <a href="/" className="group flex items-center gap-2 z-10">
+            <SolarisLogo variant="main" size={36} className="transition-transform duration-300 group-hover:scale-105" />
             <span className="text-stone-900 font-black text-xl tracking-tight transition-colors group-hover:text-stone-800">
               solarys<span className="text-amber-600 font-bold">.uk</span>
             </span>

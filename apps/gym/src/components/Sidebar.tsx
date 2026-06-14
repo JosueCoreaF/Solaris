@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useRole } from '../hooks/useRole';
 import { useSync } from '../context/SyncContext';
 import { useTheme } from '../context/ThemeContext';
+import SolarisLogo from './SolarisLogo';
 
 const IconDashboard = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>;
 const IconUsers = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
@@ -53,9 +54,22 @@ const getGymInitials = (nombre?: string) => {
 };
 
 export const Sidebar: React.FC = () => {
-  const { user, signOut } = useAuth();
+  const { user, session, signOut } = useAuth();
   const { role } = useRole();
   const { gimnasio, gimnasios } = useSync();
+
+  const goToHub = () => {
+    const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
+    if (session) {
+      const params = new URLSearchParams({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      });
+      window.location.href = `${hubUrl}/dashboard?${params.toString()}`;
+    } else {
+      window.location.href = hubUrl;
+    }
+  };
   const { theme, toggleTheme } = useTheme();
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -74,7 +88,7 @@ export const Sidebar: React.FC = () => {
     <aside className="sidebar">
       <div className="sidebar-top">
         <div className="brand-lockup">
-          <div className="brand-badge">GYM</div>
+          <SolarisLogo variant="gym" size={40} />
           <div className="brand-copy">
             <strong>{gimnasio?.nombre_gimnasio ?? 'Solaris Gym'}</strong>
             <span>Módulo Gimnasio</span>
@@ -194,10 +208,7 @@ export const Sidebar: React.FC = () => {
         </div>
 
         <button
-          onClick={() => {
-            const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
-            window.location.href = hubUrl;
-          }}
+          onClick={goToHub}
           style={{
             width: '100%',
             padding: '9px 12px',

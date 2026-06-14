@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabaseClient';
 import apiClient from '../services/api';
+import SolarisLogo from './SolarisLogo';
 import {
   LayoutDashboard,
   Building2,
@@ -131,11 +132,9 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
 
         {/* Sidebar */}
         <aside className="w-64 bg-slate-950 text-slate-300 flex flex-col hidden md:flex shrink-0">
-          <div className="p-6 pb-4">
-            <h2
-              onClick={() => navigate('/dashboard')}
-              className="cursor-pointer text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-400"
-            >
+          <div className="pt-8 pb-4 flex items-center justify-center gap-3 cursor-pointer" onClick={() => navigate('/dashboard')}>
+            <SolarisLogo variant="main" size={56} animated />
+            <h2 className="text-5xl font-bold tracking-tight solaris-text-gradient">
               Solaris
             </h2>
           </div>

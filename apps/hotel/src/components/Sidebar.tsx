@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useRole } from '../hooks/useRole';
 import { fetchHoteles } from '../api/bookingsService';
 import { useSync } from '../context/SyncContext';
+import SolarisLogo from './SolarisLogo';
 
 /* ── Iconos SVG ─────────────────────────────────────────── */
 const IconPanel = () => (
@@ -209,9 +210,22 @@ const getHotelInitials = (nombre?: string) => {
 
 /* ── Componente ─────────────────────────────────────────── */
 export const Sidebar: React.FC = () => {
-  const { user, signOut } = useAuth();
+  const { user, session, signOut } = useAuth();
   const { role } = useRole();
   const { hotel: syncHotel } = useSync();
+
+  const goToHub = () => {
+    const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
+    if (session) {
+      const params = new URLSearchParams({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      });
+      window.location.href = `${hubUrl}/dashboard?${params.toString()}`;
+    } else {
+      window.location.href = hubUrl;
+    }
+  };
   const [unreadCount, setUnreadCount] = useState(0);
   const [hoteles, setHoteles] = useState<any[]>([]);
   const [activeHotelId, setActiveHotelId] = useState(localStorage.getItem('active_hotel_id') || '');
@@ -277,7 +291,7 @@ export const Sidebar: React.FC = () => {
       <aside className="sidebar-rail">
         <div className="sidebar-rail-head">
           <div style={{ position: 'relative' }}>
-            <div className="brand-badge" style={{ width: 38, height: 38, fontSize: 11, borderRadius: 12 }}>PC</div>
+            <SolarisLogo variant="hotel" size={38} />
             {syncHotel?.plan?.id_plan && PLAN_BADGES[syncHotel.plan.id_plan] && (
               <div
                 title={`Plan ${PLAN_BADGES[syncHotel.plan.id_plan].label}`}
@@ -345,10 +359,7 @@ export const Sidebar: React.FC = () => {
             className="sidebar-rail-item"
             title="Volver al Hub"
             style={{ border: 'none', background: 'transparent', cursor: 'pointer', marginBottom: '8px' }}
-            onClick={() => {
-              const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
-              window.location.href = hubUrl;
-            }}
+            onClick={goToHub}
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 18l-6-6 6-6" />
@@ -371,7 +382,7 @@ export const Sidebar: React.FC = () => {
       <aside className="sidebar">
         <div className="sidebar-top">
           <div className="brand-lockup sidebar-brand-lockup">
-            <div className="brand-badge" style={{ width: 40, height: 40, borderRadius: 12 }}>PC</div>
+            <SolarisLogo variant="hotel" size={40} />
             <div className="brand-copy">
               <strong className="brand">Partner Central</strong>
               <span>Sistema hotelero</span>
@@ -528,10 +539,7 @@ export const Sidebar: React.FC = () => {
             <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{role}</span>
           </div>
           <button
-            onClick={() => {
-              const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
-              window.location.href = hubUrl;
-            }}
+            onClick={goToHub}
             style={{
               marginTop: 6, width: '100%', padding: 9, borderRadius: 10,
               border: '1px solid rgba(37, 99, 235, 0.2)',

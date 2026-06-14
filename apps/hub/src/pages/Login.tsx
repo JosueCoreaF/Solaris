@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { LogIn, UserPlus, Loader2, Eye, EyeOff, Sparkles, Building2, Mail, Lock, User } from 'lucide-react';
+import { LogIn, UserPlus, Loader2, Eye, EyeOff, Building2, Mail, Lock, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import SolarisLogo from '../components/SolarisLogo';
 
 type Tab = 'login' | 'register';
 
@@ -129,9 +130,7 @@ export const Login = () => {
           {/* Header */}
           <div className="px-8 pt-8 pb-6">
             <div className="flex items-center gap-3 mb-6">
-              <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-2.5 rounded-xl shadow-lg">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
+              <SolarisLogo variant="main" size={40} />
               <div>
                 <span className="text-xl font-bold text-white tracking-tight">Solaris</span>
                 <span className="text-xs text-indigo-400 block -mt-0.5 font-medium">Hub de Propietarios</span>

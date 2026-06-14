@@ -11,6 +11,7 @@ import auditRouter from './routes/audit.js';
 import publicRouter from './routes/public.js';
 import hubRouter from './routes/hub.js';
 import aiRouter from './routes/ai.js';
+import solarisAiRouter from './routes/solaris-ai.js';
 // Hotel sub-routers
 import hotelRouter from './routes/hotel/index.js';
 import configRouter from './routes/hotel/config.js';
@@ -97,6 +98,7 @@ app.use('/api/roles', rolesRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/media', mediaRouter);
 app.use('/api/hub/ai', aiRouter);
+app.use('/api/hub/ai/solaris', solarisAiRouter);
 app.use('/api/hub', hubRouter);
 app.use('/api', auditRouter);
 // Hotel routes (todas bajo /api/hotel/*)

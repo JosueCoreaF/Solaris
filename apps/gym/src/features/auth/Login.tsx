@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
+import SolarisLogo from '../../components/SolarisLogo';
 
 export const Login: React.FC = () => {
   const { signIn } = useAuth();
@@ -43,13 +44,9 @@ export const Login: React.FC = () => {
         animation: 'fadeInUp 0.4s ease-out',
       }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{
-            width: 56, height: 56, borderRadius: 6, margin: '0 auto 18px',
-            background: 'var(--accent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'var(--accent-ink)', fontFamily: 'var(--display)', fontSize: 18, letterSpacing: '0.04em',
-            boxShadow: '0 0 32px rgba(var(--accent-rgb), 0.35)',
-          }}>GYM</div>
+          <div style={{ display: 'flex', justifyContent: 'center', margin: '0 auto 18px' }}>
+            <SolarisLogo variant="gym" size={56} />
+          </div>
           <h1 style={{ fontFamily: 'var(--display)', fontSize: 26, color: 'var(--text-h)', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
             Solaris Gym
           </h1>
