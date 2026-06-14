@@ -182,4 +182,42 @@ CREATE TABLE cliente_restaurante(
         ON DELETE CASCADE
 );
 
+--Creacion de tabla Cargo y tabla empleado.
 
+-- La tabla cargo_restaurant se utiliza para la normalización de datos,
+-- almacenando los diferentes cargos o puestos dentro del restaurante.
+
+CREATE TABLE cargo_restaurant (
+
+    id_cargo_restaurante BIGSERIAL PRIMARY KEY,
+    nombre_cargo VARCHAR(100) NOT NULL UNIQUE
+
+);
+--La tabla empleado_restauranre almacena la información de los empleados del restaurante,
+-- Almacenando datos personales como el salario, fecha de contratación y su cargo.
+-- Se relaciona con las tablas restaurant y cargo_restaurant.
+
+CREATE TABLE empleado_restaurante (
+
+    id_empleado_restaurante BIGSERIAL PRIMARY KEY,
+    id_restaurant BIGINT NOT NULL,
+    id_cargo_restaurante BIGINT NOT NULL,
+    nombre_empleado VARCHAR(150) NOT NULL,
+    apellido VARCHAR(150) NOT NULL,
+    telefono VARCHAR(25) NOT NULL,
+    correo VARCHAR(100) NOT NULL UNIQUE,
+    salario DECIMAL(10,2),
+    fecha_contratacion DATE DEFAULT CURRENT_DATE,
+
+    
+    CONSTRAINT fk_empleado_restaurante_restaurant
+        FOREIGN KEY (id_restaurant)
+        REFERENCES restaurant(id_restaurant)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_empleado_restaurante_cargoriaestaurant
+        FOREIGN KEY (id_cargo_restaurante)
+        REFERENCES cargo_restaurant(id_cargo_restaurante)
+        ON DELETE RESTRICT
+
+);
