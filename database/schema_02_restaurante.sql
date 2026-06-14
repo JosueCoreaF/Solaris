@@ -74,3 +74,31 @@ CREATE POLICY "rest_all"    ON public.restaurante           FOR ALL USING (publi
 CREATE POLICY "invcost_all" ON public.inventario_costos     FOR ALL USING (public.tiene_acceso_restaurante(id_restaurante));
 CREATE POLICY "catrest_all" ON public.categorias_gasto_rest FOR ALL USING (public.tiene_acceso_restaurante(id_restaurante));
 CREATE POLICY "pagrest_all" ON public.pagos_rest            FOR ALL USING (public.tiene_acceso_restaurante(id_restaurante));
+
+-- Creacion de Tabla producto
+--La tabla producto se encarga de almacenar los productos que ingresen para
+--el restaurante, guardando el id del producto, tambien, su nombre,precio,cantida y muy importante
+--la fecha del vencimiento del producto, relacionandola con la tabla restaurante y categoria_producto.
+
+
+CREATE TABLE producto (
+    id_producto BIGSERIAL PRIMARY KEY,
+
+    id_restaurant BIGINT NOT NULL,
+    id_categoria BIGINT NOT NULL,
+
+    nombre_producto VARCHAR(100) NOT NULL,
+    precio DECIMAL(10,2) NOT NULL,
+    cantidad INT NOT NULL,
+    fecha_vencimiento DATE DEFAULT CURRENT_DATE,
+
+    CONSTRAINT fk_producto_restaurant
+        FOREIGN KEY (id_restaurant)
+        REFERENCES restaurant(id_restaurant)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_producto_categoria
+        FOREIGN KEY (id_categoria)
+        REFERENCES categoria(id_categoria)
+        ON DELETE RESTRICT
+);
