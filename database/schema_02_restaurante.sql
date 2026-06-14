@@ -141,3 +141,22 @@ CREATE TABLE platillo (
         ON DELETE RESTRICT
 );
 
+---Factura Restaurante
+--Creación de la tabla de factura, donde se almacena toda la información de la facturación del restaurante,
+-- donde almacenamos información como el tipo de pago, el ISV, etc. Esta tabla se relaciona con la tabla restaurante.
+
+CREATE TABLE factura_restaurante (
+
+    id_factura BIGSERIAL PRIMARY KEY,
+    id_restaurant BIGINT NOT NULL,
+    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    Subtotal DECIMAL(10,2) NOT NULL,
+    isv DECIMAL(10,2) NOT NULL,
+    total DECIMAL(10,2) NOT NULL,
+    metodo_pago VARCHAR(50) NOT NULL,
+
+    CONSTRAINT fk_factura_restaurant
+        FOREIGN KEY (id_restaurant)
+        REFERENCES restaurant(id_restaurant)
+        ON DELETE CASCADE
+);
