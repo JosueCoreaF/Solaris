@@ -309,9 +309,10 @@ CREATE TABLE IF NOT EXISTS public.hoteles (
 );
 
 -- FKs diferidas a hoteles (tablas creadas antes)
-ALTER TABLE public.audit_log      ADD CONSTRAINT IF NOT EXISTS audit_log_hotel_fkey      FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel);
-ALTER TABLE public.usuarios_roles ADD CONSTRAINT IF NOT EXISTS uroles_hotel_fkey          FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel);
-ALTER TABLE public.invitaciones   ADD CONSTRAINT IF NOT EXISTS invitaciones_hotel_fkey    FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel);
+-- Eliminadas para soportar polimorfismo en módulos (Gimnasios y Restaurantes comparten usuarios_roles/invitaciones)
+-- ALTER TABLE public.audit_log      ADD CONSTRAINT IF NOT EXISTS audit_log_hotel_fkey      FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel);
+-- ALTER TABLE public.usuarios_roles ADD CONSTRAINT IF NOT EXISTS uroles_hotel_fkey          FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel);
+-- ALTER TABLE public.invitaciones   ADD CONSTRAINT IF NOT EXISTS invitaciones_hotel_fkey    FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel);
 
 CREATE TABLE IF NOT EXISTS public.configuracion_hotelera (
   id_config                   uuid        NOT NULL DEFAULT gen_random_uuid(),

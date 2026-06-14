@@ -11,7 +11,7 @@ const router = express.Router();
  */
 router.post('/crear', async (req, res) => {
   try {
-    const { user_id, id_hotel, rol, estado, owner_id: bodyOwnerId } = req.body;
+    const { user_id, id_hotel, rol, estado, owner_id: bodyOwnerId, id_module: bodyIdModule } = req.body;
 
     if (!user_id || !rol || !estado) {
       return res.status(400).json({ error: 'Faltan campos requeridos: user_id, rol, estado' });
@@ -19,9 +19,9 @@ router.post('/crear', async (req, res) => {
 
     // Resolver owner_id e id_module desde el hotel si se provee id_hotel
     let owner_id  = bodyOwnerId || null;
-    let id_module: string | null = null;
+    let id_module: string | null = bodyIdModule || null;
 
-    if (id_hotel) {
+    if (!id_module && id_hotel) {
       const { data: hotelData } = await supabaseAdmin!
         .from('hoteles')
         .select('id_module, business_modules!inner(owner_id)')
@@ -121,6 +121,20 @@ router.get('/mi-rol', async (req, res) => {
       return res.json({ rol: staffRow.rol, owner_id: staffRow.owner_id });
     }
 
+    // 1b. Buscar rol de staff de gimnasio
+    const { data: gymStaffRow } = await supabaseAdmin!
+      .from('usuarios_roles_gym')
+      .select('rol, owner_id')
+      .eq('user_id', caller.id)
+      .neq('owner_id', caller.id)
+      .eq('estado', 'activo')
+      .limit(1)
+      .maybeSingle();
+
+    if (gymStaffRow) {
+      return res.json({ rol: gymStaffRow.rol, owner_id: gymStaffRow.owner_id });
+    }
+
     // 2. Verificar si es propietario real (tiene módulos de negocio registrados)
     const { data: moduloRow } = await supabaseAdmin!
       .from('business_modules')
@@ -182,13 +196,23 @@ router.put('/estado', async (req, res) => {
     const owner_id = ownerIds[0];
     if (!owner_id) return res.status(400).json({ error: 'owner_id no resuelto' });
 
-    const { error } = await supabaseAdmin!
-      .from('usuarios_roles')
-      .update({ estado })
-      .eq('user_id', user_id)
-      .eq('owner_id', owner_id);
+    // Intentamos actualizar en ambas tablas de roles
+    const [hotelResult, gymResult] = await Promise.all([
+      supabaseAdmin!
+        .from('usuarios_roles')
+        .update({ estado })
+        .eq('user_id', user_id)
+        .eq('owner_id', owner_id),
+      supabaseAdmin!
+        .from('usuarios_roles_gym')
+        .update({ estado })
+        .eq('user_id', user_id)
+        .eq('owner_id', owner_id)
+    ]);
 
-    if (error) return res.status(400).json({ error: error.message });
+    if (hotelResult.error && gymResult.error) {
+      return res.status(400).json({ error: hotelResult.error.message || gymResult.error.message });
+    }
     return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: 'Error interno del servidor' });

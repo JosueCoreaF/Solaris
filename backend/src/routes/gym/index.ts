@@ -1,7 +1,8 @@
 import express from 'express'
 import { syncContext } from '../../controllers/gym/context.controller.js'
 import { supabaseAdmin } from '../../config/supabase.js'
-import { checkAccountStatus, getAuthUser } from '../../utils/tenantHelper.js'
+import { checkAccountStatus, getAuthUser, getOwnerHotelIdsForUser } from '../../utils/tenantHelper.js'
+import { sendInvitationEmail } from '../../utils/emailService.js'
 
 const router = express.Router()
 
@@ -73,6 +74,131 @@ router.get('/account-status', async (req, res) => {
 router.use(checkAccountStatus('gym'))
 
 router.get('/sync-context', syncContext)
+
+/**
+ * POST /api/gym/usuarios/invitar
+ * Crea una invitación con código único y envía el correo al destinatario.
+ */
+router.post('/usuarios/invitar', async (req, res) => {
+  try {
+    const { email, rol_sugerido = 'ENTRENADOR' } = req.body
+    if (!email?.trim()) return res.status(400).json({ error: 'email es requerido' })
+    if (!supabaseAdmin) return res.status(500).json({ error: 'Admin client no configurado' })
+
+    const user = await getAuthUser(req)
+    if (!user) return res.status(401).json({ error: 'No autorizado' })
+
+    const { ownerIds } = await getOwnerHotelIdsForUser(user)
+    const owner_id = ownerIds[0]
+    if (!owner_id) return res.status(400).json({ error: 'No se pudo resolver el owner_id' })
+
+    const gymId = req.headers['x-gym-id'] as string | undefined
+    const gymIdFinal = gymId && gymId !== 'all' ? gymId : null
+
+    if (!gymIdFinal) {
+      return res.status(400).json({ error: 'Debe seleccionar un gimnasio para enviar la invitación' })
+    }
+
+    let gymName = 'Solaris Gym'
+    const { data: gym } = await supabaseAdmin
+      .from('gimnasios')
+      .select('nombre_gimnasio')
+      .eq('id_gimnasio', gymIdFinal)
+      .maybeSingle()
+    if (gym?.nombre_gimnasio) gymName = gym.nombre_gimnasio
+
+    const { data: ownerData } = await supabaseAdmin
+      .from('owners')
+      .select('nombre_empresa')
+      .eq('id_owner', owner_id)
+      .maybeSingle()
+
+    const { data: existing } = await supabaseAdmin
+      .from('invitaciones_gym')
+      .select('id')
+      .eq('email', email.toLowerCase().trim())
+      .eq('usado', false)
+      .maybeSingle()
+
+    if (existing) {
+      return res.status(400).json({ error: 'Ya existe una invitación activa para ese correo en el gimnasio' })
+    }
+
+    const codigo_unico = Math.random().toString(36).substring(2, 8).toUpperCase()
+    const expira_en = new Date()
+    expira_en.setDate(expira_en.getDate() + 7)
+
+    const { data: inv, error: invErr } = await supabaseAdmin
+      .from('invitaciones_gym')
+      .insert({
+        email:         email.toLowerCase().trim(),
+        codigo_unico,
+        id_gimnasio:   gymIdFinal,
+        rol_sugerido,
+        usado:         false,
+        owner_id,
+        expira_en:     expira_en.toISOString(),
+      })
+      .select()
+      .single()
+
+    if (invErr) return res.status(400).json({ error: invErr.message })
+
+    void sendInvitationEmail({
+      recipientEmail:   email.toLowerCase().trim(),
+      hotelName:        gymName,
+      codigoInvitacion: codigo_unico,
+      rolSugerido:      rol_sugerido,
+      senderName:       ownerData?.nombre_empresa,
+    })
+
+    const mappedInv = inv ? { ...inv, id_hotel: inv.id_gimnasio } : null
+    return res.status(201).json(mappedInv)
+  } catch (err: any) {
+    console.error('[POST /gym/usuarios/invitar]', err.message)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+/**
+ * GET /api/gym/usuarios — lista invitaciones y staff del owner autenticado
+ */
+router.get('/usuarios/invitaciones', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return res.status(500).json({ error: 'Admin client no configurado' })
+    const user = await getAuthUser(req)
+    if (!user) return res.status(401).json({ error: 'No autorizado' })
+
+    const { ownerIds } = await getOwnerHotelIdsForUser(user)
+    const owner_id = ownerIds[0]
+    if (!owner_id) return res.status(400).json({ error: 'No se pudo resolver el owner_id' })
+
+    const gymId = req.headers['x-gym-id'] as string | undefined
+    const gymIdFinal = gymId && gymId !== 'all' ? gymId : null
+
+    let query = supabaseAdmin
+      .from('invitaciones_gym')
+      .select('*')
+      .eq('owner_id', owner_id)
+
+    if (gymIdFinal) {
+      query = query.eq('id_gimnasio', gymIdFinal)
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false })
+
+    if (error) throw error
+
+    const mapped = (data || []).map((inv: any) => ({
+      ...inv,
+      id_hotel: inv.id_gimnasio
+    }))
+
+    return res.json(mapped)
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
 
 // Miembros
 router.get('/miembros', async (req, res) => {

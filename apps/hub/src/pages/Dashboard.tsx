@@ -178,7 +178,7 @@ const DashboardContent = () => {
                 <div className="flex justify-between items-start relative z-10">
                   <div>
                     <p className="text-slate-500 text-sm font-medium mb-1">Ingresos del Mes</p>
-                    <h3 className="text-3xl font-bold text-slate-900">${kpis.ingresos.toLocaleString()}</h3>
+                    <h3 className="text-3xl font-bold text-slate-900">L. {kpis.ingresos.toLocaleString()}</h3>
                   </div>
                   <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl">
                     <Wallet size={24} />
@@ -302,7 +302,7 @@ const DashboardContent = () => {
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-slate-400">Ingresos (Mes)</span>
                         <span className="font-bold text-slate-900">
-                          ${(mod.kpis?.ingresos || 0).toLocaleString()}
+                          L. {(mod.kpis?.ingresos || 0).toLocaleString()}
                         </span>
                       </div>
                       <div className="flex justify-between items-center text-sm">

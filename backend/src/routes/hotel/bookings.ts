@@ -562,6 +562,28 @@ router.get('/habitaciones', async (req, res) => {
   return res.json(result);
 });
 
+const DEFAULT_IMAGES: Record<string, string[]> = {
+  suite: [
+    'https://images.unsplash.com/photo-1618773928121-c32242e63f39?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1582719508461-905c673771fd?auto=format&fit=crop&w=1200&q=80'
+  ],
+  doble: [
+    'https://images.unsplash.com/photo-1566665797739-1674de7a421a?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=1200&q=80'
+  ],
+  standard: [
+    'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=1200&q=80'
+  ]
+};
+
+function getDefaultImagesForType(tipoName?: string): string[] {
+  const name = (tipoName || '').toLowerCase();
+  if (name.includes('suite')) return DEFAULT_IMAGES.suite;
+  if (name.includes('doble')) return DEFAULT_IMAGES.doble;
+  return DEFAULT_IMAGES.standard;
+}
+
 // POST /api/bookings/habitaciones
 router.post('/habitaciones', async (req, res) => {
   const { nombre_habitacion, nombre_alias, tipo, capacidad, tarifa_noche, id_tarifa_default, estado, piso, id_hotel, numero_camas, imagenes, imagen_360, comodidades } = req.body;
@@ -627,9 +649,13 @@ router.post('/habitaciones', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   if (data && data.id_habitacion) {
-    if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
+    const finalImagenes = (imagenes && Array.isArray(imagenes) && imagenes.length > 0)
+      ? imagenes
+      : getDefaultImagesForType(tipo);
+
+    if (finalImagenes && finalImagenes.length > 0) {
       await db().from('habitacion_imagenes').insert(
-        imagenes.map((url: string, index: number) => ({
+        finalImagenes.map((url: string, index: number) => ({
           id_habitacion: data.id_habitacion,
           url_imagen: url,
           orden: index
@@ -1379,6 +1405,19 @@ router.patch('/reservas/:id', async (req, res) => {
     .eq('id_reserva_hotel', id);
 
   if (error) return res.status(500).json({ error: error.message });
+
+  // Sincronizar el estado de la habitación según el estado de la reserva
+  if (reservasUpdates.estado) {
+    const nuevoEstado = reservasUpdates.estado;
+    const idHabitacion = updates.id_habitacion || (reservaExistente as any).id_habitacion;
+    if (nuevoEstado === 'check_in') {
+      await db().from('habitaciones').update({ estado: 'ocupada' }).eq('id_habitacion', idHabitacion);
+    } else if (nuevoEstado === 'check_out') {
+      await db().from('habitaciones').update({ estado: 'limpieza' }).eq('id_habitacion', idHabitacion);
+    } else if (['cancelada', 'no_show'].includes(nuevoEstado)) {
+      await db().from('habitaciones').update({ estado: 'disponible' }).eq('id_habitacion', idHabitacion);
+    }
+  }
 
   // Si se pasaron actualizaciones de servicios, recrear la tabla intermedia
   if (

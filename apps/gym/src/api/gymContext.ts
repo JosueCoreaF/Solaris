@@ -16,77 +16,134 @@ export const getGymContext = async (): Promise<GymContext | null> => {
 
   // Caso 1: el usuario ES el dueño (owners.id_owner = auth.uid())
   let ownerId: string | null = null;
+  let isOwner = false;
   const { data: ownerRow } = await supabase
     .from('owners')
     .select('id_owner')
     .eq('id_owner', userId)
     .maybeSingle();
 
+  let allowedModuleIds: string[] = [];
+
   if (ownerRow?.id_owner) {
     ownerId = ownerRow.id_owner;
+    isOwner = true;
   } else {
-    // Caso 2: es staff → buscar en usuarios_roles
+    // Caso 2: es staff → buscar en usuarios_roles_gym
     const { data: roles } = await supabase
-      .from('usuarios_roles')
-      .select('owner_id')
+      .from('usuarios_roles_gym')
+      .select('owner_id, id_gimnasio')
       .eq('user_id', userId)
-      .eq('estado', 'activo')
-      .limit(1);
-    ownerId = roles?.[0]?.owner_id ?? null;
+      .eq('estado', 'activo');
+
+    if (roles && roles.length > 0) {
+      ownerId = roles[0].owner_id;
+      const gymIds = roles.map(r => r.id_gimnasio).filter(Boolean) as string[];
+      if (gymIds.length > 0) {
+        const { data: gyms } = await supabase
+          .from('gimnasios')
+          .select('id_module')
+          .in('id_gimnasio', gymIds);
+        if (gyms) {
+          allowedModuleIds = gyms.map(g => g.id_module).filter(Boolean);
+        }
+      }
+    }
   }
 
   if (!ownerId) return null;
 
-  // Obtener el módulo gym del owner (puede tener varios negocios tipo gym)
   const activeGymId = localStorage.getItem('active_gym_id');
-  let modQuery = supabase
-    .from('business_modules')
-    .select('id_module')
-    .eq('owner_id', ownerId)
-    .eq('tipo_modulo', 'gym')
-    .eq('estado', 'activo');
-
-  modQuery = activeGymId
-    ? modQuery.eq('id_module', activeGymId)
-    : modQuery.order('created_at', { ascending: true });
-
-  const { data: mods } = await modQuery.limit(1);
-  const mod = mods?.[0];
-
-  if (!mod?.id_module) return null;
-
-  // Obtener o crear el gimnasio
   let gimnasioId: string | null = null;
-  const { data: gym } = await supabase
-    .from('gimnasios')
-    .select('id_gimnasio')
-    .eq('id_module', mod.id_module)
-    .maybeSingle();
 
-  if (gym?.id_gimnasio) {
-    gimnasioId = gym.id_gimnasio;
-  } else {
-    // El módulo existe pero no se creó el gimnasio — autocrearlo
-    const { data: newGym, error: gymErr } = await supabase
+  // Si hay un activeGymId en localStorage, intentamos validar que pertenezca al owner (y a los módulos permitidos si es staff)
+  if (activeGymId) {
+    const { data: gym } = await supabase
       .from('gimnasios')
-      .insert({
-        id_module:       mod.id_module,
-        nombre_gimnasio: 'Mi Gimnasio',
-        ciudad:          'Sin definir',
-        direccion:       'Sin definir',
-        estado:          'activo',
-      })
-      .select('id_gimnasio')
-      .single();
+      .select('id_gimnasio, id_module')
+      .eq('id_gimnasio', activeGymId)
+      .maybeSingle();
 
-    if (gymErr) {
-      console.error('[gymContext] Error creando gimnasio:', gymErr.message);
-      return null;
+    if (gym) {
+      if (isOwner) {
+        const { data: mod } = await supabase
+          .from('business_modules')
+          .select('id_module')
+          .eq('id_module', gym.id_module)
+          .eq('owner_id', ownerId)
+          .eq('tipo_modulo', 'gym')
+          .eq('estado', 'activo')
+          .maybeSingle();
+
+        if (mod) {
+          gimnasioId = gym.id_gimnasio;
+        }
+      } else {
+        if (allowedModuleIds.includes(gym.id_module)) {
+          gimnasioId = gym.id_gimnasio;
+        }
+      }
     }
-    gimnasioId = newGym?.id_gimnasio ?? null;
+  }
+
+  // Si no se pudo resolver con activeGymId, buscamos el primer gimnasio disponible
+  if (!gimnasioId) {
+    if (isOwner) {
+      const { data: mods } = await supabase
+        .from('business_modules')
+        .select('id_module')
+        .eq('owner_id', ownerId)
+        .eq('tipo_modulo', 'gym')
+        .eq('estado', 'activo')
+        .order('created_at', { ascending: true })
+        .limit(1);
+
+      const mod = mods?.[0];
+      if (mod) {
+        const { data: gym } = await supabase
+          .from('gimnasios')
+          .select('id_gimnasio')
+          .eq('id_module', mod.id_module)
+          .maybeSingle();
+
+        if (gym) {
+          gimnasioId = gym.id_gimnasio;
+        } else {
+          const { data: newGym, error: gymErr } = await supabase
+            .from('gimnasios')
+            .insert({
+              id_module:       mod.id_module,
+              nombre_gimnasio: 'Mi Gimnasio',
+              ciudad:          'Sin definir',
+              direccion:       'Sin definir',
+              estado:          'activo',
+            })
+            .select('id_gimnasio')
+            .single();
+
+          if (!gymErr && newGym) {
+            gimnasioId = newGym.id_gimnasio;
+          }
+        }
+      }
+    } else if (allowedModuleIds.length > 0) {
+      const { data: gyms } = await supabase
+        .from('gimnasios')
+        .select('id_gimnasio')
+        .in('id_module', allowedModuleIds)
+        .eq('estado', 'activo')
+        .limit(1);
+
+      if (gyms && gyms.length > 0) {
+        gimnasioId = gyms[0].id_gimnasio;
+      }
+    }
   }
 
   if (!gimnasioId) return null;
+
+  // Guardar en localStorage para mantener consistencia
+  localStorage.setItem('active_gym_id', gimnasioId);
 
   _cache = { ownerId, gimnasioId };
   return _cache;

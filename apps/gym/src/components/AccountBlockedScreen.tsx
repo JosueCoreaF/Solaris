@@ -10,101 +10,95 @@ interface Props {
 const CONFIG = {
   ACCOUNT_SUSPENDED: {
     icon: ShieldOff,
-    color: 'amber',
+    color: 'var(--warning)',
+    colorBg: 'rgba(251,191,36,0.12)',
+    badgeLabel: 'Acceso restringido',
     title: 'Cuenta suspendida',
     body: 'Tu cuenta ha sido suspendida temporalmente. Esto puede deberse a un problema con tu suscripción o a una revisión administrativa.',
     action: 'Contacta con soporte para restablecer tu acceso.',
   },
   ACCOUNT_INACTIVE: {
     icon: AlertTriangle,
-    color: 'rose',
+    color: 'var(--danger)',
+    colorBg: 'rgba(251,82,82,0.12)',
+    badgeLabel: 'Cuenta inactiva',
     title: 'Cuenta inactiva',
     body: 'Tu cuenta ha sido desactivada. Los datos de tu negocio se conservan pero el acceso ha sido revocado.',
     action: 'Contacta con soporte si crees que esto es un error.',
   },
   MODULE_SUSPENDED: {
     icon: ShieldOff,
-    color: 'amber',
+    color: 'var(--warning)',
+    colorBg: 'rgba(251,191,36,0.12)',
+    badgeLabel: 'Negocio suspendido',
     title: 'Negocio suspendido',
     body: 'Este negocio ha sido suspendido temporalmente desde la administración. El resto de tu cuenta y otros negocios no se ven afectados.',
     action: 'Contacta con soporte para restablecer el acceso a este negocio.',
   },
   INVALID_SESSION: {
     icon: ShieldOff,
-    color: 'slate',
+    color: 'var(--muted)',
+    colorBg: 'rgba(255,255,255,0.06)',
+    badgeLabel: 'Sesión expirada',
     title: 'Sesión inválida',
     body: 'Tu sesión ha expirado o fue revocada. Por favor, vuelve a iniciar sesión.',
     action: null,
   },
 };
 
-const COLOR_MAP = {
-  amber: {
-    bg: 'bg-amber-50',
-    border: 'border-amber-200',
-    icon: 'bg-amber-100 text-amber-600',
-    title: 'text-amber-900',
-    badge: 'bg-amber-100 text-amber-700',
-  },
-  rose: {
-    bg: 'bg-rose-50',
-    border: 'border-rose-200',
-    icon: 'bg-rose-100 text-rose-600',
-    title: 'text-rose-900',
-    badge: 'bg-rose-100 text-rose-700',
-  },
-  slate: {
-    bg: 'bg-slate-50',
-    border: 'border-slate-200',
-    icon: 'bg-slate-100 text-slate-600',
-    title: 'text-slate-900',
-    badge: 'bg-slate-100 text-slate-600',
-  },
-};
-
 export const AccountBlockedScreen: React.FC<Props> = ({ reason, onSignOut }) => {
   const cfg = reason ? CONFIG[reason] : CONFIG.ACCOUNT_SUSPENDED;
-  const colors = COLOR_MAP[cfg.color as keyof typeof COLOR_MAP];
   const Icon = cfg.icon;
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div style={{ minHeight: '100vh', background: 'var(--shell-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ width: '100%', maxWidth: 420 }}>
 
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center shadow">
-            <span className="text-white font-bold text-base">G</span>
-          </div>
-          <span className="text-slate-700 font-semibold text-lg">Solaris Gym</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 28 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 6, background: 'var(--accent)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--accent-ink)', fontFamily: 'var(--display)', fontSize: 14,
+          }}>G</div>
+          <span style={{ color: 'var(--text-h)', fontFamily: 'var(--display)', fontSize: 18, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Solaris Gym
+          </span>
         </div>
 
-        <div className={`bg-white rounded-2xl shadow-lg border ${colors.border} overflow-hidden`}>
+        <div style={{
+          background: 'var(--shell-panel-strong)', borderRadius: 6, border: '1px solid var(--shell-border)',
+          borderTop: `2px solid ${cfg.color}`, boxShadow: 'var(--shadow)', overflow: 'hidden',
+          animation: 'fadeInUp 0.4s ease-out',
+        }}>
 
-          <div className={`${colors.bg} px-6 py-5 flex items-center gap-4 border-b ${colors.border}`}>
-            <div className={`w-12 h-12 rounded-2xl ${colors.icon} flex items-center justify-center shrink-0`}>
+          <div style={{ background: cfg.colorBg, padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 16, borderBottom: '1px solid var(--shell-border-subtle)' }}>
+            <div style={{ width: 48, height: 48, borderRadius: 6, background: cfg.colorBg, color: cfg.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: `1px solid ${cfg.color}` }}>
               <Icon size={22} />
             </div>
             <div>
-              <span className={`text-xs font-semibold uppercase tracking-wide ${colors.badge} px-2 py-0.5 rounded-full`}>
-                {reason === 'ACCOUNT_SUSPENDED' ? 'Acceso restringido' :
-                 reason === 'ACCOUNT_INACTIVE'  ? 'Cuenta inactiva'   :
-                 reason === 'MODULE_SUSPENDED'  ? 'Negocio suspendido' : 'Sesión expirada'}
+              <span style={{
+                fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em',
+                color: cfg.color, background: 'rgba(0,0,0,0.2)', padding: '3px 8px', borderRadius: 3,
+              }}>
+                {cfg.badgeLabel}
               </span>
-              <h1 className={`text-lg font-bold mt-1 ${colors.title}`}>{cfg.title}</h1>
+              <h1 style={{ fontFamily: 'var(--display)', fontSize: 19, marginTop: 8, color: 'var(--text-h)', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                {cfg.title}
+              </h1>
             </div>
           </div>
 
-          <div className="px-6 py-5 space-y-4">
-            <p className="text-slate-600 text-sm leading-relaxed">{cfg.body}</p>
+          <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <p style={{ color: 'var(--text)', fontSize: 13, lineHeight: 1.6 }}>{cfg.body}</p>
 
             {cfg.action && (
-              <p className="text-slate-500 text-sm">{cfg.action}</p>
+              <p style={{ color: 'var(--muted)', fontSize: 13 }}>{cfg.action}</p>
             )}
 
             {reason !== 'INVALID_SESSION' && (
               <a
                 href="mailto:support@solarys.app"
-                className="flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-800 font-medium transition"
+                style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--accent)', fontWeight: 700, textDecoration: 'none' }}
               >
                 <Mail size={14} />
                 support@solarys.app
@@ -112,18 +106,15 @@ export const AccountBlockedScreen: React.FC<Props> = ({ reason, onSignOut }) => 
             )}
           </div>
 
-          <div className="px-6 pb-5">
-            <button
-              onClick={onSignOut}
-              className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-sm font-medium rounded-xl transition"
-            >
+          <div style={{ padding: '0 24px 20px' }}>
+            <button onClick={onSignOut} className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }}>
               <LogOut size={14} />
               Cerrar sesión
             </button>
           </div>
         </div>
 
-        <p className="text-center text-xs text-slate-400 mt-5">
+        <p style={{ textAlign: 'center', fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--muted)', marginTop: 20, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
           © {new Date().getFullYear()} Solarys · Sistema de Gestión Empresarial
         </p>
       </div>

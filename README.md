@@ -77,6 +77,21 @@ Para que un usuario pueda crear este nuevo tipo de negocio desde su panel, debes
 - **Backend Hub (`backend/src/routes/hub.ts`)**:
   - Modifica la lógica de registro de negocios en las rutas del Hub para interceptar cuando un owner crea un negocio del tipo nuevo y guárdalo correctamente en las tablas correspondientes defininas en el `schema.sql`.
 
+## ✨ Características Recientes y Mejoras Visuales
+
+- **Portal de Reservas con Mesh Gradient Animado**:
+  - Rediseño estético y de usabilidad en la Landing Page de búsqueda (`apps/portal`).
+  - Fondo dinámico fluido compuesto por esferas de colores en movimiento constante (tonos esmeralda, ámbar y azul) mediante **Framer Motion**, complementado por una cuadrícula semitransparente fija.
+  - Logotipo del navbar rediseñado con un isotipo de rombo y punto solar brillante que representa la identidad de **Solarys**.
+  - Reubicación y ajuste de dimensiones en componentes y tarjetas de hotel para evitar superposiciones de botones.
+- **Soporte de Visores 360° (WebGL)**:
+  - Integración nativa de visores panorámicos de 360 grados usando la librería **Pannellum** (cargada dinámicamente vía CDN) en la vista detallada de habitaciones.
+  - Corrección de la subida de imágenes multipart para evitar colisiones con el tipo de contenido JSON predeterminado en las llamadas de Axios del frontend.
+- **Sincronización de Reservas y Estado de Habitaciones**:
+  - Automatización en la actualización física del estado de la habitación (`ocupada`, `limpieza`, `disponible`) según las transiciones de check-in, check-out o cancelaciones de las reservas del hotel.
+- **Desacoplamiento de Roles del Personal de Gimnasios**:
+  - Segregación completa de roles e invitaciones mediante tablas específicas (`usuarios_roles_gym`, `invitaciones_gym` y vista consolidada de personal) para mantener el multi-tenancy aislado por modelo de negocio.
+
 ---
 
 ## 🔒 Regla Estricta de Base de Datos

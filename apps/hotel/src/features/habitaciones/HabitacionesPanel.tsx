@@ -372,7 +372,11 @@ export const HabitacionesPanel: React.FC = () => {
     formData.append('file', file);
     formData.append('folder', folder);
 
-    const res = await apiClient.post('/media/upload', formData);
+    const res = await apiClient.post('/media/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
     const url = (res as any)?.url || (res as any)?.data?.url;
     if (!url) throw new Error('No se recibió URL del servidor.');
     return url;

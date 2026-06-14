@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Edit2, Trash2, X } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, X, Users, UserCheck, UserX, UserMinus, Eye, Mail, Phone, MapPin, Cake, ShieldAlert, FileText, CalendarDays } from 'lucide-react';
 import { fetchMiembros, crearMiembro, actualizarMiembro, eliminarMiembro, type Miembro } from '../../api/miembrosService';
 import { useToast } from '../../components/Toast';
 
@@ -12,12 +12,26 @@ const estadoBadge: Record<string, string> = {
   activo: 'badge-green', inactivo: 'badge-gray', suspendido: 'badge-red',
 };
 
+const calcularEdad = (fechaNacimiento?: string): number | null => {
+  if (!fechaNacimiento) return null;
+  const nacimiento = new Date(fechaNacimiento);
+  const hoy = new Date();
+  let edad = hoy.getFullYear() - nacimiento.getFullYear();
+  const m = hoy.getMonth() - nacimiento.getMonth();
+  if (m < 0 || (m === 0 && hoy.getDate() < nacimiento.getDate())) edad--;
+  return edad;
+};
+
+const iniciales = (nombre: string): string =>
+  nombre.split(' ').filter(Boolean).slice(0, 2).map(p => p[0]?.toUpperCase()).join('');
+
 export const Miembros: React.FC = () => {
   const { addToast } = useToast();
   const [miembros, setMiembros] = useState<Miembro[]>([]);
   const [loading, setLoading] = useState(true);
   const [busqueda, setBusqueda] = useState('');
   const [modal, setModal] = useState(false);
+  const [perfil, setPerfil] = useState<Miembro | null>(null);
   const [editando, setEditando] = useState<Miembro | null>(null);
   const [form, setForm] = useState<Partial<Miembro>>(EMPTY);
   const [guardando, setGuardando] = useState(false);
@@ -81,7 +95,26 @@ export const Miembros: React.FC = () => {
         </button>
       </div>
 
-      <div style={{ background: 'var(--card-bg)', border: '1px solid var(--shell-border)', borderRadius: 16, overflow: 'hidden' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14, marginBottom: 24 }}>
+        {[
+          { label: 'Total Miembros', value: miembros.length, icon: <Users size={18} />, color: 'var(--accent)' },
+          { label: 'Activos', value: miembros.filter(m => m.estado === 'activo').length, icon: <UserCheck size={18} />, color: 'var(--success)' },
+          { label: 'Inactivos', value: miembros.filter(m => m.estado === 'inactivo').length, icon: <UserMinus size={18} />, color: 'var(--muted)' },
+          { label: 'Suspendidos', value: miembros.filter(m => m.estado === 'suspendido').length, icon: <UserX size={18} />, color: 'var(--danger)' },
+        ].map(c => (
+          <div key={c.label} className="stat-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.14em' }}>{c.label}</span>
+              <div style={{ width: 32, height: 32, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: c.color, background: 'rgba(255,255,255,0.04)' }}>
+                {c.icon}
+              </div>
+            </div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 30, color: 'var(--text-h)', lineHeight: 1 }}>{c.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ background: 'var(--card-bg)', border: '1px solid var(--shell-border)', borderRadius: 4, overflow: 'hidden' }}>
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--shell-border-subtle)', display: 'flex', gap: 10 }}>
           <div style={{ position: 'relative', flex: 1, maxWidth: 320 }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
@@ -120,11 +153,15 @@ export const Miembros: React.FC = () => {
                   <td style={{ color: 'var(--muted)', fontSize: 12 }}>{new Date(m.created_at).toLocaleDateString('es-HN')}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 6 }}
+                      <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 3 }}
+                        title="Ver Perfil" onClick={() => setPerfil(m)}>
+                        <Eye size={14} />
+                      </button>
+                      <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 3 }}
                         title="Editar" onClick={() => abrir(m)}>
                         <Edit2 size={14} />
                       </button>
-                      <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#dc2626', padding: 4, borderRadius: 6 }}
+                      <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--danger)', padding: 4, borderRadius: 3 }}
                         title="Eliminar" onClick={() => eliminar(m)}>
                         <Trash2 size={14} />
                       </button>
@@ -136,6 +173,78 @@ export const Miembros: React.FC = () => {
           </table>
         )}
       </div>
+
+      {perfil && (
+        <div className="modal-overlay" onClick={() => setPerfil(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-h)', margin: 0 }}>Perfil del Miembro</h3>
+              <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--muted)' }} onClick={() => setPerfil(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+                <div style={{
+                  width: 56, height: 56, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'var(--accent-bg)', border: '1px solid var(--accent-border)', color: 'var(--accent)',
+                  fontFamily: 'var(--display)', fontSize: 20, flexShrink: 0,
+                }}>
+                  {iniciales(perfil.nombre_completo)}
+                </div>
+                <div>
+                  <div style={{ fontFamily: 'var(--display)', fontSize: 20, color: 'var(--text-h)', textTransform: 'uppercase' }}>{perfil.nombre_completo}</div>
+                  <span className={`badge ${estadoBadge[perfil.estado] ?? 'badge-gray'}`}>{perfil.estado}</span>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)' }}>
+                  <Mail size={14} style={{ color: 'var(--muted)' }} /> {perfil.correo}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)' }}>
+                  <Phone size={14} style={{ color: 'var(--muted)' }} /> {perfil.telefono || '—'}
+                </div>
+                {perfil.fecha_nacimiento && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)' }}>
+                    <Cake size={14} style={{ color: 'var(--muted)' }} />
+                    {new Date(perfil.fecha_nacimiento).toLocaleDateString('es-HN')} ({calcularEdad(perfil.fecha_nacimiento)} años)
+                  </div>
+                )}
+                {perfil.genero && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)', textTransform: 'capitalize' }}>
+                    <Users size={14} style={{ color: 'var(--muted)' }} /> {perfil.genero}
+                  </div>
+                )}
+                {perfil.direccion && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)', gridColumn: '1/-1' }}>
+                    <MapPin size={14} style={{ color: 'var(--muted)' }} /> {perfil.direccion}
+                  </div>
+                )}
+                {(perfil.contacto_emergencia || perfil.telefono_emergencia) && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)', gridColumn: '1/-1' }}>
+                    <ShieldAlert size={14} style={{ color: 'var(--warning)' }} />
+                    Emergencia: {perfil.contacto_emergencia || '—'} {perfil.telefono_emergencia ? `· ${perfil.telefono_emergencia}` : ''}
+                  </div>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 12, gridColumn: '1/-1' }}>
+                  <CalendarDays size={14} /> Registrado el {new Date(perfil.created_at).toLocaleDateString('es-HN')}
+                </div>
+                {perfil.observaciones && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, color: 'var(--text)', gridColumn: '1/-1', marginTop: 4, paddingTop: 12, borderTop: '1px solid var(--shell-border-subtle)' }}>
+                    <FileText size={14} style={{ color: 'var(--muted)', marginTop: 1, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12 }}>{perfil.observaciones}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setPerfil(null)}>Cerrar</button>
+              <button className="btn-primary" onClick={() => { abrir(perfil); setPerfil(null); }}>Editar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {modal && (
         <div className="modal-overlay" onClick={cerrar}>

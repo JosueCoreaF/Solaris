@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { SyncProvider } from './context/SyncContext';
 import { ToastProvider } from './components/Toast';
 import { AccountBlockedScreen } from './components/AccountBlockedScreen';
@@ -8,6 +9,7 @@ import { AuthGuard, GuestGuard } from './components/AuthGuard';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
 import { Login } from './features/auth/Login';
+import { Register } from './features/auth/Register';
 import { Miembros } from './features/miembros/Miembros';
 import { Inscripciones } from './features/inscripciones/Inscripciones';
 import { Clases } from './features/clases/Clases';
@@ -39,6 +41,7 @@ const AppContent: React.FC = () => {
         <Router>
           <Routes>
             <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
+            <Route path="/register" element={<GuestGuard><Register /></GuestGuard>} />
             <Route element={<AuthGuard><Layout /></AuthGuard>}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/miembros" element={<Miembros />} />
@@ -58,9 +61,11 @@ const AppContent: React.FC = () => {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

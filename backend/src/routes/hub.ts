@@ -514,35 +514,21 @@ router.get('/dashboard-summary', async (req, res) => {
         }
       });
 
-      // Ingresos reales del mes - usar pagos_hotel con id_reserva_hotel y luego join a reservas
-      const { data: reservasIds } = await db
-        .from('reservas_hotel')
-        .select('id_reserva_hotel, id_hotel')
-        .in('id_hotel', allHotelIds)
-        .gte('check_in', startIso);
+      // Ingresos reales del mes - usar pagos_hotel y inner join a reservas_hotel para filtrar por hotel
+      const { data: pagos } = await db
+        .from('pagos_hotel')
+        .select('monto, reservas_hotel!inner(id_hotel)')
+        .in('reservas_hotel.id_hotel', allHotelIds)
+        .gte('fecha_pago', startIso)
+        .in('estado', ['registrado', 'aplicado']);
 
-      const reservaIdToHotelId: Record<string, string> = {};
-      (reservasIds || []).forEach((r: any) => {
-        reservaIdToHotelId[r.id_reserva_hotel] = r.id_hotel;
+      (pagos || []).forEach((p: any) => {
+        const hotelId = p.reservas_hotel?.id_hotel;
+        const idModule = moduleIdByHotel[hotelId];
+        if (idModule && statsByModule[idModule]) {
+          statsByModule[idModule].ingresos += Number(p.monto || 0);
+        }
       });
-      const allReservaIds = Object.keys(reservaIdToHotelId);
-
-      if (allReservaIds.length > 0) {
-        const { data: pagos } = await db
-          .from('pagos_hotel')
-          .select('monto, id_reserva_hotel')
-          .in('id_reserva_hotel', allReservaIds)
-          .gte('fecha_pago', startIso)
-          .eq('estado', 'aplicado');
-
-        (pagos || []).forEach((p: any) => {
-          const hotelId = reservaIdToHotelId[p.id_reserva_hotel];
-          const idModule = moduleIdByHotel[hotelId];
-          if (idModule && statsByModule[idModule]) {
-            statsByModule[idModule].ingresos += Number(p.monto || 0);
-          }
-        });
-      }
 
       // Calcular ocupación real: habitaciones ocupadas / total habitaciones
       hoteles.forEach((hotel: any) => {
@@ -730,7 +716,7 @@ router.get('/notifications', async (req, res) => {
         id:          `deuda-${r.id_reserva_hotel}`,
         type:        'payment',
         title:       'Pago Pendiente',
-        description: `${huesped?.nombre_completo || 'Huésped'} — $${Number(r.total_reserva).toLocaleString()}`,
+        description: `${huesped?.nombre_completo || 'Huésped'} — L. ${Number(r.total_reserva).toLocaleString()}`,
         severity:    'high',
         created_at:  new Date().toISOString(),
         reference_id: r.id_hotel,
@@ -778,6 +764,100 @@ router.get('/chat/channels', async (req, res) => {
     }));
 
     return res.json(channelsWithLastMsg);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── MCP TOKENS MANAGEMENT ───────────────────────────────────────────────────
+
+/**
+ * GET /hub/mcp/tokens
+ * Lista los tokens MCP activos del usuario propietario
+ */
+router.get('/mcp/tokens', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+
+    const { data, error } = await db
+      .from('user_tokens')
+      .select('id, api_token, token_expires, created_at, last_used_at, description')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    // Enmascarar tokens para seguridad antes de enviarlos (solo mostrar los primeros 4 y últimos 4)
+    const masked = (data || []).map((t: any) => ({
+      ...t,
+      api_token: t.api_token ? `${t.api_token.slice(0, 4)}...${t.api_token.slice(-4)}` : ''
+    }));
+
+    return res.json(masked);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /hub/mcp/token
+ * Genera un nuevo token MCP para el propietario autenticado
+ */
+router.post('/mcp/token', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+
+    const { description } = req.body;
+
+    const { data, error } = await db.rpc('generate_api_token', {
+      p_user_id: user.id
+    });
+
+    if (error) return res.status(400).json({ error: error.message });
+    if (!data || data.length === 0) return res.status(500).json({ error: 'No se pudo generar el token' });
+
+    const createdToken = data[0];
+
+    // Si hay una descripción, actualizar el registro
+    if (description?.trim()) {
+      await db
+        .from('user_tokens')
+        .update({ description: description.trim() })
+        .eq('api_token', createdToken.token);
+    }
+
+    return res.status(201).json({
+      success: true,
+      token: createdToken.token, // Devolvemos el token completo una sola vez
+      user_email: createdToken.user_email,
+      negocios_acceso: createdToken.negocios_acceso,
+      expira: createdToken.expira,
+      description: description?.trim() || null
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /hub/mcp/token/:id
+ * Revoca y elimina un token MCP
+ */
+router.delete('/mcp/token/:id', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+
+    const { error } = await db
+      .from('user_tokens')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('user_id', user.id);
+
+    if (error) return res.status(400).json({ error: error.message });
+    return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

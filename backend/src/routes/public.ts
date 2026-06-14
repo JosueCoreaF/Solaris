@@ -1460,12 +1460,34 @@ router.post('/invitacion/validar', async (req: Request, res: Response) => {
     if (!email || !codigo) return res.status(400).json({ error: 'email y codigo requeridos' });
 
     const client = supabaseAdmin ?? supabase;
-    const { data, error } = await client
+    // 1. Buscar en invitaciones (hotel/genérico)
+    let { data, error } = await client
       .from('invitaciones')
-      .select('id, email, codigo_unico, id_hotel, rol_sugerido, owner_id, usado, expira_en')
+      .select('id, email, codigo_unico, id_hotel, id_module, rol_sugerido, owner_id, usado, expira_en')
       .eq('email', email.toLowerCase().trim())
       .eq('codigo_unico', codigo.toUpperCase().trim())
       .maybeSingle();
+
+    let esGym = false;
+
+    // 2. Si no se encuentra, buscar en invitaciones_gym (gimnasio)
+    if (!data && !error) {
+      const { data: gymData, error: gymError } = await client
+        .from('invitaciones_gym')
+        .select('id, email, codigo_unico, id_gimnasio, rol_sugerido, owner_id, usado, expira_en')
+        .eq('email', email.toLowerCase().trim())
+        .eq('codigo_unico', codigo.toUpperCase().trim())
+        .maybeSingle();
+
+      if (gymError) return res.status(400).json({ error: gymError.message });
+      if (gymData) {
+        data = {
+          ...gymData,
+          id_hotel: (gymData as any).id_gimnasio
+        } as any;
+        esGym = true;
+      }
+    }
 
     if (error) return res.status(400).json({ error: error.message });
     if (!data)  return res.json({ valida: false, razon: 'Código o correo inválido' });
@@ -1477,12 +1499,162 @@ router.post('/invitacion/validar', async (req: Request, res: Response) => {
     return res.json({
       valida:       true,
       id_hotel:     data.id_hotel,
+      id_module:    data.id_module,
       rol_sugerido: data.rol_sugerido,
       owner_id:     data.owner_id,
       codigo:       data.codigo_unico,
+      es_gym:       esGym,
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Completar registro de invitación (crea el usuario via Admin API, sin email de confirmación) ──
+router.post('/invitacion/completar', async (req: Request, res: Response) => {
+  try {
+    const { email, codigo, password, nombre } = req.body as { email: string; codigo: string; password: string; nombre: string };
+    if (!email || !codigo || !password || !nombre) {
+      return res.status(400).json({ error: 'email, codigo, password y nombre son requeridos' });
+    }
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: 'El servicio de administración de Supabase no está configurado' });
+    }
+
+    // 1. Buscar en invitaciones
+    let { data: inv, error: invError } = await supabaseAdmin
+      .from('invitaciones')
+      .select('id, email, codigo_unico, id_hotel, id_module, rol_sugerido, owner_id, usado, expira_en')
+      .eq('email', email.toLowerCase().trim())
+      .eq('codigo_unico', codigo.toUpperCase().trim())
+      .maybeSingle();
+
+    let esGym = false;
+
+    // 2. Si no se encuentra, buscar en invitaciones_gym
+    if (!inv && !invError) {
+      const { data: gymInv, error: gymInvError } = await supabaseAdmin
+        .from('invitaciones_gym')
+        .select('id, email, codigo_unico, id_gimnasio, rol_sugerido, owner_id, usado, expira_en')
+        .eq('email', email.toLowerCase().trim())
+        .eq('codigo_unico', codigo.toUpperCase().trim())
+        .maybeSingle();
+
+      if (gymInvError) return res.status(400).json({ error: gymInvError.message });
+      if (gymInv) {
+        inv = {
+          ...gymInv,
+          id_hotel: (gymInv as any).id_gimnasio
+        } as any;
+        esGym = true;
+      }
+    }
+
+    if (invError) return res.status(400).json({ error: invError.message });
+    if (!inv) return res.status(400).json({ error: 'Código o correo inválido' });
+    if (inv.usado) return res.status(400).json({ error: 'Este código ya fue utilizado' });
+    if (new Date(inv.expira_en) < new Date()) {
+      return res.status(400).json({ error: 'El código de invitación ha expirado' });
+    }
+
+    // Crea el usuario ya confirmado, evitando el correo de confirmación de Supabase
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email: email.toLowerCase().trim(),
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: nombre.trim(), tipo_registro: 'staff' },
+    });
+
+    if (authError) return res.status(400).json({ error: authError.message });
+    const userId = authData.user?.id;
+    if (!userId) return res.status(400).json({ error: 'No se pudo crear el usuario' });
+
+    if (esGym) {
+      // Registrar en usuarios_roles_gym
+      const existingQuery = supabaseAdmin
+        .from('usuarios_roles_gym')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('owner_id', inv.owner_id);
+
+      const { data: existing } = await existingQuery.eq('id_gimnasio', inv.id_hotel).maybeSingle();
+
+      if (existing) {
+        const { error: updateError } = await supabaseAdmin
+          .from('usuarios_roles_gym')
+          .update({
+            rol: inv.rol_sugerido,
+            estado: 'activo',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existing.id);
+        if (updateError) return res.status(400).json({ error: updateError.message });
+      } else {
+        const { error: roleError } = await supabaseAdmin
+          .from('usuarios_roles_gym')
+          .insert({
+            user_id: userId,
+            owner_id: inv.owner_id,
+            id_gimnasio: inv.id_hotel,
+            rol: inv.rol_sugerido,
+            estado: 'activo',
+          });
+        if (roleError) return res.status(400).json({ error: roleError.message });
+      }
+
+      await supabaseAdmin
+        .from('invitaciones_gym')
+        .update({ usado: true, user_id: userId })
+        .eq('id', inv.id);
+
+    } else {
+      // Registrar en la tabla usuarios_roles original (hotel)
+      const existingQuery = supabaseAdmin
+        .from('usuarios_roles')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('owner_id', inv.owner_id);
+
+      const { data: existing } = inv.id_module
+        ? await existingQuery.eq('id_module', inv.id_module).maybeSingle()
+        : await existingQuery.is('id_module', null).maybeSingle();
+
+      if (existing) {
+        const { error: updateError } = await supabaseAdmin
+          .from('usuarios_roles')
+          .update({
+            rol: inv.rol_sugerido,
+            estado: 'activo',
+            id_hotel: inv.id_hotel || null,
+            id_module: inv.id_module || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existing.id);
+        if (updateError) return res.status(400).json({ error: updateError.message });
+      } else {
+        const { error: roleError } = await supabaseAdmin
+          .from('usuarios_roles')
+          .insert({
+            user_id: userId,
+            owner_id: inv.owner_id,
+            id_hotel: inv.id_hotel || null,
+            id_module: inv.id_module || null,
+            rol: inv.rol_sugerido,
+            estado: 'activo',
+          });
+        if (roleError) return res.status(400).json({ error: roleError.message });
+      }
+
+      await supabaseAdmin
+        .from('invitaciones')
+        .update({ usado: true, user_id: userId })
+        .eq('id', inv.id);
+    }
+
+    return res.json({ success: true, user_id: userId });
+  } catch (err: any) {
+    console.error('Error en /public/invitacion/completar:', err);
+    return res.status(500).json({ error: err.message || 'Error interno del servidor' });
   }
 });
 

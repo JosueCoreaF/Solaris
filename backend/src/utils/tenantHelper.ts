@@ -139,23 +139,40 @@ export async function getOwnerHotelIdsForUser(user: any) {
     return { ownerIds: [ownerRow.id_owner], hotelIds, error: null };
   }
 
-  // 2. ¿Es staff? (tiene fila en usuarios_roles con user_id)
-  const { data: roles, error } = await supabaseAdmin!
-    .from('usuarios_roles')
-    .select('owner_id, id_hotel')
-    .eq('user_id', user.id)   // columna correcta: user_id
-    .eq('estado', 'activo');
+  // 2. ¿Es staff? (tiene fila en usuarios_roles o usuarios_roles_gym con user_id)
+  const [rolesResult, gymRolesResult] = await Promise.all([
+    supabaseAdmin!
+      .from('usuarios_roles')
+      .select('owner_id, id_hotel')
+      .eq('user_id', user.id)
+      .eq('estado', 'activo'),
+    supabaseAdmin!
+      .from('usuarios_roles_gym')
+      .select('owner_id, id_gimnasio')
+      .eq('user_id', user.id)
+      .eq('estado', 'activo')
+  ]);
 
-  if (error) return { ownerIds: [] as string[], hotelIds: [] as string[], error };
+  if (rolesResult.error) return { ownerIds: [] as string[], hotelIds: [] as string[], error: rolesResult.error };
 
-  const ownerIds = Array.from(new Set(
-    (roles || []).map((r: any) => r.owner_id).filter(Boolean)
-  ));
-  const hotelIds = Array.from(new Set(
-    (roles || []).map((r: any) => r.id_hotel).filter(Boolean)
-  ));
+  const ownerIdsSet = new Set<string>();
+  const hotelIdsSet = new Set<string>();
 
-  return { ownerIds, hotelIds, error: null };
+  (rolesResult.data || []).forEach((r: any) => {
+    if (r.owner_id) ownerIdsSet.add(r.owner_id);
+    if (r.id_hotel) hotelIdsSet.add(r.id_hotel);
+  });
+
+  (gymRolesResult.data || []).forEach((r: any) => {
+    if (r.owner_id) ownerIdsSet.add(r.owner_id);
+    if (r.id_gimnasio) hotelIdsSet.add(r.id_gimnasio);
+  });
+
+  return {
+    ownerIds: Array.from(ownerIdsSet),
+    hotelIds: Array.from(hotelIdsSet),
+    error: null
+  };
 }
 
 /**

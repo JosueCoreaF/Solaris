@@ -45,6 +45,18 @@ export const fetchPlanes = async (id_gimnasio?: string): Promise<PlanMembresia[]
   return data ?? [];
 };
 
+export const fetchAllPlanes = async (): Promise<PlanMembresia[]> => {
+  const ctx = await getGymContext();
+  if (!ctx) return [];
+  const { data, error } = await supabase
+    .from('planes_membresia')
+    .select('*')
+    .eq('id_gimnasio', ctx.gimnasioId)
+    .order('precio');
+  if (error) throw error;
+  return data ?? [];
+};
+
 export const crearPlan = async (plan: Partial<PlanMembresia>): Promise<PlanMembresia> => {
   const ctx = await getGymContext();
   if (!ctx) throw new Error('Sin contexto de gimnasio');

@@ -29,17 +29,68 @@ export default function HomePage() {
   const hubBase = import.meta.env.VITE_HUB_URL || `${window.location.protocol}//${window.location.hostname}:5174`;
 
   return (
-    <div className="min-h-screen bg-[#fafaf9] flex flex-col font-sans">
+    <div className="min-h-screen bg-[#fafaf9] flex flex-col font-sans overflow-hidden relative">
+
+      {/* Ambient glowing blobs */}
+      <motion.div 
+        animate={{
+          scale: [1, 1.15, 1],
+          x: [0, 30, 0],
+          y: [0, -30, 0],
+        }}
+        transition={{
+          duration: 15,
+          repeat: Infinity,
+          ease: "easeInOut"
+        }}
+        className="absolute top-[-10%] left-[-15%] w-[650px] h-[650px] rounded-full bg-emerald-200/10 blur-[140px] pointer-events-none z-0" 
+      />
+      <motion.div 
+        animate={{
+          scale: [1, 1.1, 1],
+          x: [0, -40, 0],
+          y: [0, 40, 0],
+        }}
+        transition={{
+          duration: 20,
+          repeat: Infinity,
+          ease: "easeInOut",
+          delay: 1
+        }}
+        className="absolute top-[15%] right-[-15%] w-[700px] h-[700px] rounded-full bg-amber-200/15 blur-[160px] pointer-events-none z-0" 
+      />
+      <motion.div 
+        animate={{
+          scale: [1, 1.2, 1],
+          x: [0, 25, 0],
+          y: [0, 25, 0],
+        }}
+        transition={{
+          duration: 18,
+          repeat: Infinity,
+          ease: "easeInOut",
+          delay: 2
+        }}
+        className="absolute bottom-[-10%] left-[20%] w-[550px] h-[550px] rounded-full bg-blue-100/10 blur-[130px] pointer-events-none z-0" 
+      />
+
+      {/* Grid Pattern overlay */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:14px_24px] pointer-events-none z-0" />
 
       {/* Nav */}
       <nav className="bg-white/80 backdrop-blur-lg border-b border-stone-200/50 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-5 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3 font-black text-stone-900 text-xl tracking-tight">
-            <div className="w-9 h-9 rounded-xl bg-stone-900 flex items-center justify-center shadow-md">
-              <Hotel size={18} className="text-white" />
+          <a href="/" className="group flex items-center gap-3 z-50">
+            <div className="w-9 h-9 rounded-xl bg-stone-900 flex items-center justify-center shadow-lg transition-transform duration-300 group-hover:scale-105 border border-stone-850">
+              <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 3L21 12L12 21L3 12L12 3Z" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="12" cy="12" r="3" className="fill-amber-500 stroke-none" />
+              </svg>
             </div>
-            solarys.uk
-          </div>
+            <span className="text-stone-900 font-black text-xl tracking-tight transition-colors group-hover:text-stone-800">
+              solarys<span className="text-amber-600 font-bold">.uk</span>
+            </span>
+          </a>
           <div className="flex items-center gap-2">
             <a href="/buscar" className="bg-stone-900 hover:bg-stone-800 text-white text-sm font-bold px-4 py-2 rounded-full transition-colors inline-flex items-center gap-2">
               <Search size={16} /> Buscar mi reserva
@@ -50,7 +101,7 @@ export default function HomePage() {
       </nav>
 
       {/* Hero */}
-      <section className="flex-1 max-w-7xl mx-auto w-full px-5 sm:px-6 lg:px-8 py-16 lg:py-24 text-center">
+      <section className="flex-1 max-w-7xl mx-auto w-full px-5 sm:px-6 lg:px-8 py-16 lg:py-24 text-center z-10 relative">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
           <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-100 text-emerald-600 text-xs font-bold px-4 py-2 rounded-full mb-8 shadow-sm">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -107,7 +158,7 @@ export default function HomePage() {
       </section>
 
       {/* Footer */}
-      <footer className="py-8 text-center text-xs text-stone-400 border-t border-stone-200/60 font-medium">
+      <footer className="py-8 text-center text-xs text-stone-400 border-t border-stone-200/60 font-medium z-10 relative">
         © {new Date().getFullYear()} Solarys Technologies. Todos los derechos reservados.
       </footer>
     </div>
