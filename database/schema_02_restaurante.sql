@@ -242,3 +242,40 @@ CREATE TABLE mesa_restaurante(
         ON DELETE CASCADE
 
 );
+
+--Creacion de tabla pedido_restaurante
+-- Esta tabla guarda los pedidos que se hacen en el restaurante.
+-- Incluye el cliente, el empleado que lo atiende, la mesa y el estado del pedido.
+
+CREATE TABLE pedido_restaurante(
+
+    id_pedido BIGSERIAL PRIMARY KEY NOT NULL,
+    id_restaurant BIGINT NOT NULL,
+    id_cliente BIGINT NOT NULL,
+    id_empleado_restaurante BIGINT NOT NULL,
+    id_mesa BIGINT NOT NULL,
+    fecha_pedido TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    estado_pedido VARCHAR(20) DEFAULT 'pendiente'
+        CHECK (estado_pedido IN ('pendiente','preparando','servido','cancelado')),
+
+    CONSTRAINT fk_pedido_restaurant
+        FOREIGN KEY (id_restaurant)
+        REFERENCES restaurant(id_restaurant)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_pedido_cliente_restaurante
+        FOREIGN KEY (id_cliente)
+        REFERENCES cliente_restaurante(id_cliente)
+        ON DELETE RESTRICT,
+
+    CONSTRAINT fk_pedido_empleado_restaurante
+        FOREIGN KEY (id_empleado_restaurante)
+        REFERENCES empleado_restaurante(id_empleado_restaurante)
+        ON DELETE RESTRICT,
+
+    CONSTRAINT fk_pedido_mesa_restaurante
+        FOREIGN KEY (id_mesa)
+        REFERENCES mesa_restaurante(id_mesa)
+        ON DELETE RESTRICT
+
+);
