@@ -279,3 +279,29 @@ CREATE TABLE pedido_restaurante(
         ON DELETE RESTRICT
 
 );
+
+--Creacion de detalle_pedido_restaurante
+-- Esta tabla guarda los platillos que tiene cada pedido, 
+-- y tambien indica la cantidad, precio unitario y subtotal.Esta tabla se relaciona con 
+--Pedido_restaurante, platillo.
+
+CREATE TABLE detalle_pedido_restaurante (
+
+    id_detalle_pedido BIGSERIAL PRIMARY KEY,
+    id_pedido BIGINT NOT NULL,
+    id_platillo BIGINT NOT NULL,
+    cantidad INT NOT NULL,
+    precio_unitario DECIMAL(10,2) NOT NULL,
+    subtotal DECIMAL(10,2) NOT NULL,
+
+    CONSTRAINT fk_detallepedido_pedido_restaurante
+        FOREIGN KEY (id_pedido)
+        REFERENCES pedido_restaurante(id_pedido)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_detallepedido_platillo
+        FOREIGN KEY (id_platillo)
+        REFERENCES platillo(id_platillo)
+        ON DELETE RESTRICT
+
+);
