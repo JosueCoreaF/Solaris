@@ -102,3 +102,14 @@ CREATE TABLE producto (
         REFERENCES categoria(id_categoria)
         ON DELETE RESTRICT
 );
+
+
+-- Creación de tabla categoria
+-- La tabla categoria se utiliza para la normalización de datos,
+-- Esta tabla evita la duplicación de categorías y se relaciona con la tabla producto.
+
+CREATE TABLE categoria (
+    id_categoria BIGSERIAL PRIMARY KEY,
+    categoria VARCHAR(100) NOT NULL UNIQUE
+);
+
