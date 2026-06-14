@@ -160,3 +160,26 @@ CREATE TABLE factura_restaurante (
         REFERENCES restaurant(id_restaurant)
         ON DELETE CASCADE
 );
+
+--Tabla Cliente_restaurante
+--creación de la tabla de clientes de restaurante, donde se almacena la información diaria
+--de los clientes que visitan el restaurante, esta tabla esta relacionada con restaurante.
+
+CREATE TABLE cliente_restaurante(
+
+    id_cliente BIGSERIAL PRIMARY KEY NOT NULL,
+    id_restaurant BIGINT NOT NULL,
+    nombre VARCHAR(100) NOT NULL,
+    apellido VARCHAR(100) NOT NULL,
+    telefono VARCHAR(50) NOT NULL,
+    correo VARCHAR(150) UNIQUE,
+    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+
+    CONSTRAINT fk_cliente_restaurant
+        FOREIGN KEY (id_restaurant)
+        REFERENCES restaurant(id_restaurant)
+        ON DELETE CASCADE
+);
+
+
