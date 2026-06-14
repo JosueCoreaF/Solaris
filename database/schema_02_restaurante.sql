@@ -221,3 +221,24 @@ CREATE TABLE empleado_restaurante (
         ON DELETE RESTRICT
 
 );
+
+--Creacion de mesa_restaurante.
+--La tabla mesa_restaurante es la que almacena la informacion de cada mesa que hay en el
+--restaurante, por ejemplo viendo la candidad de mesas disponibles y la capasidad de cada mesa y
+--si se encuentra disponible. Va relacionada con la tabla restaurante.
+
+CREATE TABLE mesa_restaurante(
+
+  id_mesa BIGSERIAL PRIMARY KEY NOT NULL,
+  id_restaurant BIGINT NOT NULL,
+  numero_mesa INT NOT NULL,
+    capacidad INT NOT NULL,
+    estado VARCHAR(50) DEFAULT 'disponible'
+        CHECK (estado IN ('disponible','ocupada','reservada')),
+
+    CONSTRAINT fk_mesa_restaurante_restaurant
+        FOREIGN KEY (id_restaurant)
+        REFERENCES restaurant(id_restaurant)
+        ON DELETE CASCADE
+
+);
