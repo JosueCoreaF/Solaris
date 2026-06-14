@@ -113,3 +113,31 @@ CREATE TABLE categoria (
     categoria VARCHAR(100) NOT NULL UNIQUE
 );
 
+---Tabla Platillo
+--Creacion de tabla platillo donde se guarda la informacion del platillo
+--como su nombre, la descripcion del platillo, su precio, y cual es el estado del platillo, se relaciono con la tabla restaurante y categoria platillo.
+
+CREATE TABLE platillo (
+    id_platillo BIGSERIAL PRIMARY KEY,
+
+    id_restaurant BIGINT NOT NULL,
+    id_categoria_platillo BIGINT NOT NULL,
+
+    nombre_platillo VARCHAR(150) NOT NULL,
+    descripcion VARCHAR (250) NOT NULL,
+    precio DECIMAL(10,2) NOT NULL,
+    activo BOOLEAN DEFAULT TRUE,
+
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_platillo_restaurant
+        FOREIGN KEY (id_restaurant)
+        REFERENCES restaurant(id_restaurant)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_platillo_categoria_platillo
+        FOREIGN KEY (id_categoria_platillo)
+        REFERENCES categoria_platillo(id_categoria_platillo)
+        ON DELETE RESTRICT
+);
+
