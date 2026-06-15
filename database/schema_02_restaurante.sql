@@ -313,6 +313,8 @@ CREATE TABLE detalle_pedido_restaurante (
 CREATE TABLE restaurant (
     id_restaurant BIGSERIAL PRIMARY KEY,
 
+
+
     id_owner UUID NOT NULL,
     id_module UUID NOT NULL,
 
