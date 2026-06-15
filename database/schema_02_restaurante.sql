@@ -459,3 +459,36 @@ CREATE TABLE menu_platillo (
         REFERENCES platillo(id_platillo)
         ON DELETE CASCADE
 );
+--Tabla detalle factura
+--Principal funcionalidad es mostrar el detalle de la fatura que queda en nuestros registros.
+--para un mejor control y registro de las faturas y serian datos mas especificos.
+--esta relaciona con tabla producto porque es donde entra la venta de las bebidas, que estaria guardada en la tabla producto
+
+CREATE TABLE detalle_factura (
+    id_detalle_factura BIGSERIAL PRIMARY KEY,
+
+    id_factura BIGINT NOT NULL,
+
+    tipo_item VARCHAR(20) NOT NULL,
+    -- 'PLATILLO' o 'PRODUCTO'
+
+    id_platillo BIGINT,
+    id_producto BIGINT,
+
+    cantidad INT NOT NULL,
+    precio_unitario DECIMAL(10,2) NOT NULL,
+    subtotal DECIMAL(10,2) NOT NULL,
+
+    CONSTRAINT fk_detalle_factura
+        FOREIGN KEY (id_factura)
+        REFERENCES factura_restaurante(id_factura)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_detalle_platillo
+        FOREIGN KEY (id_platillo)
+        REFERENCES platillo(id_platillo),
+
+    CONSTRAINT fk_detalle_producto
+        FOREIGN KEY (id_producto)
+        REFERENCES producto(id_producto)
+);
