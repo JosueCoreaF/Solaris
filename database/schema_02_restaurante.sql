@@ -542,3 +542,26 @@ CREATE TABLE compra (
 ALTER TABLE compra
 ADD COLUMN estado_pago VARCHAR(20) DEFAULT 'Pendiente' CHECK (estado_pago IN('pendiente','abono','pagado')),
 ADD COLUMN cant_aboo DECIMAL (12,2);
+
+--Tabla detalle de compra
+
+--Esta tabla es mas detallada porque muestra todos los productos que se compran, proveedor y el precio que se le venden los productos
+
+    CREATE TABLE detalle_compra (
+        id_detalle_compra BIGSERIAL PRIMARY KEY,
+
+        id_compra BIGINT NOT NULL,
+        id_producto BIGINT NOT NULL,
+
+        cantidad DECIMAL(10,2) NOT NULL,
+        precio_unitario DECIMAL(10,2) NOT NULL,
+        subtotal DECIMAL(10,2) NOT NULL,
+
+        CONSTRAINT fk_detalle_compra
+            FOREIGN KEY (id_compra)
+            REFERENCES compra(id_compra),
+
+        CONSTRAINT fk_detalle_producto
+            FOREIGN KEY (id_producto)
+            REFERENCES producto(id_producto)
+    );
