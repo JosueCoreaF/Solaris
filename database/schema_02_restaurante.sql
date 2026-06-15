@@ -358,3 +358,25 @@ CREATE TABLE inventario (
         REFERENCES producto(id_producto)
         ON DELETE CASCADE
 );
+--Tabla receta platillo
+--La funcionalidad de la tabla es para saber que productos y cantidades requiere cada una de los platillos y tambien ayudara 
+--esta relacionada con la tabla platillo e inventarios, esto ayudara al dueño a tener una eficiencia de consumo de los inventarios.
+
+CREATE TABLE receta_platillo (
+    id_rec_platillo BIGSERIAL PRIMARY KEY,
+
+    id_platillo BIGINT NOT NULL,
+    id_inventario BIGINT NOT NULL,
+
+    cantidad_utilizada DECIMAL(10,2) NOT NULL,
+
+    CONSTRAINT fk_rec_platillo
+        FOREIGN KEY (id_platillo)
+        REFERENCES platillo(id_platillo)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_rec_inventario
+        FOREIGN KEY (id_inventario)
+        REFERENCES inventario(id_inventario)
+        ON DELETE RESTRICT
+);
