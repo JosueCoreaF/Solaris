@@ -852,6 +852,12 @@ router.delete('/hoteles/:id_hotel', async (req, res) => {
 
 // ─── POST /hub/admin/impersonate/:ownerId ────────────────────────────────────
 
+const SUPPORT_APP_URLS: Record<string, string> = {
+  hotel: process.env.HOTEL_APP_URL || 'https://hotel.solarys.uk/',
+  gym: process.env.GYM_APP_URL || 'https://gym.solarys.uk/',
+  restaurant: process.env.RESTAURANT_APP_URL || 'https://restaurant.solarys.uk/',
+};
+
 router.post('/impersonate/:ownerId', async (req, res) => {
   try {
     const adminUserId = (req as any).adminUserId;
@@ -864,12 +870,14 @@ router.post('/impersonate/:ownerId', async (req, res) => {
 
     if (ownerErr || !owner) return res.status(404).json({ error: 'Owner no encontrado' });
 
-    const hotelAppUrl = process.env.HOTEL_APP_URL || 'https://hotel.solarys.uk';
+    const modulo = req.body?.modulo;
+    const appUrl = SUPPORT_APP_URLS[modulo] || SUPPORT_APP_URLS.hotel;
+    const redirectTo = `${appUrl}${appUrl.includes('?') ? '&' : '?'}soporte=1`;
 
     const { data: linkData, error: linkErr } = await db().auth.admin.generateLink({
       type: 'magiclink',
       email: owner.email_contacto,
-      options: { redirectTo: hotelAppUrl },
+      options: { redirectTo },
     });
 
     if (linkErr) throw linkErr;
@@ -882,7 +890,7 @@ router.post('/impersonate/:ownerId', async (req, res) => {
       accion: 'soporte',
       entidad: 'impersonation',
       usuario_email: `admin:${adminUserId}`,
-      cambios_resumidos: `Acceso de soporte generado por ${adminUserId}`,
+      cambios_resumidos: `Acceso de soporte (${modulo || 'hotel'}) generado por ${adminUserId}`,
     });
 
     return res.json({

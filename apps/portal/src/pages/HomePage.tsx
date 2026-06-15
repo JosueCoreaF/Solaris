@@ -38,16 +38,16 @@ export default function HomePage() {
     if (!envHubUrl || envHubUrl.includes('localhost') || envHubUrl.includes('127.0.0.1')) {
       const hostname = window.location.hostname;
       if (hostname.endsWith('solarys.uk')) {
-        return 'https://hub.solarys.uk';
+        return 'https://panel.solarys.uk';
       }
       if (hostname.includes('-portal')) {
         return `${window.location.protocol}//${hostname.replace('-portal', '-hub')}`;
       }
       const parts = hostname.split('.');
       if (parts.length > 2) {
-        return `${window.location.protocol}//hub.${parts.slice(1).join('.')}`;
+        return `${window.location.protocol}//panel.${parts.slice(1).join('.')}`;
       }
-      return 'https://hub.solarys.uk';
+      return 'https://panel.solarys.uk';
     }
     return envHubUrl;
   };

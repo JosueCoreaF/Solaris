@@ -91,7 +91,7 @@ BEGIN
     COALESCE(v_negocios, ARRAY[]::TEXT[]),
     v_expires;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth, extensions;
 
 -- Actualizar vista para listar/validar tokens y sus accesos multimodulares
 CREATE OR REPLACE VIEW public.vw_valid_tokens AS

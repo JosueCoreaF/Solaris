@@ -377,10 +377,10 @@ export default function AdminOwners() {
   };
 
   // ── Impersonación ──
-  const impersonate = async (ownerId: string) => {
+  const impersonate = async (ownerId: string, modulo: string) => {
     setImpersonating(true);
     try {
-      const res = await apiClient.post(`/hub/admin/impersonate/${ownerId}`, {});
+      const res = await apiClient.post(`/hub/admin/impersonate/${ownerId}`, { modulo });
       setImpersonateModal({ url: res.url, empresa: res.empresa, email: res.email });
     } catch (e: any) {
       alert(`Error al generar acceso: ${e.message}`);
@@ -753,14 +753,43 @@ export default function AdminOwners() {
 
             {/* ── Acceder como soporte ── */}
             <div>
-              <button
-                disabled={impersonating}
-                onClick={() => impersonate(selected.id_owner)}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-sm font-medium rounded-xl transition disabled:opacity-50"
-              >
-                {impersonating ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
-                Acceder como soporte
-              </button>
+              {(() => {
+                const activos = Array.from(new Set(
+                  (selected.business_modules ?? []).filter(m => m.is_active).map(m => m.tipo_modulo)
+                ));
+                const modulos = activos.length ? activos : ['hotel'];
+                if (modulos.length === 1) {
+                  return (
+                    <button
+                      disabled={impersonating}
+                      onClick={() => impersonate(selected.id_owner, modulos[0])}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-sm font-medium rounded-xl transition disabled:opacity-50"
+                    >
+                      {impersonating ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
+                      Acceder como soporte
+                    </button>
+                  );
+                }
+                return (
+                  <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${modulos.length}, minmax(0,1fr))` }}>
+                    {modulos.map(tipo => {
+                      const mc = moduloCfg(tipo);
+                      const Icon = mc.icon;
+                      return (
+                        <button
+                          key={tipo}
+                          disabled={impersonating}
+                          onClick={() => impersonate(selected.id_owner, tipo)}
+                          className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-medium rounded-xl transition disabled:opacity-50"
+                        >
+                          {impersonating ? <Loader2 size={13} className="animate-spin" /> : <Icon size={13} />}
+                          {mc.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
               <p className="text-xs text-slate-400 text-center mt-1.5">Genera un enlace único de acceso (1 hora)</p>
             </div>
 

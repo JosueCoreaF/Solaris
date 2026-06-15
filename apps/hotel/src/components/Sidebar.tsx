@@ -210,7 +210,7 @@ const getHotelInitials = (nombre?: string) => {
 
 /* ── Componente ─────────────────────────────────────────── */
 export const Sidebar: React.FC = () => {
-  const { user, session, signOut } = useAuth();
+  const { user, session, signOut, supportMode } = useAuth();
   const { role } = useRole();
   const { hotel: syncHotel } = useSync();
 
@@ -384,26 +384,41 @@ export const Sidebar: React.FC = () => {
         </nav>
 
         <div style={{ marginTop: 'auto', paddingBottom: 10 }}>
-          <button
-            className="sidebar-rail-item"
-            title="Volver al Hub"
-            style={{ border: 'none', background: 'transparent', cursor: 'pointer', marginBottom: '8px' }}
-            onClick={goToHub}
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          </button>
-          <button
-            className="sidebar-rail-item"
-            title="Cerrar sesión"
-            style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}
-            onClick={() => signOut()}
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-            </svg>
-          </button>
+          {supportMode ? (
+            <button
+              className="sidebar-rail-item"
+              title="Terminar soporte"
+              style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#dc2626' }}
+              onClick={() => signOut()}
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+              </svg>
+            </button>
+          ) : (
+            <>
+              <button
+                className="sidebar-rail-item"
+                title="Volver al Hub"
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', marginBottom: '8px' }}
+                onClick={goToHub}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+              </button>
+              <button
+                className="sidebar-rail-item"
+                title="Cerrar sesión"
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}
+                onClick={() => signOut()}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                </svg>
+              </button>
+            </>
+          )}
         </div>
       </aside>
 
@@ -567,46 +582,68 @@ export const Sidebar: React.FC = () => {
             <span>{user?.email ?? 'Partner Central'}</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{role}</span>
           </div>
-          <button
-            onClick={goToHub}
-            style={{
-              marginTop: 6, width: '100%', padding: 9, borderRadius: 10,
-              border: '1px solid rgba(37, 99, 235, 0.2)',
-              background: 'rgba(37, 99, 235, 0.06)', color: '#2563eb',
-              fontWeight: 600, fontSize: 13, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              transition: 'all .18s ease'
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.12)';
-              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(37, 99, 235, 0.36)';
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.06)';
-              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(37, 99, 235, 0.2)';
-            }}
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-            Volver al Hub
-          </button>
-          <NavLink
-            to="/perfil"
-            className={({ isActive }) => isActive ? 'logout-button active' : 'logout-button'}
-            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" />
-            </svg>
-            Mi Perfil
-          </NavLink>
-          <button className="logout-button" onClick={() => signOut()}>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-            </svg>
-            Cerrar Sesión
-          </button>
+          {supportMode ? (
+            <button
+              className="logout-button"
+              onClick={() => signOut()}
+              style={{
+                marginTop: 6, width: '100%', padding: 9, borderRadius: 10,
+                border: '1px solid rgba(220, 38, 38, 0.25)',
+                background: 'rgba(220, 38, 38, 0.06)', color: '#dc2626',
+                fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                transition: 'all .18s ease'
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+              </svg>
+              Terminar soporte
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={goToHub}
+                style={{
+                  marginTop: 6, width: '100%', padding: 9, borderRadius: 10,
+                  border: '1px solid rgba(37, 99, 235, 0.2)',
+                  background: 'rgba(37, 99, 235, 0.06)', color: '#2563eb',
+                  fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  transition: 'all .18s ease'
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.12)';
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(37, 99, 235, 0.36)';
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.06)';
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(37, 99, 235, 0.2)';
+                }}
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+                Volver al Hub
+              </button>
+              <NavLink
+                to="/perfil"
+                className={({ isActive }) => isActive ? 'logout-button active' : 'logout-button'}
+                style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" />
+                </svg>
+                Mi Perfil
+              </NavLink>
+              <button className="logout-button" onClick={() => signOut()}>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                </svg>
+                Cerrar Sesión
+              </button>
+            </>
+          )}
         </footer>
       </aside>
 

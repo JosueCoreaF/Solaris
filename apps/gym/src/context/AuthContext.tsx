@@ -14,6 +14,7 @@ interface AuthContextValue {
   role: UserRole;
   loadingRole: boolean;
   accountBlocked: AccountBlockedReason;
+  supportMode: boolean;
   refreshRole: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string) => Promise<{ error: string | null; user_id?: string }>;
@@ -61,6 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [role, setRole] = useState<UserRole>('INVITADO');
   const [loadingRole, setLoadingRole] = useState(false);
   const [accountBlocked, setAccountBlocked] = useState<AccountBlockedReason>(null);
+  const [supportMode, setSupportMode] = useState(() => sessionStorage.getItem('solaris_support_mode') === '1');
 
   const refreshRole = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -78,6 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const accessToken = params.get('access_token');
       const refreshToken = params.get('refresh_token');
       const gymId = params.get('gym_id') || params.get('business_id');
+      const soporte = params.get('soporte');
 
       let activeSession: Session | null = null;
 
@@ -86,7 +89,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!error && data.session) activeSession = data.session;
       }
       if (gymId) localStorage.setItem('active_gym_id', gymId);
-      if (accessToken || refreshToken || gymId) {
+      if (soporte === '1') {
+        sessionStorage.setItem('solaris_support_mode', '1');
+        setSupportMode(true);
+      }
+      if (accessToken || refreshToken || gymId || soporte) {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
       if (!activeSession) {
@@ -154,13 +161,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { clearGymContextCache } = await import('../api/gymContext');
     clearGymContextCache();
     localStorage.removeItem('active_gym_id');
+    sessionStorage.removeItem('solaris_support_mode');
     setRole('INVITADO');
     setAccountBlocked(null);
+    setSupportMode(false);
     await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, loading, role, loadingRole, accountBlocked, refreshRole, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ session, user, loading, role, loadingRole, accountBlocked, supportMode, refreshRole, signIn, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   );

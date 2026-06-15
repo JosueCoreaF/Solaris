@@ -54,7 +54,7 @@ const getGymInitials = (nombre?: string) => {
 };
 
 export const Sidebar: React.FC = () => {
-  const { user, session, signOut } = useAuth();
+  const { user, session, signOut, supportMode } = useAuth();
   const { role } = useRole();
   const { gimnasio, gimnasios } = useSync();
 
@@ -236,49 +236,79 @@ export const Sidebar: React.FC = () => {
           <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{role}</span>
         </div>
 
-        <button
-          onClick={goToHub}
-          style={{
-            width: '100%',
-            padding: '9px 12px',
-            borderRadius: '4px',
-            border: '1px solid var(--shell-border)',
-            background: 'rgba(200, 255, 61, 0.04)',
-            color: 'var(--accent)',
-            fontWeight: 600,
-            fontSize: 12,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            transition: 'all 0.15s ease',
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-            marginBottom: 4,
-          }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLButtonElement).style.background = 'rgba(200, 255, 61, 0.1)';
-            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)';
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.background = 'rgba(200, 255, 61, 0.04)';
-            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--shell-border)';
-          }}
-        >
-          <ArrowLeft size={13} />
-          Volver al Hub
-        </button>
+        {supportMode ? (
+          <button
+            className="logout-button"
+            onClick={() => signOut()}
+            style={{
+              width: '100%',
+              padding: '9px 12px',
+              borderRadius: '4px',
+              border: '1px solid #dc2626',
+              background: 'rgba(220, 38, 38, 0.06)',
+              color: '#dc2626',
+              fontWeight: 600,
+              fontSize: 12,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              marginBottom: 4,
+            }}
+          >
+            <LogOut size={13} />
+            Terminar soporte
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={goToHub}
+              style={{
+                width: '100%',
+                padding: '9px 12px',
+                borderRadius: '4px',
+                border: '1px solid var(--shell-border)',
+                background: 'rgba(200, 255, 61, 0.04)',
+                color: 'var(--accent)',
+                fontWeight: 600,
+                fontSize: 12,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                transition: 'all 0.15s ease',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                marginBottom: 4,
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLButtonElement).style.background = 'rgba(200, 255, 61, 0.1)';
+                (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLButtonElement).style.background = 'rgba(200, 255, 61, 0.04)';
+                (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--shell-border)';
+              }}
+            >
+              <ArrowLeft size={13} />
+              Volver al Hub
+            </button>
 
-        <button className="theme-toggle" onClick={toggleTheme} style={{ width: '100%', justifyContent: 'space-between', padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--shell-border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer', display: 'flex', alignItems: 'center', fontSize: 12, marginBottom: 4 }}>
-          <span>{theme === 'dark' ? 'Modo Oscuro' : 'Modo Claro'}</span>
-          <span className="theme-toggle-icon" style={{ display: 'flex' }}>{theme === 'dark' ? <Moon size={13} /> : <Sun size={13} />}</span>
-        </button>
+            <button className="theme-toggle" onClick={toggleTheme} style={{ width: '100%', justifyContent: 'space-between', padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--shell-border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer', display: 'flex', alignItems: 'center', fontSize: 12, marginBottom: 4 }}>
+              <span>{theme === 'dark' ? 'Modo Oscuro' : 'Modo Claro'}</span>
+              <span className="theme-toggle-icon" style={{ display: 'flex' }}>{theme === 'dark' ? <Moon size={13} /> : <Sun size={13} />}</span>
+            </button>
 
-        <button className="logout-button" onClick={() => signOut()} style={{ width: '100%', justifyContent: 'center', gap: 8, padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--shell-border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer', display: 'flex', alignItems: 'center', fontSize: 12 }}>
-          <LogOut size={13} />
-          Cerrar Sesión
-        </button>
+            <button className="logout-button" onClick={() => signOut()} style={{ width: '100%', justifyContent: 'center', gap: 8, padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--shell-border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer', display: 'flex', alignItems: 'center', fontSize: 12 }}>
+              <LogOut size={13} />
+              Cerrar Sesión
+            </button>
+          </>
+        )}
       </footer>
 
       {/* MODAL DE SELECCIÓN DE SUCURSAL */}

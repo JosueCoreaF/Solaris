@@ -18,6 +18,25 @@ function rangoPeriodo(periodo: string): { desde: string; hasta: string } {
   return { desde: desde.toLocaleDateString('en-CA'), hasta };
 }
 
+// GET /api/reportes/dashboard-ocupacion
+// Avance 2 (ABD2, Grupo 3) - Consulta avanzada 1: dashboard de ocupación e
+// ingresos por hotel (JOIN múltiple + agregación condicional con FILTER).
+router.get('/dashboard-ocupacion', async (req: Request, res: Response) => {
+  try {
+    const hotelId = req.headers['x-hotel-id'];
+
+    const { data, error } = await db().rpc('fn_dashboard_ocupacion_ingresos', {
+      p_hotel_id: hotelId && hotelId !== 'all' ? hotelId : null,
+    });
+
+    if (error) throw error;
+
+    return res.json({ data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Error interno' });
+  }
+});
+
 // GET /api/reportes/estadisticas
 router.get('/estadisticas', async (req: Request, res: Response) => {
   try {

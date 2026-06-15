@@ -37,6 +37,8 @@ export const McpTokens: React.FC = () => {
   const [newToken, setNewToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showToken, setShowToken] = useState(false);
+  const [revealed, setRevealed] = useState<Record<string, string>>({});
+  const [revealing, setRevealing] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'claude_web' | 'claude_desktop' | 'vscode'>('claude_web');
   const [serverUrl, setServerUrl] = useState(localStorage.getItem('mcp_server_url') || 'https://mcp-solarys.vercel.app');
@@ -92,6 +94,28 @@ export const McpTokens: React.FC = () => {
       fetchTokens();
     } catch (err) {
       console.error('Error revoking token:', err);
+    }
+  };
+
+  const handleReveal = async (id: string) => {
+    if (revealed[id]) {
+      setRevealed((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      return;
+    }
+    setRevealing((prev) => ({ ...prev, [id]: true }));
+    try {
+      const res = await apiClient.get(`/hub/mcp/token/${id}/reveal`);
+      if (res?.token) {
+        setRevealed((prev) => ({ ...prev, [id]: res.token }));
+      }
+    } catch (err) {
+      console.error('Error revealing token:', err);
+    } finally {
+      setRevealing((prev) => ({ ...prev, [id]: false }));
     }
   };
 
@@ -300,9 +324,20 @@ export const McpTokens: React.FC = () => {
                       <tr key={t.id} className="border-b border-slate-50 text-slate-700 hover:bg-slate-50/50 transition-colors">
                         <td className="py-4 px-6 font-semibold text-slate-900">{t.description || 'Sin descripción'}</td>
                         <td className="py-4 px-6">
-                          <span className="font-mono text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg border border-slate-200/50">
-                            {t.api_token}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg border border-slate-200/50">
+                              {revealed[t.id] || t.api_token}
+                            </span>
+                            {revealed[t.id] && (
+                              <button
+                                onClick={() => handleCopy(revealed[t.id])}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                title="Copiar token completo"
+                              >
+                                <Copy size={13} />
+                              </button>
+                            )}
+                          </div>
                         </td>
                         <td className="py-4 px-6 text-slate-500 text-xs">
                           {new Date(t.created_at).toLocaleDateString(undefined, {
@@ -326,13 +361,29 @@ export const McpTokens: React.FC = () => {
                           )}
                         </td>
                         <td className="py-4 px-6 text-right">
-                          <button
-                            onClick={() => handleRevoke(t.id)}
-                            className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors border border-transparent hover:border-rose-100"
-                            title="Revocar Token"
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleReveal(t.id)}
+                              disabled={revealing[t.id]}
+                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors border border-transparent hover:border-indigo-100 disabled:opacity-50"
+                              title={revealed[t.id] ? 'Ocultar token' : 'Ver token completo'}
+                            >
+                              {revealing[t.id] ? (
+                                <RefreshCw size={15} className="animate-spin" />
+                              ) : revealed[t.id] ? (
+                                <EyeOff size={15} />
+                              ) : (
+                                <Eye size={15} />
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleRevoke(t.id)}
+                              className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors border border-transparent hover:border-rose-100"
+                              title="Revocar Token"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

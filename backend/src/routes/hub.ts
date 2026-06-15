@@ -849,6 +849,30 @@ router.post('/mcp/token', async (req, res) => {
 });
 
 /**
+ * GET /hub/mcp/token/:id/reveal
+ * Devuelve el valor completo de un token MCP existente del usuario autenticado
+ */
+router.get('/mcp/token/:id/reveal', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+
+    const { data, error } = await db
+      .from('user_tokens')
+      .select('api_token')
+      .eq('id', req.params.id)
+      .eq('user_id', user.id)
+      .single();
+
+    if (error || !data) return res.status(404).json({ error: 'Token no encontrado' });
+
+    return res.json({ token: data.api_token });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * DELETE /hub/mcp/token/:id
  * Revoca y elimina un token MCP
  */

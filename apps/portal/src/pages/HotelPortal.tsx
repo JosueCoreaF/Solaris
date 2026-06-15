@@ -19,6 +19,31 @@ import {
 import { Hotel as HotelType, Habitacion, ReservaForm } from '../types';
 import { formatearFecha, calcularNoches, formatMoneda } from '../utils/slug';
 
+// ── Sesión de chat del huésped (persistida para reutilizar el mismo canal) ────
+interface GuestSession {
+  nombre: string;
+  correo?: string;
+  telefono?: string;
+  channelId?: string;
+  guestId?: string;
+}
+
+const guestSessionKey = (hotelId: string) => `solaris_guest_chat_${hotelId}`;
+
+const loadGuestSession = (hotelId: string): GuestSession | null => {
+  try {
+    const raw = localStorage.getItem(guestSessionKey(hotelId));
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+};
+
+const saveGuestSession = (hotelId: string, data: Partial<GuestSession>) => {
+  try {
+    const current = loadGuestSession(hotelId);
+    localStorage.setItem(guestSessionKey(hotelId), JSON.stringify({ ...current, ...data }));
+  } catch { /* ignore */ }
+};
+
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 const Sk = ({ className = '' }: { className?: string }) => (
   <div className={`shimmer rounded-2xl ${className}`} />
@@ -466,6 +491,12 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
   const [dispOk,     setDispOk]     = useState<boolean | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Si ya identificamos al huésped antes (ej. desde el chat flotante), prellenar su correo
+  useEffect(() => {
+    const saved = loadGuestSession(hotel.id);
+    if (saved?.correo) setCorreoInput(saved.correo);
+  }, [hotel.id]);
+
   // Tarifa activa para la habitación según las fechas seleccionadas
   const [tarifaActiva, setTarifaActiva] = useState<{
     tarifa_noche: number; total_tarifas?: number; es_periodo: boolean; nombre_periodo: string | null;
@@ -507,11 +538,17 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
   const handleOpenChat = async () => {
     setChatStep('loading'); setChatError('');
     try {
-      const res = await initGuestChat(form.nombre || correoInput, form.correo || correoInput, form.telefono, hotel.id);
+      const nombre  = form.nombre  || correoInput;
+      const correo  = form.correo  || correoInput;
+      const res = await initGuestChat(nombre, correo, form.telefono, hotel.id);
       setChannelId(res.channelId);
       setGuestIdentifier(res.guestId);
       setChatMessages(res.messages || []);
       setChatStep('open');
+      saveGuestSession(hotel.id, {
+        nombre, correo, telefono: form.telefono,
+        channelId: res.channelId, guestId: res.guestId,
+      });
     } catch (e: any) {
       setChatError(e.message);
       setChatStep('idle');
@@ -560,6 +597,7 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
       if (res.encontrado) {
         setHuesped(res.huesped);
         setForm(f => ({ ...f, nombre: res.huesped.nombre, correo: res.huesped.correo, telefono: res.huesped.telefono || '' }));
+        saveGuestSession(hotel.id, { nombre: res.huesped.nombre, correo: res.huesped.correo, telefono: res.huesped.telefono || '' });
         setStep('reserva');
       } else { setStep('registro'); }
     } catch (e: any) { setError(e.message); }
@@ -574,6 +612,7 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
       const res = await registrarHuesped({ nombre_completo: regNombre.trim(), correo: correoInput.trim(), telefono: regTel.trim(), id_hotel: hotel.id });
       const h = res.huesped;
       setHuesped(h); setForm(f => ({ ...f, nombre: h.nombre, correo: h.correo, telefono: h.telefono || '' }));
+      saveGuestSession(hotel.id, { nombre: h.nombre, correo: h.correo, telefono: h.telefono || '' });
       setStep('reserva');
     } catch (e: any) { setError(e.message); }
     finally { setRegistrando(false); }
@@ -1046,16 +1085,36 @@ const FloatingChat = ({ hotel }: { hotel: HotelType }) => {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [phase, channelId]);
 
-  const handleStart = async () => {
-    if (!nombre.trim()) { setFormError('Tu nombre es obligatorio.'); return; }
+  const handleStart = async (override?: { nombre: string; correo?: string; telefono?: string }) => {
+    const n = override?.nombre  ?? nombre;
+    const c = override?.correo  ?? correo;
+    const t = override?.telefono ?? telefono;
+    if (!n.trim()) { setFormError('Tu nombre es obligatorio.'); return; }
     setStarting(true); setFormError('');
     try {
-      const res = await initGuestChat(nombre.trim(), correo.trim() || undefined, telefono.trim() || undefined, hotel.id);
+      const res = await initGuestChat(n.trim(), c?.trim() || undefined, t?.trim() || undefined, hotel.id);
       setChannelId(res.channelId); setGuestId(res.guestId);
       setMessages(res.messages || []); setPhase('chat');
+      saveGuestSession(hotel.id, {
+        nombre: n.trim(), correo: c?.trim() || undefined, telefono: t?.trim() || undefined,
+        channelId: res.channelId, guestId: res.guestId,
+      });
     } catch (e: any) { setFormError(e.message); }
     finally { setStarting(false); }
   };
+
+  // Si ya hay una identidad/conversación guardada (ej. desde la reserva), reanudarla sin pedir datos de nuevo
+  useEffect(() => {
+    if (!open || phase !== 'form') return;
+    const saved = loadGuestSession(hotel.id);
+    if (saved?.nombre) {
+      setNombre(saved.nombre);
+      setCorreo(saved.correo || '');
+      setTelefono(saved.telefono || '');
+      handleStart(saved);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const handleSend = async () => {
     if (!input.trim() || !channelId || !guestId) return;
