@@ -338,3 +338,23 @@ CREATE TABLE restaurant (
         REFERENCES business_modules(id_module)
         ON DELETE RESTRICT
 );
+
+--Tabla inventario
+--La funcionalidad de la tabla inventario es para tener un mejor control de todos los stock de cada uno de los productos
+--Esta relaciada unicamente con la tabla prodcutos.
+
+CREATE TABLE inventario (
+    id_inventario BIGSERIAL PRIMARY KEY,
+
+    id_producto BIGINT NOT NULL UNIQUE,
+
+    stock_actual DECIMAL(10,2) NOT NULL DEFAULT 0,
+    stock_minimo DECIMAL(10,2) NOT NULL DEFAULT 0,
+
+    fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_inventario_producto
+        FOREIGN KEY (id_producto)
+        REFERENCES producto(id_producto)
+        ON DELETE CASCADE
+);
