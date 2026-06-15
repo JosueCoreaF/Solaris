@@ -388,3 +388,35 @@ CREATE TABLE categoria_platillo (
     id_categoria_platillo BIGSERIAL PRIMARY KEY,
     nombre_categoria VARCHAR(100) NOT NULL UNIQUE,
 );
+--Tabla reserva
+--Esta realiza una funcion muy eficiente, el usuario tendra el registro o podra visualizar
+--todas las reservas que tiene el restaurante
+CREATE TABLE reserva (
+    id_reserva BIGSERIAL PRIMARY KEY,
+
+    id_restaurant BIGINT NOT NULL,
+    id_cliente BIGINT NOT NULL,
+    id_mesa BIGINT NOT NULL,
+
+    fecha_reserva DATE NOT NULL,
+    hora_reserva TIME NOT NULL,
+    cantidad_personas INT NOT NULL,
+
+    estado VARCHAR(20) NOT NULL DEFAULT 'Pendiente' CHECK (estado IN('pendiente','preparando','servido','cancelado')),
+
+    observaciones VARCHAR(250),
+
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT  fk_reserva_mesa
+    FOREIGN KEY (id_mesa)
+    REFERENCES mesa_restaurante(id_mesa),
+
+    CONSTRAINT fk_reserva_restaurant
+        FOREIGN KEY (id_restaurant)
+        REFERENCES restaurant(id_restaurant),
+
+    CONSTRAINT fk_reserva_cliente
+        FOREIGN KEY (id_cliente)
+        REFERENCES cliente_restaurante(id_cliente)
+);
