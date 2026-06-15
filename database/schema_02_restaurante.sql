@@ -380,3 +380,11 @@ CREATE TABLE receta_platillo (
         REFERENCES inventario(id_inventario)
         ON DELETE RESTRICT
 );
+
+--Tabla cateforia platillo
+--Funcionalidad principal tener una mejor estructura de las categorias que tiene asignada cada platillo
+--cuando se haga una actualizacion en las categorias sera mas eficiente los cambio y evitamos marge de error 
+CREATE TABLE categoria_platillo (
+    id_categoria_platillo BIGSERIAL PRIMARY KEY,
+    nombre_categoria VARCHAR(100) NOT NULL UNIQUE,
+);
