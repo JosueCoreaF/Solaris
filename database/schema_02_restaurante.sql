@@ -305,3 +305,36 @@ CREATE TABLE detalle_pedido_restaurante (
         ON DELETE RESTRICT
 
 );
+
+--Tabla principal de restaurante
+--la funcionalidad de esta tabla es cuando el usuario seleccione el modelo de negocio de restaurante
+--Podra registrar su restaurante, esta tabla esta relacionada con las tablas de owner y business model
+--Lo cual identenfica a que usuario y modelo de negocio corresponde este restaurante
+CREATE TABLE restaurant (
+    id_restaurant BIGSERIAL PRIMARY KEY,
+
+
+
+    id_owner UUID NOT NULL,
+    id_module UUID NOT NULL,
+
+    nombre_restaurante VARCHAR(150) NOT NULL,
+    direccion TEXT,
+    telefono VARCHAR(20),
+    correo VARCHAR(150),
+    ciudad VARCHAR(100),
+    pais VARCHAR(100),
+
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    activo BOOLEAN DEFAULT TRUE,
+
+    CONSTRAINT fk_restaurant_owner
+        FOREIGN KEY (id_owner)
+        REFERENCES owners(id_owner)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_restaurant_module
+        FOREIGN KEY (id_module)
+        REFERENCES business_modules(id_module)
+        ON DELETE RESTRICT
+);
