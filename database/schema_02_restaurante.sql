@@ -513,3 +513,32 @@ CREATE TABLE proveedor (
         FOREIGN KEY (id_restaurant)
         REFERENCES restaurant(id_restaurant)
 );
+
+--Tabla compra
+--Esta tabla registra las compras a los proveedores mas general solo con el total de la factura
+--es un mejor control de las facturas que estan pendientes de pagar
+
+CREATE TABLE compra (
+    id_compra BIGSERIAL PRIMARY KEY,
+
+    id_restaurant BIGINT NOT NULL,
+    id_proveedor BIGINT NOT NULL,
+
+    fecha_compra TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    subtotal DECIMAL(10,2) NOT NULL,
+    isv DECIMAL(10,2) NOT NULL,
+    total DECIMAL(10,2) NOT NULL,
+
+    CONSTRAINT fk_compra_restaurant
+        FOREIGN KEY (id_restaurant)
+        REFERENCES restaurant(id_restaurant),
+
+    CONSTRAINT fk_compra_proveedor
+        FOREIGN KEY (id_proveedor)
+        REFERENCES proveedor(id_proveedor)
+);
+
+ALTER TABLE compra
+ADD COLUMN estado_pago VARCHAR(20) DEFAULT 'Pendiente' CHECK (estado_pago IN('pendiente','abono','pagado')),
+ADD COLUMN cant_aboo DECIMAL (12,2);
