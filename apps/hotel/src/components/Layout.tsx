@@ -182,6 +182,14 @@ export const Layout: React.FC = () => {
       joinAllChannels();
     }
 
+    const onConnect = () => {
+      if (!authLoading && user && accessToken) {
+        onUnreadUpdate();
+        joinAllChannels();
+      }
+    };
+
+    s.on('connect', onConnect);
     s.on('new_message', onNewMsg);
     s.on('unread_update', onUnreadUpdate);
     s.on('new_channel', onNewChannel);
@@ -189,6 +197,7 @@ export const Layout: React.FC = () => {
     s.on('nueva_solicitud_reserva', onNewBooking);
 
     return () => {
+      s.off('connect', onConnect);
       s.off('new_message', onNewMsg);
       s.off('unread_update', onUnreadUpdate);
       s.off('new_channel', onNewChannel);

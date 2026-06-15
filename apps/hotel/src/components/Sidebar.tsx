@@ -214,8 +214,37 @@ export const Sidebar: React.FC = () => {
   const { role } = useRole();
   const { hotel: syncHotel } = useSync();
 
+  const getHubUrl = () => {
+    const envHubUrl = import.meta.env.VITE_HUB_URL;
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
+    if (isLocal) {
+      return envHubUrl || 'http://localhost:5174';
+    }
+    
+    if (!envHubUrl || envHubUrl.includes('localhost') || envHubUrl.includes('127.0.0.1')) {
+      const hostname = window.location.hostname;
+      if (hostname.endsWith('.solarys.uk')) {
+        return 'https://hub.solarys.uk';
+      }
+      if (hostname.includes('-gym')) {
+        return `${window.location.protocol}//${hostname.replace('-gym', '-hub')}`;
+      }
+      if (hostname.includes('-hotel')) {
+        return `${window.location.protocol}//${hostname.replace('-hotel', '-hub')}`;
+      }
+      const parts = hostname.split('.');
+      if (parts.length > 2) {
+        return `${window.location.protocol}//hub.${parts.slice(1).join('.')}`;
+      }
+      return 'https://hub.solarys.uk';
+    }
+    return envHubUrl;
+  };
+
+  const hubUrl = getHubUrl();
+
   const goToHub = () => {
-    const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
     if (session) {
       const params = new URLSearchParams({
         access_token: session.access_token,
@@ -476,7 +505,7 @@ export const Sidebar: React.FC = () => {
                 </span>
                 {!isTopTier && (
                   <a
-                    href={`${import.meta.env.VITE_HUB_URL || 'http://localhost:5174'}/upgrade`}
+                    href={`${hubUrl}/upgrade`}
                     style={{ fontSize: 11, fontWeight: 700, color: planInfo.color, textDecoration: 'none' }}
                   >
                     Mejorar →

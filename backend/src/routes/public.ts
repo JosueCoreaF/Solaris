@@ -704,6 +704,7 @@ router.post('/chat/init', async (req: Request, res: Response) => {
         .from('huespedes')
         .select('id_huesped')
         .eq('correo', correo.trim().toLowerCase())
+        .eq('id_hotel', chatHotelId)
         .maybeSingle();
       if (existingHuesped) {
         huespedId = existingHuesped.id_huesped;
@@ -726,11 +727,12 @@ router.post('/chat/init', async (req: Request, res: Response) => {
       }
     }
 
-    // Buscar si ya existe un canal para este identificador
+    // Buscar si ya existe un canal para este identificador (acotado al hotel actual)
     const { data: existingChannels } = await supabaseAdmin
       .from('chat_channels')
       .select('*')
       .eq('channel_type', 'cliente')
+      .eq('id_hotel', chatHotelId)
       .ilike('name', `%${nombre.split(' ')[0]}%`)
       .order('created_at', { ascending: false });
 

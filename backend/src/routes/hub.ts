@@ -270,6 +270,13 @@ async function seedHotelDefaults(hotelId: string) {
   }
 
   await db.from('habitaciones').insert(habitacionesRows);
+
+  // Canales de chat por defecto para el hotel
+  const chatChannelsRows = [
+    { id_hotel: hotelId, name: 'General', description: 'Canal general de comunicación del hotel', channel_type: 'general' },
+    { id_hotel: hotelId, name: 'Operativo', description: 'Coordinación operativa interna', channel_type: 'operativo' }
+  ];
+  await db.from('chat_channels').insert(chatChannelsRows);
 }
 
 // ─── POST /hub/businesses — Crear nuevo negocio ──────────────────────────────

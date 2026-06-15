@@ -26,14 +26,27 @@ export const RightSidebarChat: React.FC = () => {
     fetchUnreadCount().then(setNotifUnread).catch(() => {});
 
     const activeHotelId = localStorage.getItem('active_hotel_id');
-    if (activeHotelId) {
-      getSocket().emit('join_hotel', activeHotelId);
+    const s = getSocket();
+
+    const onConnect = () => {
+      if (activeHotelId) {
+        s.emit('join_hotel', activeHotelId);
+      }
+    };
+
+    s.on('connect', onConnect);
+    // Initial join if already connected
+    if (s.connected && activeHotelId) {
+      s.emit('join_hotel', activeHotelId);
     }
 
     const onNueva = () => setNotifUnread(c => c + 1);
-    const s = getSocket();
     s.on('nueva_notificacion', onNueva);
-    return () => { s.off('nueva_notificacion', onNueva); };
+
+    return () => {
+      s.off('connect', onConnect);
+      s.off('nueva_notificacion', onNueva);
+    };
   }, []);
 
   const handleNotifUnreadChange = useCallback((count: number) => {

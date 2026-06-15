@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Hotel, Dumbbell, UtensilsCrossed, ChevronRight, Search } from 'lucide-react';
+import { Hotel, Dumbbell, UtensilsCrossed, ChevronRight, Search, Sparkles, Cpu, Bot } from 'lucide-react';
 import SolarisLogo from '../components/SolarisLogo';
 
 const verticals = [
@@ -27,7 +27,32 @@ const verticals = [
 ];
 
 export default function HomePage() {
-  const hubBase = import.meta.env.VITE_HUB_URL || `${window.location.protocol}//${window.location.hostname}:5174`;
+  const getHubUrl = () => {
+    const envHubUrl = import.meta.env.VITE_HUB_URL;
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
+    if (isLocal) {
+      return envHubUrl || `${window.location.protocol}//${window.location.hostname}:5174`;
+    }
+    
+    if (!envHubUrl || envHubUrl.includes('localhost') || envHubUrl.includes('127.0.0.1')) {
+      const hostname = window.location.hostname;
+      if (hostname.endsWith('solarys.uk')) {
+        return 'https://hub.solarys.uk';
+      }
+      if (hostname.includes('-portal')) {
+        return `${window.location.protocol}//${hostname.replace('-portal', '-hub')}`;
+      }
+      const parts = hostname.split('.');
+      if (parts.length > 2) {
+        return `${window.location.protocol}//hub.${parts.slice(1).join('.')}`;
+      }
+      return 'https://hub.solarys.uk';
+    }
+    return envHubUrl;
+  };
+
+  const hubBase = getHubUrl();
 
   return (
     <div className="min-h-screen bg-[#fafaf9] flex flex-col font-sans overflow-hidden relative">
@@ -135,6 +160,99 @@ export default function HomePage() {
               </span>
             </motion.a>
           ))}
+        </div>
+
+        {/* Sección: Lo Nuevo en Solaris */}
+        <div className="mt-24 max-w-5xl mx-auto text-left">
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 text-amber-700 text-[10px] font-mono font-extrabold uppercase tracking-widest px-4 py-1.5 rounded-full w-fit mb-4">
+            <Sparkles size={12} className="animate-spin" style={{ animationDuration: '3s' }} />
+            Lo nuevo en Solaris
+          </div>
+          <h2 className="text-3xl sm:text-4xl font-black text-stone-900 tracking-tight mb-4">
+            Ecosistema Inteligente & Conectividad MCP
+          </h2>
+          <p className="text-stone-500 text-sm sm:text-base leading-relaxed mb-10 max-w-2xl font-medium">
+            Llevamos la automatización comercial al siguiente nivel. Descubre cómo nuestros nuevos asistentes virtuales y el servidor de protocolo de contexto abierto transforman tu gestión diaria.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Tarjeta 1: Chatbots e Inteligencia de Negocio */}
+            <div className="bg-white border border-stone-100 rounded-3xl p-8 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+              <div>
+                <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center mb-6">
+                  <Bot size={22} />
+                </div>
+                <h3 className="text-xl font-black text-stone-900 mb-3">Copilotos Conversacionales de IA</h3>
+                <p className="text-sm text-stone-500 leading-relaxed mb-6 font-medium">
+                  Nuestros chatbots están integrados nativamente con la base de datos de tu negocio en tiempo real. Son capaces de ejecutar tareas directamente desde la interfaz de chat en lenguaje natural:
+                </p>
+                <ul className="space-y-3.5 mb-8">
+                  <li className="flex items-start gap-3">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-black text-[10px]">M</span>
+                    <div>
+                      <strong className="text-stone-800 text-sm block">Mars (Módulo Hotel)</strong>
+                      <span className="text-stone-500 text-xs leading-relaxed block">Crea huéspedes, genera o cancela reservas multihotel, gestiona bloqueos de habitaciones y calcula tarifas con desglose de impuestos locales (ISV, Tasa Turística).</span>
+                    </div>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-black text-[10px]">A</span>
+                    <div>
+                      <strong className="text-stone-800 text-sm block">Apolo (Módulo Gym)</strong>
+                      <span className="text-stone-500 text-xs leading-relaxed block">Registra nuevos miembros, inscribe deportistas a planes vigentes calculando la fecha de vencimiento y el costo total, y registra pagos de cuotas.</span>
+                    </div>
+                  </li>
+                  <li className="flex items-start gap-3 opacity-75">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center font-black text-[10px]">R</span>
+                    <div>
+                      <strong className="text-stone-800 text-sm block">ChefAI (Módulo Restaurante - Próximamente)</strong>
+                      <span className="text-stone-500 text-xs leading-relaxed block">Elaborará comandas inteligentes, reservará mesas según disponibilidad horaria, administrará el stock de ingredientes y emitirá alertas de reposición.</span>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+              <div className="bg-stone-50 border border-stone-100/50 rounded-2xl p-4 text-xs font-mono text-stone-500 leading-relaxed">
+                <span className="font-bold text-stone-700 block mb-1">💡 Ventaja Clave:</span>
+                Tus recepcionistas y entrenadores pueden operar todo el sistema mediante una conversación de voz o texto, reduciendo los tiempos de capacitación y de carga de datos a cero.
+              </div>
+            </div>
+
+            {/* Tarjeta 2: Conectividad y Servidor MCP */}
+            <div className="bg-white border border-stone-100 rounded-3xl p-8 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+              <div>
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100 flex items-center justify-center mb-6">
+                  <Cpu size={22} />
+                </div>
+                <h3 className="text-xl font-black text-stone-900 mb-3">Servidor Solaris MCP</h3>
+                <p className="text-sm text-stone-500 leading-relaxed mb-6 font-medium">
+                  Implementamos el estándar **Model Context Protocol (MCP)** de la industria. Nuestro servidor MCP unifica los datos de Solaris y los expone de forma segura a cualquier entorno AI compatible:
+                </p>
+                <div className="space-y-4 mb-8">
+                  <div className="border-l-2 border-indigo-500/35 pl-4">
+                    <strong className="text-stone-800 text-sm block mb-1">Conectividad Externa Estandarizada</strong>
+                    <p className="text-stone-500 text-xs leading-relaxed">
+                      Permite que modelos de lenguaje externos u otras aplicaciones de inteligencia artificial autorizadas consulten métricas, estados y catálogos directamente, de forma rápida y segura.
+                    </p>
+                  </div>
+                  <div className="border-l-2 border-indigo-500/35 pl-4">
+                    <strong className="text-stone-800 text-sm block mb-1">Control Analítico de Tokens</strong>
+                    <p className="text-stone-500 text-xs leading-relaxed">
+                      Registra y audita el consumo exacto de tokens de inteligencia artificial de cada propietario y negocio, facilitando el cobro o la asignación de cuotas de uso de IA de manera transparente.
+                    </p>
+                  </div>
+                  <div className="border-l-2 border-indigo-500/35 pl-4">
+                    <strong className="text-stone-800 text-sm block mb-1">Flexibilidad y Extensibilidad</strong>
+                    <p className="text-stone-500 text-xs leading-relaxed">
+                      Facilita a desarrolladores conectar Solaris con agentes inteligentes autónomos para realizar tareas complejas de mercadotecnia o auditoría en segundo plano.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-stone-50 border border-stone-100/50 rounded-2xl p-4 text-xs font-mono text-stone-500 leading-relaxed">
+                <span className="font-bold text-stone-700 block mb-1">⚙️ Ventaja Tecnológica:</span>
+                Los datos operativos se convierten en una API semántica universal. Tu negocio se vuelve completamente listo para el futuro de la automatización por agentes de IA.
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* CTA buscar reserva */}
