@@ -441,3 +441,21 @@ CREATE TABLE menu (
         ON DELETE CASCADE
 );
 
+--Tabla menu de platillo
+--Esta tabla guarda el historico de los platillo aun si se dejan de vender
+CREATE TABLE menu_platillo (
+    id_menu BIGINT NOT NULL,
+    id_platillo BIGINT NOT NULL,
+
+    PRIMARY KEY (id_menu, id_platillo),
+
+    CONSTRAINT fk_mp_menu
+        FOREIGN KEY (id_menu)
+        REFERENCES menu(id_menu)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_mp_platillo
+        FOREIGN KEY (id_platillo)
+        REFERENCES platillo(id_platillo)
+        ON DELETE CASCADE
+);
