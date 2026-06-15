@@ -492,3 +492,24 @@ CREATE TABLE detalle_factura (
         FOREIGN KEY (id_producto)
         REFERENCES producto(id_producto)
 );
+
+--Tabla proveedor
+--Un mejor manejo de los proveedores, unicamente esta relacionada con la tabla restaurante, para identificar a que restaurante
+--provee producto
+CREATE TABLE proveedor (
+    id_proveedor BIGSERIAL PRIMARY KEY,
+
+    id_restaurant BIGINT NOT NULL,
+
+    nombre_proveedor VARCHAR(150) NOT NULL,
+    nombre_contacto VARCHAR(150),
+    telefono VARCHAR(20),
+    correo VARCHAR(150),
+    direccion VARCHAR(250),
+
+    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_proveedor_restaurant
+        FOREIGN KEY (id_restaurant)
+        REFERENCES restaurant(id_restaurant)
+);
