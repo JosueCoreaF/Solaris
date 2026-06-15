@@ -420,3 +420,24 @@ CREATE TABLE reserva (
         FOREIGN KEY (id_cliente)
         REFERENCES cliente_restaurante(id_cliente)
 );
+
+--Tabla menu
+
+--En esta tabla se mostrara el resumen de todos los  platillos activos hasta de la fecha que fue creado.
+CREATE TABLE menu (
+    id_menu BIGSERIAL PRIMARY KEY,
+
+    id_restaurant BIGINT NOT NULL,
+
+    nombre_menu VARCHAR(100) NOT NULL,
+    descripcion VARCHAR(250),
+
+    activo BOOLEAN DEFAULT TRUE,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_menu_restaurant
+        FOREIGN KEY (id_restaurant)
+        REFERENCES restaurant(id_restaurant)
+        ON DELETE CASCADE
+);
+
