@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
+import SolarisLogo from '../../components/SolarisLogo';
 
 export const Login: React.FC = () => {
   const { signIn } = useAuth();
@@ -21,24 +23,36 @@ export const Login: React.FC = () => {
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'var(--shell-bg)', padding: 24
+      background: 'var(--shell-bg)', padding: 24, position: 'relative', overflow: 'hidden',
     }}>
       <div style={{
-        width: '100%', maxWidth: 380,
+        position: 'absolute', top: '-20%', right: '-10%', width: 480, height: 480, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(200,255,61,0.10), transparent 70%)', pointerEvents: 'none',
+      }} />
+      <div style={{
+        position: 'absolute', bottom: '-15%', left: '-10%', width: 420, height: 420, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(255,92,53,0.07), transparent 70%)', pointerEvents: 'none',
+      }} />
+
+      <div style={{
+        width: '100%', maxWidth: 400, position: 'relative', zIndex: 1,
         background: 'var(--shell-panel-strong)',
         border: '1px solid var(--shell-border)',
-        borderRadius: 20, padding: 36,
-        boxShadow: '0 20px 60px rgba(0,0,0,0.08)'
+        borderTop: '2px solid var(--accent)',
+        borderRadius: 6, padding: 40,
+        boxShadow: 'var(--shadow)',
+        animation: 'fadeInUp 0.4s ease-out',
       }}>
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{
-            width: 52, height: 52, borderRadius: 16, margin: '0 auto 14px',
-            background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#fff', fontWeight: 800, fontSize: 14
-          }}>GYM</div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-h)', margin: '0 0 4px' }}>Solaris Gym</h1>
-          <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>Ingresa a tu cuenta</p>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <div style={{ display: 'flex', justifyContent: 'center', margin: '0 auto 18px' }}>
+            <SolarisLogo variant="gym" size={56} />
+          </div>
+          <h1 style={{ fontFamily: 'var(--display)', fontSize: 26, color: 'var(--text-h)', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+            Solaris Gym
+          </h1>
+          <p style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.14em' }}>
+            Panel de administración
+          </p>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -53,10 +67,17 @@ export const Login: React.FC = () => {
               value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
           </div>
           <button type="submit" className="btn-primary" disabled={loading}
-            style={{ width: '100%', justifyContent: 'center', marginTop: 8, padding: '11px 16px', fontSize: 14 }}>
+            style={{ width: '100%', justifyContent: 'center', marginTop: 10, padding: '13px 16px', fontSize: 13 }}>
             {loading ? 'Ingresando...' : 'Iniciar Sesión'}
           </button>
         </form>
+
+        <p style={{ textAlign: 'center', marginTop: 24, fontSize: 12, color: 'var(--muted)' }}>
+          ¿Tienes un código de invitación?{' '}
+          <Link to="/register" style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>
+            Regístrate
+          </Link>
+        </p>
       </div>
     </div>
   );

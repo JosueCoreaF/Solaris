@@ -61,7 +61,7 @@ export const Housekeeping: React.FC = () => {
     setActualizando(hab.id_habitacion);
     const hotelId = localStorage.getItem('active_hotel_id') || '';
     try {
-      const { data } = await apiClient.put(
+      await apiClient.put(
         `/hotel/habitaciones/${hab.id_habitacion}`,
         { estado: nuevoEstado },
         { headers: { 'X-Hotel-ID': hotelId } },
@@ -69,6 +69,59 @@ export const Housekeeping: React.FC = () => {
       setHabitaciones(prev =>
         prev.map(h => h.id_habitacion === hab.id_habitacion ? { ...h, estado: nuevoEstado } : h)
       );
+
+      // Al marcar la habitación en mantenimiento, crear automáticamente una
+      // orden de trabajo para que aparezca en el panel de Mantenimiento,
+      // salvo que ya tenga una pendiente/en progreso (evita duplicados al
+      // alternar el estado de la habitación varias veces).
+      if (nuevoEstado === 'mantenimiento') {
+        try {
+          const tareasExistentes = await apiClient.get(
+            `/hotel/mantenimiento/tareas?id_habitacion=${hab.id_habitacion}`,
+            { headers: { 'X-Hotel-ID': hotelId } },
+          );
+          const tieneOrdenAbierta = Array.isArray(tareasExistentes) &&
+            tareasExistentes.some((t: any) => t.estado === 'pendiente' || t.estado === 'en_progreso');
+
+          if (!tieneOrdenAbierta) {
+            await apiClient.post(
+              '/hotel/mantenimiento/tareas',
+              {
+                titulo: `Mantenimiento - Habitación ${hab.nombre_habitacion}`,
+                id_habitacion: hab.id_habitacion,
+                prioridad: 'media',
+              },
+              { headers: { 'X-Hotel-ID': hotelId } },
+            );
+          }
+        } catch (e) {
+          console.error('Error creando orden de mantenimiento automática:', e);
+        }
+      }
+
+      // Al marcar la habitación como disponible, se asume que cualquier
+      // trabajo de mantenimiento pendiente para esa habitación ya se resolvió.
+      if (nuevoEstado === 'disponible') {
+        try {
+          const tareasExistentes = await apiClient.get(
+            `/hotel/mantenimiento/tareas?id_habitacion=${hab.id_habitacion}`,
+            { headers: { 'X-Hotel-ID': hotelId } },
+          );
+          const abiertas = Array.isArray(tareasExistentes)
+            ? tareasExistentes.filter((t: any) => t.estado === 'pendiente' || t.estado === 'en_progreso')
+            : [];
+
+          for (const tarea of abiertas) {
+            await apiClient.patch(
+              `/hotel/mantenimiento/tareas/${tarea.id_tarea}`,
+              { estado: 'completada' },
+              { headers: { 'X-Hotel-ID': hotelId } },
+            );
+          }
+        } catch (e) {
+          console.error('Error completando órdenes de mantenimiento:', e);
+        }
+      }
     } catch (e: any) {
       alert(e.response?.data?.error || 'Error actualizando estado');
     } finally {

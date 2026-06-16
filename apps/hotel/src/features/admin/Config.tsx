@@ -36,6 +36,7 @@ import {
   obtenerHoteles,
   actualizarHotel,
 } from '../../api/configService';
+import { useHasFeature } from '../../hooks/usePlanFeature';
 
 interface ConfiguracionHotelera {
   id: string;
@@ -90,6 +91,7 @@ export const Config: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'general' | 'finanzas' | 'operaciones' | 'politicas'>('general');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const hasMultimoneda = useHasFeature('multimoneda');
 
   // Estados para Edición de Hotel
   const [hotelNombre, setHotelNombre] = useState('');
@@ -186,6 +188,11 @@ export const Config: React.FC = () => {
         setHotelEstrellas(Number(activeHotel.estrellas ?? 3));
         setHotelMaps(activeHotel.enlace_google_maps || '');
         setHotelSlug(activeHotel.slug || '');
+        setHotelLogoUrl(activeHotel.logo_url || '');
+        setHotelColorPrimario(activeHotel.color_primario || '#1c1917');
+        setHotelColorSecundario(activeHotel.color_secundario || '');
+        setHotelFacebook(activeHotel.redes_sociales?.facebook || '');
+        setHotelInstagram(activeHotel.redes_sociales?.instagram || '');
       }
 
       if (!activeId) {
@@ -266,6 +273,10 @@ export const Config: React.FC = () => {
           estrellas: hotelEstrellas,
           enlace_google_maps: hotelMaps,
           slug: hotelSlug.trim() || null,
+          logo_url: hotelLogoUrl,
+          color_primario: hotelColorPrimario,
+          color_secundario: hotelColorSecundario || null,
+          redes_sociales: { facebook: hotelFacebook, instagram: hotelInstagram },
         });
 
         if (res && res.success) {
@@ -918,27 +929,34 @@ export const Config: React.FC = () => {
 
                   <div>
                     <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>Moneda Alterna / Referencia</label>
-                    <select value={monedaAlterna} onChange={e => setMonedaAlterna(e.target.value)} style={inputStyle}>
+                    <select value={monedaAlterna} onChange={e => setMonedaAlterna(e.target.value)} disabled={!hasMultimoneda} style={{ ...inputStyle, ...(hasMultimoneda ? {} : { background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }) }}>
                       <option value="USD">Dólar Estadounidense (USD)</option>
                       <option value="HNL">Lempira Hondureño (HNL)</option>
                       <option value="EUR">Euro (EUR)</option>
                     </select>
+                    {!hasMultimoneda && (
+                      <span style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'block' }}>🔒 Disponible en plan Premium</span>
+                    )}
                   </div>
 
                   <div>
                     <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>Tipo de Cambio (1 {monedaAlterna} =)</label>
                     <div style={{ position: 'relative' }}>
                       <Coins size={14} style={{ position: 'absolute', left: 12, top: 13, color: '#94a3b8' }} />
-                      <input 
-                        type="number" 
-                        step="0.0001" 
-                        required 
-                        value={tipoChangeValue(tipoCambio)} 
-                        onChange={e => setTipoCambio(parseFloat(e.target.value) || 0)} 
-                        style={{ ...inputStyle, paddingLeft: 34 }} 
+                      <input
+                        type="number"
+                        step="0.0001"
+                        required
+                        value={tipoChangeValue(tipoCambio)}
+                        onChange={e => setTipoCambio(parseFloat(e.target.value) || 0)}
+                        disabled={!hasMultimoneda}
+                        style={{ ...inputStyle, paddingLeft: 34, ...(hasMultimoneda ? {} : { background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }) }}
                       />
                       <span style={{ position: 'absolute', right: 12, top: 11, fontSize: 12, fontWeight: 700, color: '#64748b' }}>{monedaPrincipal}</span>
                     </div>
+                    {!hasMultimoneda && (
+                      <span style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'block' }}>🔒 Disponible en plan Premium</span>
+                    )}
                   </div>
 
                   <div>

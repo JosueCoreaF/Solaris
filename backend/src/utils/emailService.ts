@@ -1510,6 +1510,7 @@ export interface SubscriptionNotifEmailData {
   ownerName: string;
   planName?: string;
   trialEnd?: string;
+  periodEnd?: string;
   daysLeft?: number;
   reason?: 'cancelada' | 'impaga' | 'inactiva' | 'cuenta_desactivada';
 }
@@ -1561,6 +1562,38 @@ export async function sendSubscriptionExpiringEmail(data: SubscriptionNotifEmail
     });
     if (error) { console.error('Error correo membresía por vencer:', error); return { success: false, error }; }
     console.log(`✅ Correo membresía por vencer → ${data.ownerEmail}`);
+    return { success: true, data: rd };
+  } catch (err) { return { success: false, error: err }; }
+}
+
+export async function sendSubscriptionCancelScheduledEmail(data: SubscriptionNotifEmailData) {
+  if (!resend) return { success: false };
+  if (data.ownerEmail.includes('@partnercentral.local')) return { success: true };
+  try {
+    const { data: rd, error } = await resend.emails.send({
+      from: 'Solaris <notificaciones@solarys.uk>',
+      to: [data.ownerEmail],
+      subject: 'Cancelación programada — Solaris',
+      html: getSubscriptionCancelScheduledTemplate(data),
+    });
+    if (error) { console.error('Error correo cancelación programada:', error); return { success: false, error }; }
+    console.log(`✅ Correo cancelación programada → ${data.ownerEmail}`);
+    return { success: true, data: rd };
+  } catch (err) { return { success: false, error: err }; }
+}
+
+export async function sendSubscriptionReactivatedEmail(data: SubscriptionNotifEmailData) {
+  if (!resend) return { success: false };
+  if (data.ownerEmail.includes('@partnercentral.local')) return { success: true };
+  try {
+    const { data: rd, error } = await resend.emails.send({
+      from: 'Solaris <notificaciones@solarys.uk>',
+      to: [data.ownerEmail],
+      subject: 'Suscripción reactivada — Solaris',
+      html: getSubscriptionReactivatedTemplate(data),
+    });
+    if (error) { console.error('Error correo reactivación suscripción:', error); return { success: false, error }; }
+    console.log(`✅ Correo reactivación suscripción → ${data.ownerEmail}`);
     return { success: true, data: rd };
   } catch (err) { return { success: false, error: err }; }
 }
@@ -1704,6 +1737,72 @@ function getSubscriptionExpiringTemplate(data: SubscriptionNotifEmailData): stri
       ${endStr ? `<div class="card"><div class="card-label">Fecha de vencimiento</div><div class="card-value">${endStr}</div></div>` : ''}
       <p class="msg">Para evitar interrupciones en el servicio, te recomendamos contactar al equipo de Solaris con anticipación para gestionar la renovación de tu membresía.</p>
       <div class="contact">Responde a este correo o contacta directamente al soporte de Solaris para renovar tu plan y mantener tu negocio operando sin interrupciones.</div>
+    </div>
+    <div class="footer"><p>&copy; ${new Date().getFullYear()} Solaris Platform. Todos los derechos reservados.<br>Este es un mensaje automático de administración del sistema.</p></div>
+  </div></body></html>`;
+}
+
+function getSubscriptionCancelScheduledTemplate(data: SubscriptionNotifEmailData): string {
+  const endStr = data.periodEnd ? formatDateEs(data.periodEnd) : '';
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body{font-family:Helvetica,Arial,sans-serif;line-height:1.6;color:#1e293b;background:#f1f5f9;margin:0;padding:0}
+    .wrap{max-width:580px;margin:40px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.07);border-top:5px solid #f59e0b}
+    .hdr{background:#0f172a;padding:32px 40px;color:#fff}
+    .hdr h1{margin:0;font-size:20px;font-weight:700;color:#fbbf24}
+    .hdr p{margin:6px 0 0;font-size:13px;color:#94a3b8;text-transform:uppercase;letter-spacing:.8px}
+    .body{padding:36px 40px}
+    .greeting{font-size:16px;font-weight:600;color:#0f172a;margin:0 0 18px}
+    .card{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:20px 24px;margin:20px 0}
+    .card-label{font-size:11px;text-transform:uppercase;color:#92400e;letter-spacing:.7px;font-weight:600;margin-bottom:4px}
+    .card-value{font-size:15px;font-weight:700;color:#78350f}
+    .badge{display:inline-block;background:#fef3c7;color:#92400e;font-size:13px;font-weight:700;padding:6px 16px;border-radius:20px;margin:4px 0}
+    .msg{font-size:14px;color:#475569;line-height:1.7;margin:20px 0}
+    .contact{background:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid #f59e0b;border-radius:6px;padding:16px 20px;font-size:13px;color:#475569;margin-top:24px}
+    .footer{background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 40px;text-align:center}
+    .footer p{color:#94a3b8;font-size:12px;margin:0;line-height:1.7}
+  </style></head><body>
+  <div class="wrap">
+    <div class="hdr"><h1>Cancelación Programada</h1><p>Notificación de cuenta — Solaris</p></div>
+    <div class="body">
+      <p class="greeting">Estimado(a) ${data.ownerName},</p>
+      <p class="msg">Hemos recibido tu solicitud de cancelación${data.planName ? ` del plan <strong>${data.planName}</strong>` : ''}. <span class="badge">⏳ Acceso vigente hasta el final del período</span></p>
+      ${endStr ? `<div class="card"><div class="card-label">Acceso activo hasta</div><div class="card-value">${endStr}</div></div>` : ''}
+      <p class="msg">Tu membresía seguirá activa con todas sus funciones hasta esa fecha. Después de ella, la suscripción no se renovará automáticamente y perderás el acceso a este módulo.</p>
+      <div class="contact">¿Cambiaste de opinión? Puedes reactivar tu plan en cualquier momento antes de esa fecha desde el panel de Facturación en Solaris.</div>
+    </div>
+    <div class="footer"><p>&copy; ${new Date().getFullYear()} Solaris Platform. Todos los derechos reservados.<br>Este es un mensaje automático de administración del sistema.</p></div>
+  </div></body></html>`;
+}
+
+function getSubscriptionReactivatedTemplate(data: SubscriptionNotifEmailData): string {
+  const planStr = data.planName ? `Plan <strong>${data.planName}</strong>` : 'tu membresía';
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body{font-family:Helvetica,Arial,sans-serif;line-height:1.6;color:#1e293b;background:#f1f5f9;margin:0;padding:0}
+    .wrap{max-width:580px;margin:40px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.07);border-top:5px solid #10b981}
+    .hdr{background:#0f172a;padding:32px 40px;color:#fff}
+    .hdr h1{margin:0;font-size:20px;font-weight:700;color:#34d399}
+    .hdr p{margin:6px 0 0;font-size:13px;color:#94a3b8;text-transform:uppercase;letter-spacing:.8px}
+    .body{padding:36px 40px}
+    .greeting{font-size:16px;font-weight:600;color:#0f172a;margin:0 0 18px}
+    .card{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:20px 24px;margin:20px 0}
+    .card-label{font-size:11px;text-transform:uppercase;color:#166534;letter-spacing:.7px;font-weight:600;margin-bottom:4px}
+    .card-value{font-size:15px;font-weight:700;color:#15803d}
+    .badge{display:inline-block;background:#dcfce7;color:#166534;font-size:13px;font-weight:700;padding:6px 16px;border-radius:20px;margin:4px 0}
+    .msg{font-size:14px;color:#475569;line-height:1.7;margin:20px 0}
+    .footer{background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 40px;text-align:center}
+    .footer p{color:#94a3b8;font-size:12px;margin:0;line-height:1.7}
+  </style></head><body>
+  <div class="wrap">
+    <div class="hdr"><h1>Suscripción Reactivada</h1><p>Notificación de cuenta — Solaris</p></div>
+    <div class="body">
+      <p class="greeting">Estimado(a) ${data.ownerName},</p>
+      <p class="msg">Tu solicitud de cancelación ha sido revertida. ${planStr} continúa <span class="badge">✔ Activa</span> y se renovará con normalidad.</p>
+      <div class="card"><div class="card-label">Estado de membresía</div><div class="card-value">Activa</div></div>
+      <p class="msg">No es necesario realizar ninguna acción adicional. Si tienes alguna pregunta sobre tu membresía, no dudes en contactarnos.</p>
     </div>
     <div class="footer"><p>&copy; ${new Date().getFullYear()} Solaris Platform. Todos los derechos reservados.<br>Este es un mensaje automático de administración del sistema.</p></div>
   </div></body></html>`;

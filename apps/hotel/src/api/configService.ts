@@ -269,9 +269,10 @@ export async function actualizarHotel(id: string, hotel: {
   correo_contacto?: string;
   estrellas?: number;
   enlace_google_maps?: string;
+  slug?: string | null;
   logo_url?: string;
   color_primario?: string;
-  color_secundario?: string;
+  color_secundario?: string | null;
   redes_sociales?: any;
 }) {
   try {

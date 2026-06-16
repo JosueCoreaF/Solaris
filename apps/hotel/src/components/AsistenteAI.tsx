@@ -157,7 +157,7 @@ export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
       if (keysPool.length > 1) {
         const nextIndex = (activeKeyIndex + 1) % keysPool.length;
         setActiveKeyIndex(nextIndex);
-        console.log(`[Verona AI] Key #${activeKeyIndex + 1} bloqueada en verificación. Rotando a Key #${nextIndex + 1}...`);
+        console.log(`[Mars AI] Key #${activeKeyIndex + 1} bloqueada en verificación. Rotando a Key #${nextIndex + 1}...`);
       }
       return false;
     } catch {
@@ -199,7 +199,7 @@ export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
     const targetIndex = (activeKeyIndex + attempt) % keysPool.length;
     const apiKey = keysPool[targetIndex];
 
-    console.log(`[Verona AI] Enviando consulta con Key #${targetIndex + 1} de ${keysPool.length}...`);
+    console.log(`[Mars AI] Enviando consulta con Key #${targetIndex + 1} de ${keysPool.length}...`);
 
     try {
       const response = await fetch(
@@ -220,7 +220,7 @@ export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
           response.status === 429;
 
         if (isRateLimit && attempt < keysPool.length - 1) {
-          console.warn(`[Verona AI] Key #${targetIndex + 1} agotada por cuota. Rotando a la siguiente clave...`);
+          console.warn(`[Mars AI] Key #${targetIndex + 1} agotada por cuota. Rotando a la siguiente clave...`);
           // Save the rotated index so next message starts from there
           setActiveKeyIndex((targetIndex + 1) % keysPool.length);
           // Retry immediately with the next key in the pool
@@ -240,7 +240,7 @@ export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
         errMsg.toLowerCase().includes('429');
 
       if (isRateLimit && attempt < keysPool.length - 1) {
-        console.warn(`[Verona AI] Error de cuota con Key #${targetIndex + 1}. Rotando...`);
+        console.warn(`[Mars AI] Error de cuota con Key #${targetIndex + 1}. Rotando...`);
         setActiveKeyIndex((targetIndex + 1) % keysPool.length);
         return fetchGeminiWithRotation(bodyObj, attempt + 1);
       }
@@ -281,7 +281,7 @@ export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
       setMessages([
         {
           role: 'model',
-          text: `Hola. Soy **Verona AI**, tu copiloto inteligente de soporte conectado a la base de datos en tiempo real.
+          text: `Hola. Soy **Mars AI**, tu copiloto inteligente de soporte conectado a la base de datos en tiempo real.
 
 ¿En qué te puedo asistir hoy? Puedo ayudarte a:
 - **Crear nuevas reservas** y registrar nuevos huéspedes en segundos.
@@ -627,7 +627,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
           for (const part of functionCallParts) {
             const { name, args } = part.functionCall;
             let resultText = '';
-            
+
             try {
               if (name === 'updateReservation') {
                 const fields: any = {};
@@ -681,7 +681,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
                 });
                 resultText = `Reserva creada con éxito. ID: ${newRes.id_reserva_hotel}. Habitación: ${newRes.id_habitacion}.`;
               } else if (name === 'toggleRoomBlock') {
-                const res = await toggleBloqueo(args.idHabitacion, args.fecha, args.motivo || 'Modificado por Verona AI');
+                const res = await toggleBloqueo(args.idHabitacion, args.fecha, args.motivo || 'Modificado por Mars AI');
                 resultText = `Bloqueo de habitación ${args.idHabitacion} para la fecha ${args.fecha} conmutado con éxito. Nueva acción realizada: ${res.action === 'added' ? 'Bloqueada' : 'Habilitada'}.`;
               } else if (name === 'splitReservation') {
                 await splitReserva(args.idReservaHotel, args.fechaCorte);
@@ -691,7 +691,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
               console.warn(`Error en función ${name}:`, err);
               resultText = `ERROR en ${name} para habitación ${args.idHabitacion || 'desconocida'}: ${err.message || 'Error desconocido'}. Debes elegir otra habitación disponible e informar al usuario.`;
             }
-            
+
             results.push({ name, resultText });
           }
 
@@ -1185,7 +1185,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
         <button
           className={`verona-ai-float${isOpen ? ' active' : ''}`}
           onClick={() => setIsOpen(!isOpen)}
-          title="Asistente Verona AI (Gemini)"
+          title="Asistente Mars AI (Gemini)"
         >
           {isOpen ? '×' : 'AI'}
         </button>
@@ -1269,7 +1269,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
                   ? "Verificando disponibilidad..."
                   : rateLimitCountdown !== null
                     ? `Espera ${rateLimitCountdown}s para consultar...`
-                    : "Pregunta a Verona AI..."
+                    : "Pregunta a Mars AI..."
               }
               disabled={loading || rateLimitCountdown !== null || isVerifying}
               style={(rateLimitCountdown !== null || isVerifying) ? { backgroundColor: 'var(--shell-bg)', cursor: 'not-allowed' } : undefined}
@@ -1301,7 +1301,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
                 <div className="verona-ai-header-info">
                   <div className="verona-ai-logo">AI</div>
                   <div>
-                    <div className="verona-ai-header-title">Verona AI</div>
+                    <div className="verona-ai-header-title">Mars AI</div>
                     <div className="verona-ai-header-sub">
                       <span className="verona-ai-dot" /> Copiloto Activo
                     </div>
@@ -1376,7 +1376,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
                       ? "Verificando disponibilidad..."
                       : rateLimitCountdown !== null
                         ? `Espera ${rateLimitCountdown}s para consultar...`
-                        : "Pregunta a Verona AI..."
+                        : "Pregunta a Mars AI..."
                   }
                   disabled={loading || rateLimitCountdown !== null || isVerifying}
                   style={(rateLimitCountdown !== null || isVerifying) ? { backgroundColor: 'var(--shell-bg)', cursor: 'not-allowed' } : undefined}

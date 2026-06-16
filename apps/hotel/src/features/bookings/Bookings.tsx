@@ -39,6 +39,7 @@ import {
 import { obtenerConfigHotelera } from '../../api/configService';
 import { obtenerTarifasVigentes, type Tarifa } from '../../api/tarifasService';
 import { EmailStudioModal } from '../../components/EmailStudioModal';
+import { useHasFeature } from '../../hooks/usePlanFeature';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -214,6 +215,7 @@ export const Bookings: React.FC = () => {
 
   // ── Email Studio ──
   const [emailStudioReserva, setEmailStudioReserva] = useState<Reserva | null>(null);
+  const hasEmailStudio = useHasFeature('email_studio');
 
   // ── Toast ──
   const showToast = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {
@@ -3815,7 +3817,7 @@ export const Bookings: React.FC = () => {
       )}
 
       {/* ── Modal: Email Studio ── */}
-      {emailStudioReserva && (
+      {emailStudioReserva && hasEmailStudio && (
         <EmailStudioModal
           isOpen={!!emailStudioReserva}
           onClose={() => setEmailStudioReserva(null)}

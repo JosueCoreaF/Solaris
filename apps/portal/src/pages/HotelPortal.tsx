@@ -19,6 +19,31 @@ import {
 import { Hotel as HotelType, Habitacion, ReservaForm } from '../types';
 import { formatearFecha, calcularNoches, formatMoneda } from '../utils/slug';
 
+// ── Sesión de chat del huésped (persistida para reutilizar el mismo canal) ────
+interface GuestSession {
+  nombre: string;
+  correo?: string;
+  telefono?: string;
+  channelId?: string;
+  guestId?: string;
+}
+
+const guestSessionKey = (hotelId: string) => `solaris_guest_chat_${hotelId}`;
+
+const loadGuestSession = (hotelId: string): GuestSession | null => {
+  try {
+    const raw = localStorage.getItem(guestSessionKey(hotelId));
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+};
+
+const saveGuestSession = (hotelId: string, data: Partial<GuestSession>) => {
+  try {
+    const current = loadGuestSession(hotelId);
+    localStorage.setItem(guestSessionKey(hotelId), JSON.stringify({ ...current, ...data }));
+  } catch { /* ignore */ }
+};
+
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 const Sk = ({ className = '' }: { className?: string }) => (
   <div className={`shimmer rounded-2xl ${className}`} />
@@ -90,45 +115,114 @@ const ImageGallery = ({ imagenes, nombre, height = 'h-52' }: {
   );
 };
 
-// ── Viewer 360 simple ─────────────────────────────────────────────────────────
+// ── Viewer 360 interactivo con WebGL (Pannellum) ───────────────────────────────
 const Viewer360 = ({ url }: { url: string }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [offsetX, setOffsetX] = useState(50); // 0-100 %
-  const dragging = useRef(false);
-  const lastX = useRef(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const handlePointerDown = (e: React.PointerEvent) => {
-    dragging.current = true; lastX.current = e.clientX;
-    containerRef.current?.setPointerCapture(e.pointerId);
-  };
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!dragging.current) return;
-    const dx = e.clientX - lastX.current;
-    lastX.current = e.clientX;
-    setOffsetX(prev => Math.max(0, Math.min(100, prev - dx * 0.15)));
-  };
-  const handlePointerUp = () => { dragging.current = false; };
+  useEffect(() => {
+    // 1. Cargar CSS de Pannellum si no existe
+    let cssLink = document.getElementById('pannellum-css') as HTMLLinkElement;
+    if (!cssLink) {
+      cssLink = document.createElement('link');
+      cssLink.id = 'pannellum-css';
+      cssLink.rel = 'stylesheet';
+      cssLink.href = 'https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.css';
+      document.head.appendChild(cssLink);
+    }
+
+    // 2. Cargar JS de Pannellum si no existe
+    const loadScript = () => {
+      return new Promise<void>((resolve, reject) => {
+        if ((window as any).pannellum) {
+          resolve();
+          return;
+        }
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js';
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error('No se pudo cargar el visor 360.'));
+        document.body.appendChild(script);
+      });
+    };
+
+    let viewer: any = null;
+
+    loadScript()
+      .then(() => {
+        setLoading(false);
+        if (!containerRef.current || !(window as any).pannellum) return;
+        
+        // Inicializar el visor de Pannellum en el div referenciado
+        try {
+          viewer = (window as any).pannellum.viewer(containerRef.current, {
+            type: 'equirectangular',
+            panorama: url,
+            autoLoad: true,
+            compass: false,
+            showControls: true,
+            yaw: 0,
+            pitch: 0,
+            hfov: 100,
+            minHfov: 50,
+            maxHfov: 120,
+            mouseZoom: true,
+            dragToLook: true
+          });
+        } catch (err: any) {
+          console.error(err);
+          setError('Error al inicializar el visor 360.');
+        }
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
+
+    return () => {
+      if (viewer) {
+        try {
+          viewer.destroy();
+        } catch (e) {
+          // silenciar
+        }
+      }
+    };
+  }, [url]);
 
   return (
-    <div ref={containerRef} className="relative w-full h-60 overflow-hidden rounded-2xl cursor-grab active:cursor-grabbing bg-stone-900 select-none"
-      onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}>
-      <img src={url} alt="Vista 360°"
-        className="absolute top-0 h-full object-cover"
-        style={{ width: '200%', left: `${-offsetX}%`, transition: 'none' }}
-        draggable={false} />
-      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-3 py-1.5 rounded-full">
-        <RotateCcw size={11} /> Arrastra para explorar
-      </div>
+    <div className="relative w-full h-72 md:h-[360px] rounded-2xl overflow-hidden bg-stone-950">
+      {loading && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-2 bg-stone-950 z-10">
+          <Loader2 className="animate-spin text-stone-500" size={24} />
+          <span className="text-xs text-stone-400">Cargando vista 360°...</span>
+        </div>
+      )}
+      {error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400 p-4 text-center bg-stone-950 z-10">
+          <span className="text-xs">{error}</span>
+        </div>
+      )}
+      <div ref={containerRef} className="w-full h-full" />
     </div>
   );
 };
 
 // ── Room Detail Modal ─────────────────────────────────────────────────────────
-const RoomDetailModal = ({ hab, hotel, onReservar, onClose }: {
-  hab: Habitacion; hotel: HotelType; onReservar: () => void; onClose: () => void;
+const RoomDetailModal = ({ hab, hotel, onReservar, onClose, initialTab = 'fotos' }: {
+  hab: Habitacion; hotel: HotelType; onReservar: () => void; onClose: () => void; initialTab?: 'fotos' | '360';
 }) => {
-  const [tab, setTab] = useState<'fotos' | '360' | 'detalles'>('fotos');
+  const [tab, setTab] = useState<'fotos' | '360' | 'detalles'>(initialTab);
   const has360 = !!hab.imagen_360;
+
+  useEffect(() => {
+    if (initialTab === '360' && !has360) {
+      setTab('fotos');
+    } else {
+      setTab(initialTab);
+    }
+  }, [initialTab, has360]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-6"
@@ -136,7 +230,7 @@ const RoomDetailModal = ({ hab, hotel, onReservar, onClose }: {
       onClick={onClose}>
       <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 32, stiffness: 300 }}
-        className="bg-white w-full md:max-w-4xl md:rounded-3xl rounded-t-3xl max-h-[92dvh] flex flex-col md:flex-row shadow-2xl overflow-hidden"
+        className="bg-white w-full md:max-w-4xl md:rounded-3xl rounded-t-3xl max-h-[92dvh] flex flex-col shadow-2xl overflow-hidden"
         onClick={e => e.stopPropagation()}>
 
         {/* Drag handle */}
@@ -159,7 +253,7 @@ const RoomDetailModal = ({ hab, hotel, onReservar, onClose }: {
           </button>
         </div>
 
-        {/* Tabs */}
+        {/* Tabs - Mobile only */}
         <div className="flex border-b border-stone-100 md:hidden">
           {(['fotos', ...(has360 ? ['360'] : []), 'detalles'] as const).map(t => (
             <button key={t} onClick={() => setTab(t as any)}
@@ -172,113 +266,110 @@ const RoomDetailModal = ({ hab, hotel, onReservar, onClose }: {
         {/* Content Mobile -> tab based, Content Desktop -> split view */}
         <div className="overflow-y-auto flex-1 flex flex-col md:flex-row w-full">
           
-          {/* Columna Izquierda (Escritorio: Fotos, Móvil: Tab fotos/360) */}
+          {/* Columna Izquierda (Media) */}
           <div className={`w-full md:w-[55%] md:border-r border-stone-100 ${tab === 'detalles' ? 'hidden md:block' : 'block'}`}>
-            <div className="p-0 md:p-6 h-full flex flex-col">
-              {/* En móvil mostramos o fotos o 360. En desktop mostramos un visor principal */}
-              {(tab === 'fotos' || (typeof window !== 'undefined' && window.innerWidth >= 768)) && (
-                <div className="flex-1 min-h-[300px]">
+            <div className="p-4 md:p-6 h-full flex flex-col justify-center">
+              
+              {/* Tabs for desktop - Only when 360 is available */}
+              {has360 && (
+                <div className="hidden md:flex gap-2 mb-4 bg-stone-100 p-1 rounded-xl self-start">
+                  <button onClick={() => setTab('fotos')}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${tab !== '360' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}>
+                    Fotos
+                  </button>
+                  <button onClick={() => setTab('360')}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${tab === '360' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}>
+                    Vista 360°
+                  </button>
+                </div>
+              )}
+
+              {/* Media viewer */}
+              <div className="flex-1 min-h-[300px] flex flex-col justify-center">
+                {tab === '360' && hab.imagen_360 ? (
+                  <div className="space-y-3">
+                    <Viewer360 url={hab.imagen_360} />
+                    <a href={hab.imagen_360} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 text-xs text-stone-500 hover:text-stone-700">
+                      <Eye size={12} /> Abrir en pantalla completa
+                    </a>
+                  </div>
+                ) : (
                   <ImageGallery imagenes={hab.imagenes} nombre={hab.nombreAlias || hab.nombre} height="h-64 md:h-full md:rounded-2xl" />
-                </div>
-              )}
-              {tab === '360' && hab.imagen_360 && (
-                <div className="flex-1 min-h-[300px] md:mt-4">
-                  <Viewer360 url={hab.imagen_360} />
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
 
           {/* Columna Derecha (Detalles) */}
           <div className={`w-full md:w-[45%] flex flex-col ${tab !== 'detalles' ? 'hidden md:flex' : 'flex'}`}>
             <div className="flex-1 overflow-y-auto p-5 md:p-6">
-          {tab === 'fotos' && (
-            <div className="space-y-3">
-              <ImageGallery imagenes={hab.imagenes} nombre={hab.nombreAlias || hab.nombre} height="h-64" />
-              {hab.imagenes.length === 0 && (
-                <p className="text-center text-sm text-stone-400 py-4">Sin imágenes disponibles.</p>
-              )}
-            </div>
-          )}
-
-          {tab === '360' && hab.imagen_360 && (
-            <div className="space-y-3">
-              <Viewer360 url={hab.imagen_360} />
-              <a href={hab.imagen_360} target="_blank" rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 text-xs text-stone-500 hover:text-stone-700">
-                <Eye size={12} /> Abrir en pantalla completa
-              </a>
-            </div>
-          )}
-
-          {tab === 'detalles' && (
-            <div className="space-y-5">
-              {/* Specs */}
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: 'Tipo', value: hab.tipo },
-                  { label: 'Capacidad', value: `${hab.capacidad} persona${hab.capacidad !== 1 ? 's' : ''}` },
-                  { label: 'Camas', value: `${hab.numeroCamas} cama${hab.numeroCamas !== 1 ? 's' : ''}` },
-                  { label: 'Tarifa', value: `${formatMoneda(hab.tarifaNoche, hotel.moneda)}/noche` },
-                ].map(s => (
-                  <div key={s.label} className="bg-stone-50 rounded-2xl p-3">
-                    <p className="text-[10px] text-stone-400 font-bold uppercase tracking-wide mb-0.5">{s.label}</p>
-                    <p className="text-sm font-bold text-stone-800">{s.value}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Servicios */}
-              {hab.comodidades.length > 0 && (
-                <div>
-                  <p className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-3">Servicios incluidos</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {hab.comodidades.map(c => (
-                      <div key={c} className="flex items-center gap-2.5 bg-stone-50 rounded-2xl px-3 py-2.5">
-                        <span className="text-stone-500">{svcIcon(c)}</span>
-                        <span className="text-xs font-semibold text-stone-700">{c}</span>
-                      </div>
-                    ))}
-                  </div>
+              <div className="space-y-5">
+                {/* Specs */}
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: 'Tipo', value: hab.tipo },
+                    { label: 'Capacidad', value: `${hab.capacidad} persona${hab.capacidad !== 1 ? 's' : ''}` },
+                    { label: 'Camas', value: `${hab.numeroCamas} cama${hab.numeroCamas !== 1 ? 's' : ''}` },
+                    { label: 'Tarifa', value: `${formatMoneda(hab.tarifaNoche, hotel.moneda)}/noche` },
+                  ].map(s => (
+                    <div key={s.label} className="bg-stone-50 rounded-2xl p-3">
+                      <p className="text-[10px] text-stone-400 font-bold uppercase tracking-wide mb-0.5">{s.label}</p>
+                      <p className="text-sm font-bold text-stone-800">{s.value}</p>
+                    </div>
+                  ))}
                 </div>
-              )}
 
-              {/* Cargo persona extra */}
-              {hotel.cargoPersonaExtra > 0 && (
-                <div className="bg-amber-50 border border-amber-100 rounded-2xl p-3 text-xs text-amber-700">
-                  <strong>Cargo por persona adicional:</strong> {formatMoneda(hotel.cargoPersonaExtra, hotel.moneda)} por noche
-                  (cap. base {hab.capacidad} pers. · máx. 1 persona extra permitida)
-                </div>
-              )}
-
-              <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3 text-xs text-emerald-700 flex items-start gap-2">
-                <Info size={13} className="flex-shrink-0 mt-0.5" />
-                Las tarifas incluyen todos los impuestos (ISV + Turismo).
-              </div>
-            </div>
-          )}
-          </div> {/* End Derecha Content */}
-
-          {/* CTA */}
-          <div className="px-5 md:px-6 pb-6 pt-4 border-t border-stone-100 bg-white">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <span className="text-2xl font-black text-stone-900">{formatMoneda(hab.tarifaNoche, hotel.moneda)}</span>
-                <span className="text-xs text-stone-400 ml-1">/ noche · impuestos incluidos</span>
-                {hab.esTarifaPeriodo && (
-                  <span className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 align-middle">
-                    {hab.nombrePeriodo || 'Precio especial'}
-                  </span>
+                {/* Servicios */}
+                {hab.comodidades.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-3">Servicios incluidos</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {hab.comodidades.map(c => (
+                        <div key={c} className="flex items-center gap-2.5 bg-stone-50 rounded-2xl px-3 py-2.5">
+                          <span className="text-stone-500">{svcIcon(c)}</span>
+                          <span className="text-xs font-semibold text-stone-700">{c}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
+
+                {/* Cargo persona extra */}
+                {hotel.cargoPersonaExtra > 0 && (
+                  <div className="bg-amber-50 border border-amber-100 rounded-2xl p-3 text-xs text-amber-700">
+                    <strong>Cargo por persona adicional:</strong> {formatMoneda(hotel.cargoPersonaExtra, hotel.moneda)} por noche
+                    (cap. base {hab.capacidad} pers. · máx. 1 persona extra permitida)
+                  </div>
+                )}
+
+                <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3 text-xs text-emerald-700 flex items-start gap-2">
+                  <Info size={13} className="flex-shrink-0 mt-0.5" />
+                  Las tarifas incluyen todos los impuestos (ISV + Turismo).
+                </div>
               </div>
             </div>
-            <button onClick={() => { onClose(); onReservar(); }}
-              className="w-full py-4 bg-[var(--color-brand)] brightness-100 hover:brightness-110 active:brightness-90 text-white font-black rounded-2xl text-base transition-all">
-              Reservar esta habitación
-            </button>
+
+            {/* CTA */}
+            <div className="px-5 md:px-6 pb-6 pt-4 border-t border-stone-100 bg-white">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <span className="text-2xl font-black text-stone-900">{formatMoneda(hab.tarifaNoche, hotel.moneda)}</span>
+                  <span className="text-xs text-stone-400 ml-1">/ noche · impuestos incluidos</span>
+                  {hab.esTarifaPeriodo && (
+                    <span className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 align-middle">
+                      {hab.nombrePeriodo || 'Precio especial'}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button onClick={() => { onClose(); onReservar(); }}
+                className="w-full py-4 bg-[var(--color-brand)] brightness-100 hover:brightness-110 active:brightness-90 text-white font-black rounded-2xl text-base transition-all">
+                Reservar esta habitación
+              </button>
+            </div>
           </div>
-          </div> {/* End Derecha */}
-        </div> {/* End Content Flex */}
+        </div>
       </motion.div>
     </div>
   );
@@ -287,7 +378,7 @@ const RoomDetailModal = ({ hab, hotel, onReservar, onClose }: {
 // ── Room Card ─────────────────────────────────────────────────────────────────
 const RoomCard = ({ hab, noches, moneda, hotel, onReservar, onDetalle, index }: {
   hab: Habitacion; noches: number; moneda: string; hotel: HotelType;
-  onReservar: () => void; onDetalle: () => void; index: number;
+  onReservar: () => void; onDetalle: (initialTab?: 'fotos' | '360') => void; index: number;
 }) => {
   const nombre = hab.nombreAlias || hab.nombre;
 
@@ -302,13 +393,13 @@ const RoomCard = ({ hab, noches, moneda, hotel, onReservar, onDetalle, index }: 
         <ImageGallery imagenes={hab.imagenes} nombre={nombre} height="h-52 lg:h-60" />
         <div className="absolute bottom-2 right-2 flex gap-1.5">
           {hab.imagen_360 && (
-            <button onClick={onDetalle}
+            <button onClick={() => onDetalle('360')}
               className="flex items-center gap-1 bg-black/60 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-1 rounded-full">
               <RotateCcw size={9} /> 360°
             </button>
           )}
           {hab.imagenes.length > 0 && (
-            <button onClick={onDetalle}
+            <button onClick={() => onDetalle('fotos')}
               className="flex items-center gap-1 bg-black/60 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-1 rounded-full">
               <Eye size={9} /> Ver todo
             </button>
@@ -340,7 +431,7 @@ const RoomCard = ({ hab, noches, moneda, hotel, onReservar, onDetalle, index }: 
               </span>
             ))}
             {hab.comodidades.length > 4 && (
-              <button onClick={onDetalle}
+              <button onClick={() => onDetalle('fotos')}
                 className="text-[11px] text-stone-400 underline">
                 +{hab.comodidades.length - 4} más
               </button>
@@ -358,7 +449,7 @@ const RoomCard = ({ hab, noches, moneda, hotel, onReservar, onDetalle, index }: 
 
         {/* Acciones */}
         <div className="flex gap-2">
-          <button onClick={onDetalle}
+          <button onClick={() => onDetalle('fotos')}
             className="flex-1 py-3 border border-stone-200 text-stone-600 font-bold rounded-2xl text-sm flex items-center justify-center gap-1.5 active:bg-stone-50 transition-colors">
             <Info size={14} /> Detalles
           </button>
@@ -399,6 +490,12 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
   const [checkingDisp,setCheckingDisp] = useState(false);
   const [dispOk,     setDispOk]     = useState<boolean | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Si ya identificamos al huésped antes (ej. desde el chat flotante), prellenar su correo
+  useEffect(() => {
+    const saved = loadGuestSession(hotel.id);
+    if (saved?.correo) setCorreoInput(saved.correo);
+  }, [hotel.id]);
 
   // Tarifa activa para la habitación según las fechas seleccionadas
   const [tarifaActiva, setTarifaActiva] = useState<{
@@ -441,11 +538,17 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
   const handleOpenChat = async () => {
     setChatStep('loading'); setChatError('');
     try {
-      const res = await initGuestChat(form.nombre || correoInput, form.correo || correoInput, form.telefono, hotel.id);
+      const nombre  = form.nombre  || correoInput;
+      const correo  = form.correo  || correoInput;
+      const res = await initGuestChat(nombre, correo, form.telefono, hotel.id);
       setChannelId(res.channelId);
       setGuestIdentifier(res.guestId);
       setChatMessages(res.messages || []);
       setChatStep('open');
+      saveGuestSession(hotel.id, {
+        nombre, correo, telefono: form.telefono,
+        channelId: res.channelId, guestId: res.guestId,
+      });
     } catch (e: any) {
       setChatError(e.message);
       setChatStep('idle');
@@ -494,6 +597,7 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
       if (res.encontrado) {
         setHuesped(res.huesped);
         setForm(f => ({ ...f, nombre: res.huesped.nombre, correo: res.huesped.correo, telefono: res.huesped.telefono || '' }));
+        saveGuestSession(hotel.id, { nombre: res.huesped.nombre, correo: res.huesped.correo, telefono: res.huesped.telefono || '' });
         setStep('reserva');
       } else { setStep('registro'); }
     } catch (e: any) { setError(e.message); }
@@ -508,6 +612,7 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
       const res = await registrarHuesped({ nombre_completo: regNombre.trim(), correo: correoInput.trim(), telefono: regTel.trim(), id_hotel: hotel.id });
       const h = res.huesped;
       setHuesped(h); setForm(f => ({ ...f, nombre: h.nombre, correo: h.correo, telefono: h.telefono || '' }));
+      saveGuestSession(hotel.id, { nombre: h.nombre, correo: h.correo, telefono: h.telefono || '' });
       setStep('reserva');
     } catch (e: any) { setError(e.message); }
     finally { setRegistrando(false); }
@@ -687,7 +792,7 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
         </div>
 
         {/* Columna Derecha (Formulario) */}
-        <div className="flex-1 flex flex-col w-full md:w-[55%]">
+        <div className="flex-1 flex flex-col w-full md:w-[55%] min-h-0">
           <div className="flex justify-center pt-3 pb-1 md:hidden">
             <div className="w-10 h-1 rounded-full bg-stone-200" />
           </div>
@@ -789,7 +894,14 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
                       <p className="text-[10px] text-stone-400 font-bold uppercase tracking-wide mb-1">Llegada</p>
                       <DatePicker
                         value={toDate(form.checkIn)}
-                        onValueChange={d => setForm(f => ({ ...f, checkIn: toStr(d) }))}
+                        onValueChange={d => setForm(f => {
+                          const checkIn = toStr(d);
+                          return {
+                            ...f,
+                            checkIn,
+                            checkOut: f.checkOut && f.checkOut < checkIn ? '' : f.checkOut,
+                          };
+                        })}
                         minDate={new Date()}
                         locale={es}
                         placeholder="Seleccionar"
@@ -973,16 +1085,36 @@ const FloatingChat = ({ hotel }: { hotel: HotelType }) => {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [phase, channelId]);
 
-  const handleStart = async () => {
-    if (!nombre.trim()) { setFormError('Tu nombre es obligatorio.'); return; }
+  const handleStart = async (override?: { nombre: string; correo?: string; telefono?: string }) => {
+    const n = override?.nombre  ?? nombre;
+    const c = override?.correo  ?? correo;
+    const t = override?.telefono ?? telefono;
+    if (!n.trim()) { setFormError('Tu nombre es obligatorio.'); return; }
     setStarting(true); setFormError('');
     try {
-      const res = await initGuestChat(nombre.trim(), correo.trim() || undefined, telefono.trim() || undefined, hotel.id);
+      const res = await initGuestChat(n.trim(), c?.trim() || undefined, t?.trim() || undefined, hotel.id);
       setChannelId(res.channelId); setGuestId(res.guestId);
       setMessages(res.messages || []); setPhase('chat');
+      saveGuestSession(hotel.id, {
+        nombre: n.trim(), correo: c?.trim() || undefined, telefono: t?.trim() || undefined,
+        channelId: res.channelId, guestId: res.guestId,
+      });
     } catch (e: any) { setFormError(e.message); }
     finally { setStarting(false); }
   };
+
+  // Si ya hay una identidad/conversación guardada (ej. desde la reserva), reanudarla sin pedir datos de nuevo
+  useEffect(() => {
+    if (!open || phase !== 'form') return;
+    const saved = loadGuestSession(hotel.id);
+    if (saved?.nombre) {
+      setNombre(saved.nombre);
+      setCorreo(saved.correo || '');
+      setTelefono(saved.telefono || '');
+      handleStart(saved);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const handleSend = async () => {
     if (!input.trim() || !channelId || !guestId) return;
@@ -1176,6 +1308,7 @@ export default function HotelPortal() {
   const [personas,     setPersonas]     = useState(2);
   const [selectedHab,  setSelectedHab]  = useState<Habitacion | null>(null);
   const [detalleHab,   setDetalleHab]   = useState<Habitacion | null>(null);
+  const [detalleInitialTab, setDetalleInitialTab] = useState<'fotos' | '360'>('fotos');
 
   useEffect(() => {
     if (!hotelSlug) return;
@@ -1232,8 +1365,9 @@ export default function HotelPortal() {
       {/* Nav */}
       <nav className="bg-white/90 backdrop-blur-md border-b border-stone-100 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900 font-bold transition-colors">
-            <ArrowLeft size={16} /> solarys.uk
+          <Link to="/" className="group flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900 font-bold transition-colors">
+            <ArrowLeft size={16} className="transition-transform group-hover:-translate-x-0.5" />
+            <span>solarys<span className="text-amber-600 font-bold">.uk</span></span>
           </Link>
           {hotel.logoUrl ? (
             <img src={hotel.logoUrl} alt={hotel.nombre} className="h-8 object-contain" />
@@ -1317,7 +1451,7 @@ export default function HotelPortal() {
               <RoomCard key={hab.id} hab={hab} noches={noches} moneda={hotel.moneda} hotel={hotel}
                 index={i}
                 onReservar={() => setSelectedHab(hab)}
-                onDetalle={() => setDetalleHab(hab)} />
+                onDetalle={(tab) => { setDetalleHab(hab); setDetalleInitialTab(tab || 'fotos'); }} />
             ))}
           </div>
         )}
@@ -1360,7 +1494,7 @@ export default function HotelPortal() {
       {/* Modals */}
       <AnimatePresence>
         {detalleHab && (
-          <RoomDetailModal key="detalle" hab={detalleHab} hotel={hotel}
+          <RoomDetailModal key="detalle" hab={detalleHab} hotel={hotel} initialTab={detalleInitialTab}
             onReservar={() => { setSelectedHab(detalleHab); setDetalleHab(null); }}
             onClose={() => setDetalleHab(null)} />
         )}

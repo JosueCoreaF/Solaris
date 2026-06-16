@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { LogIn, UserPlus, Loader2, Eye, EyeOff, Sparkles, Building2, Mail, Lock, User } from 'lucide-react';
+import { LogIn, UserPlus, Loader2, Eye, EyeOff, Building2, Mail, Lock, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import SolarisLogo from '../components/SolarisLogo';
 
 type Tab = 'login' | 'register';
 
@@ -86,11 +87,17 @@ export const Login = () => {
     }
 
     // Si no requiere confirmación de email, la sesión se activa y AuthContext redirige
-    // Si requiere confirmación, mostramos mensaje
+    // Si requiere confirmación, mostramos mensaje y llevamos al usuario al login
     if (data.user && !data.session) {
-      setSuccess('¡Cuenta creada! Revisa tu correo para confirmar tu registro antes de iniciar sesión.');
+      const email = regEmail.trim().toLowerCase();
+      setSuccess(`¡Cuenta creada con éxito! Te enviamos un correo de confirmación a ${email}. Ábrelo y confirma tu cuenta, luego inicia sesión aquí.`);
       setTab('login');
-      setLoginEmail(regEmail.trim().toLowerCase());
+      setLoginEmail(email);
+      setRegNombre('');
+      setRegEmpresa('');
+      setRegEmail('');
+      setRegPassword('');
+      setRegPasswordConfirm('');
     }
     setLoading(false);
   };
@@ -123,9 +130,7 @@ export const Login = () => {
           {/* Header */}
           <div className="px-8 pt-8 pb-6">
             <div className="flex items-center gap-3 mb-6">
-              <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-2.5 rounded-xl shadow-lg">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
+              <SolarisLogo variant="main" size={40} />
               <div>
                 <span className="text-xl font-bold text-white tracking-tight">Solaris</span>
                 <span className="text-xs text-indigo-400 block -mt-0.5 font-medium">Hub de Propietarios</span>

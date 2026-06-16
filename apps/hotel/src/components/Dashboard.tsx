@@ -12,7 +12,10 @@ import {
   obtenerKPIsDashboard, calcularTendenciasOcupacion,
   obtenerSolicitudesPendientes, type DashboardKPI, type TendenciaOcupacion,
 } from '../api/dashboardService';
-import { fetchHoteles } from '../api/bookingsService';
+import {
+  fetchHoteles, fetchReservas, addDays, toDateKey, getOnlyDate,
+  getDisplayStatus, getStatusLabel, getStatusColor, type Reserva,
+} from '../api/bookingsService';
 import { auditService } from '../api/auditService';
 
 const GREETINGS: Record<string, string> = {
@@ -192,7 +195,7 @@ const RecentActivity: React.FC<{ logs: any[] }> = ({ logs }) => {
                 </span>
               </div>
               <span style={{ fontSize: 11.5, color: 'var(--muted)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', marginTop: 1 }}>
-                {log.cambios_resumidos || `${log.entidad} modificada`}
+                {auditService.describirCambio(log)}
               </span>
             </div>
           </div>
@@ -201,6 +204,85 @@ const RecentActivity: React.FC<{ logs: any[] }> = ({ logs }) => {
     </div>
   );
 };
+
+/* ── Reservas de Hoy ─────────────────────────────── */
+type TipoReservaHoy = 'check_in' | 'check_out' | 'en_curso';
+
+const TIPO_HOY_META: Record<TipoReservaHoy, { label: string; color: string; campo: 'check_in' | 'check_out' }> = {
+  check_in:  { label: 'Llega hoy',     color: '#2563eb', campo: 'check_in' },
+  check_out: { label: 'Sale hoy',      color: '#f59e0b', campo: 'check_out' },
+  en_curso:  { label: 'Hospedado',     color: '#10b981', campo: 'check_out' },
+};
+
+const ReservaHoyRow: React.FC<{ r: Reserva; tipo: TipoReservaHoy }> = ({ r, tipo }) => {
+  const status = getDisplayStatus(r);
+  const meta = TIPO_HOY_META[tipo];
+  const fecha = new Date(r[meta.campo]);
+  const horaTxt = isNaN(fecha.getTime())
+    ? '--:--'
+    : fecha.toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' });
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--shell-border-subtle)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-h)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {r.huesped || 'Huésped'}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {r.habitacion} · {tipo === 'en_curso' ? `Sale ${horaTxt}` : horaTxt}
+        </span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 99, color: meta.color, background: `${meta.color}1a` }}>
+          {meta.label}
+        </span>
+        <span style={{
+          fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+          color: getStatusColor(status), background: `${getStatusColor(status)}1a`,
+        }}>
+          {getStatusLabel(status)}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+const ReservasHoyList: React.FC<{ items: Reserva[]; tipo: TipoReservaHoy; vacioTexto: string }> = ({ items, tipo, vacioTexto }) => {
+  if (items.length === 0) {
+    return <div style={{ padding: '12px 0', fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>{vacioTexto}</div>;
+  }
+  return (
+    <div>
+      {items.map(r => <ReservaHoyRow key={r.id_reserva_hotel} r={r} tipo={tipo} />)}
+    </div>
+  );
+};
+
+const ReservasHoyPanel: React.FC<{ checkIns: Reserva[]; checkOuts: Reserva[]; enCurso: Reserva[] }> = ({ checkIns, checkOuts, enCurso }) => (
+  <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <p className="panel-card-title"><Calendar size={16} color="var(--accent)" /> Reservas de hoy</p>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, flex: 1 }}>
+      <div style={{ minWidth: 0 }}>
+        <div className="section-divider" style={{ marginBottom: 4 }}>Check-ins ({checkIns.length})</div>
+        <div style={{ maxHeight: 200, overflowY: 'auto', paddingRight: 2 }}>
+          <ReservasHoyList items={checkIns} tipo="check_in" vacioTexto="Sin check-ins hoy" />
+        </div>
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div className="section-divider" style={{ marginBottom: 4 }}>Check-outs ({checkOuts.length})</div>
+        <div style={{ maxHeight: 200, overflowY: 'auto', paddingRight: 2 }}>
+          <ReservasHoyList items={checkOuts} tipo="check_out" vacioTexto="Sin check-outs hoy" />
+        </div>
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div className="section-divider" style={{ marginBottom: 4 }}>Hospedados ({enCurso.length})</div>
+        <div style={{ maxHeight: 200, overflowY: 'auto', paddingRight: 2 }}>
+          <ReservasHoyList items={enCurso} tipo="en_curso" vacioTexto="Sin huéspedes alojados hoy" />
+        </div>
+      </div>
+    </div>
+  </div>
+);
 
 /* ── KPI Card ──────────────────────────────────────── */
 interface KpiProps {
@@ -252,7 +334,10 @@ const DashboardPropietario: React.FC<{
   hoteles: any[];
   loading: boolean;
   recentLogs: any[];
-}> = ({ kpis, tendencias, usuariosPendientes, hoteles, loading, recentLogs }) => {
+  checkInsHoy: Reserva[];
+  checkOutsHoy: Reserva[];
+  enCursoHoy: Reserva[];
+}> = ({ kpis, tendencias, usuariosPendientes, hoteles, loading, recentLogs, checkInsHoy, checkOutsHoy, enCursoHoy }) => {
   const neto = kpis.ingresosMes - kpis.gastosMes;
   const isTendenciasEmpty = tendencias.every(d => d.ocupacion === 0);
 
@@ -395,12 +480,17 @@ const DashboardPropietario: React.FC<{
         </div>
 
       </div>
+
+      {/* Reservas de hoy */}
+      <div style={{ marginTop: 20 }}>
+        <ReservasHoyPanel checkIns={checkInsHoy} checkOuts={checkOutsHoy} enCurso={enCursoHoy} />
+      </div>
     </div>
   );
 };
 
 /* ── VISTA RECEPCIONISTA ────────────────────────────── */
-const DashboardRecepcionista: React.FC<{ kpis: DashboardKPI }> = ({ kpis }) => (
+const DashboardRecepcionista: React.FC<{ kpis: DashboardKPI; checkInsHoy: Reserva[]; checkOutsHoy: Reserva[]; enCursoHoy: Reserva[] }> = ({ kpis, checkInsHoy, checkOutsHoy, enCursoHoy }) => (
   <div style={{ padding: '28px clamp(20px, 3vw, 52px)', width: '100%' }}>
     <div className="page-header">
       <div className="page-header-left">
@@ -420,7 +510,7 @@ const DashboardRecepcionista: React.FC<{ kpis: DashboardKPI }> = ({ kpis }) => (
         sub="Pagos recibidos" color="emerald" icon={<CreditCard size={18} />} delay={120} trend="up" />
     </div>
 
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
       <ActionChip to="/reservas"    icon={<Plus size={20} />}      label="Nueva Reserva" delay={0} />
       <ActionChip to="/pagos"       icon={<CreditCard size={20} />} label="Registrar Pago" delay={50} />
       <ActionChip to="/habitaciones" icon={<BedDouble size={20} />} label="Habitaciones" delay={100} />
@@ -430,6 +520,8 @@ const DashboardRecepcionista: React.FC<{ kpis: DashboardKPI }> = ({ kpis }) => (
       <ActionChip to="/finanzas"    icon={<FileText size={20} />}   label="Ingresos" delay={300} />
       <ActionChip to="/chat"        icon={<Calendar size={20} />}   label="Chat Equipo" delay={350} />
     </div>
+
+    <ReservasHoyPanel checkIns={checkInsHoy} checkOuts={checkOutsHoy} enCurso={enCursoHoy} />
   </div>
 );
 
@@ -588,20 +680,30 @@ export const Dashboard: React.FC = () => {
   const [usuariosPendientes, setUsuariosPendientes] = useState(0);
   const [hoteles, setHoteles] = useState<any[]>([]);
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
+  const [checkInsHoy, setCheckInsHoy] = useState<Reserva[]>([]);
+  const [checkOutsHoy, setCheckOutsHoy] = useState<Reserva[]>([]);
+  const [enCursoHoy, setEnCursoHoy] = useState<Reserva[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [hotelesData, kpisData, tendenciasData] = await Promise.all([
+        const hoy = toDateKey(new Date());
+        const mañana = toDateKey(addDays(new Date(), 1));
+        const [hotelesData, kpisData, tendenciasData, reservasHoyData] = await Promise.all([
           fetchHoteles().catch(() => []),
           obtenerKPIsDashboard().catch(() => ({ ocupacion: 0, ingresosHoy: 0, reservasPendientes: 0, scoreClientes: 75, ingresosMes: 0, gastosMes: 0 })),
           calcularTendenciasOcupacion().catch(() => []),
+          fetchReservas(`${hoy}T00:00`, `${mañana}T00:00`).catch(() => []),
         ]);
         setHoteles(hotelesData);
         setKpis(kpisData);
         setTendencias(tendenciasData);
+        const activas = reservasHoyData.filter(r => r.estado !== 'cancelada');
+        setCheckInsHoy(activas.filter(r => getOnlyDate(r.check_in) === hoy));
+        setCheckOutsHoy(activas.filter(r => getOnlyDate(r.check_out) === hoy));
+        setEnCursoHoy(activas.filter(r => getOnlyDate(r.check_in) !== hoy && getOnlyDate(r.check_out) !== hoy));
         if (role === 'PROPIETARIO' || role === 'ADMIN') {
           const p = await obtenerSolicitudesPendientes().catch(() => 0);
           setUsuariosPendientes(p);
@@ -620,16 +722,16 @@ export const Dashboard: React.FC = () => {
 
   switch (role) {
     case 'PROPIETARIO':
-      return <DashboardPropietario kpis={kpis} tendencias={tendencias} usuariosPendientes={usuariosPendientes} hoteles={hoteles} loading={loading} recentLogs={recentLogs} />;
+      return <DashboardPropietario kpis={kpis} tendencias={tendencias} usuariosPendientes={usuariosPendientes} hoteles={hoteles} loading={loading} recentLogs={recentLogs} checkInsHoy={checkInsHoy} checkOutsHoy={checkOutsHoy} enCursoHoy={enCursoHoy} />;
     case 'ADMIN':
       return <DashboardAdmin kpis={kpis} tendencias={tendencias} recentLogs={recentLogs} />;
     case 'RECEPCIONISTA':
-      return <DashboardRecepcionista kpis={kpis} />;
+      return <DashboardRecepcionista kpis={kpis} checkInsHoy={checkInsHoy} checkOutsHoy={checkOutsHoy} enCursoHoy={enCursoHoy} />;
     case 'CONTADOR':
       return <DashboardContador kpis={kpis} />;
     case 'MANTENIMIENTO':
       return <DashboardMantenimiento />;
     default:
-      return <DashboardRecepcionista kpis={kpis} />;
+      return <DashboardRecepcionista kpis={kpis} checkInsHoy={checkInsHoy} checkOutsHoy={checkOutsHoy} enCursoHoy={enCursoHoy} />;
   }
 };

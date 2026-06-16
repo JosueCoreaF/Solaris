@@ -1,8 +1,8 @@
 import { supabase } from './supabase';
+import { getGymContext } from './gymContext';
 
 export interface Entrenador {
   id_entrenador: string;
-  owner_id: string;
   id_gimnasio: string;
   nombre_completo: string;
   especialidad?: string;
@@ -13,7 +13,6 @@ export interface Entrenador {
 
 export interface ClaseGym {
   id_clase: string;
-  owner_id: string;
   id_gimnasio: string;
   id_entrenador?: string;
   nombre_clase: string;
@@ -26,25 +25,13 @@ export interface ClaseGym {
   entrenadores?: { nombre_completo: string; especialidad?: string };
 }
 
-const getOwnerId = async (): Promise<string | null> => {
-  const { data } = await supabase.auth.getUser();
-  if (!data.user) return null;
-  const { data: rol } = await supabase
-    .from('usuarios_roles')
-    .select('owner_id')
-    .eq('usuario_id', data.user.id)
-    .eq('estado', 'activo')
-    .single();
-  return rol?.owner_id ?? null;
-};
-
 export const fetchClases = async (): Promise<ClaseGym[]> => {
-  const ownerId = await getOwnerId();
-  if (!ownerId) return [];
+  const ctx = await getGymContext();
+  if (!ctx) return [];
   const { data, error } = await supabase
     .from('clases_gym')
     .select('*, entrenadores(nombre_completo, especialidad)')
-    .eq('owner_id', ownerId)
+    .eq('id_gimnasio', ctx.gimnasioId)
     .order('dia_semana')
     .order('hora_inicio');
   if (error) throw error;
@@ -52,11 +39,11 @@ export const fetchClases = async (): Promise<ClaseGym[]> => {
 };
 
 export const crearClase = async (clase: Partial<ClaseGym>): Promise<ClaseGym> => {
-  const ownerId = await getOwnerId();
-  if (!ownerId) throw new Error('No owner_id');
+  const ctx = await getGymContext();
+  if (!ctx) throw new Error('Sin contexto de gimnasio');
   const { data, error } = await supabase
     .from('clases_gym')
-    .insert({ ...clase, owner_id: ownerId })
+    .insert({ ...clase, id_gimnasio: ctx.gimnasioId })
     .select()
     .single();
   if (error) throw error;
@@ -75,23 +62,23 @@ export const actualizarClase = async (id: string, updates: Partial<ClaseGym>): P
 };
 
 export const fetchEntrenadores = async (): Promise<Entrenador[]> => {
-  const ownerId = await getOwnerId();
-  if (!ownerId) return [];
+  const ctx = await getGymContext();
+  if (!ctx) return [];
   const { data, error } = await supabase
     .from('entrenadores')
     .select('*')
-    .eq('owner_id', ownerId)
+    .eq('id_gimnasio', ctx.gimnasioId)
     .eq('estado', 'activo');
   if (error) throw error;
   return data ?? [];
 };
 
 export const crearEntrenador = async (e: Partial<Entrenador>): Promise<Entrenador> => {
-  const ownerId = await getOwnerId();
-  if (!ownerId) throw new Error('No owner_id');
+  const ctx = await getGymContext();
+  if (!ctx) throw new Error('Sin contexto de gimnasio');
   const { data, error } = await supabase
     .from('entrenadores')
-    .insert({ ...e, owner_id: ownerId })
+    .insert({ ...e, id_gimnasio: ctx.gimnasioId })
     .select()
     .single();
   if (error) throw error;

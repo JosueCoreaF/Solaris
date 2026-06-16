@@ -239,11 +239,13 @@ export async function fetchHabitaciones(): Promise<Habitacion[]> {
 }
 
 export async function fetchHuespedes(): Promise<Huesped[]> {
-  return withCache('huespedes', TTL_MEDIA, () => apiFetch<Huesped[]>('/bookings/huespedes'));
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+  return withCache(`huespedes:${activeHotelId}`, TTL_MEDIA, () => apiFetch<Huesped[]>('/bookings/huespedes'));
 }
 
 export async function fetchEmpresas(): Promise<Empresa[]> {
-  return withCache('empresas', TTL_MEDIA, () => apiFetch<Empresa[]>('/bookings/empresas'));
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+  return withCache(`empresas:${activeHotelId}`, TTL_MEDIA, () => apiFetch<Empresa[]>('/bookings/empresas'));
 }
 
 export async function createEmpresa(params: {
@@ -259,7 +261,8 @@ export async function createEmpresa(params: {
     method: 'POST',
     body: JSON.stringify(params),
   });
-  cache.invalidate('empresas');
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+  cache.invalidate(`empresas:${activeHotelId}`);
   return result;
 }
 
@@ -316,7 +319,8 @@ export async function createHuesped(params: {
     method: 'POST',
     body: JSON.stringify(params),
   });
-  cache.invalidate('huespedes');
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+  cache.invalidate(`huespedes:${activeHotelId}`);
   return result;
 }
 

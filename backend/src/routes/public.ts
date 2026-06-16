@@ -4,6 +4,7 @@ import { getIO, buildBotSystemPrompt, getSimpleAutoResponse, callGeminiChat } fr
 import { verificarCamasExtrasDisponibles, verificarNeveritasDisponibles, verificarPlanchasDisponibles } from './hotel/bookings.js';
 import { sendBookingConfirmation, sendHotelNotificationEmail } from '../utils/emailService.js';
 import { syncQuoteReservations } from '../utils/quoteReservationHelper.js';
+import { crearNotificacion } from '../utils/notificaciones.js';
 
 const router = Router();
 const db = () => supabaseAdmin ?? supabase;
@@ -169,7 +170,26 @@ router.post('/registrar-huesped', async (req: Request, res: Response) => {
       .select('id_huesped, nombre_completo, correo, telefono')
       .single();
 
-    if (error) throw error;
+    if (error) {
+      // Carrera entre solicitudes concurrentes: el correo ya fue registrado
+      // justo después de la verificación de "existing" anterior.
+      if (error.code === '23505') {
+        const { data: retry } = await db()
+          .from('huespedes')
+          .select('id_huesped, nombre_completo, correo, telefono')
+          .eq('id_hotel', id_hotel)
+          .ilike('correo', correo.trim())
+          .maybeSingle();
+        if (retry) {
+          return res.json({
+            registrado: false,
+            encontrado: true,
+            huesped: { id: retry.id_huesped, nombre: retry.nombre_completo, correo: retry.correo, telefono: retry.telefono },
+          });
+        }
+      }
+      throw error;
+    }
 
     return res.status(201).json({
       registrado: true,
@@ -417,13 +437,15 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
     if (dniUpper) {
       const { data } = await db().from('huespedes')
         .select('id_huesped, nombre_completo, correo, telefono')
+        .eq('id_hotel', habitacion.id_hotel)
         .eq('documento_identidad', dniUpper).maybeSingle();
       huespedExistente = data;
     }
     if (!huespedExistente && correoFinal && !correoFinal.startsWith('WEB-')) {
       const { data } = await db().from('huespedes')
         .select('id_huesped, nombre_completo, correo, telefono')
-        .eq('correo', correoFinal).maybeSingle();
+        .eq('id_hotel', habitacion.id_hotel)
+        .ilike('correo', correoFinal).maybeSingle();
       huespedExistente = data;
     }
 
@@ -446,8 +468,29 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
           telefono: telefonoFinal,
         })
         .select('id_huesped').single();
-      if (errHuesped) throw errHuesped;
-      huespedId = nuevoHuesped.id_huesped;
+      if (errHuesped) {
+        // Carrera o discrepancia de mayúsculas: el correo/DNI ya existe para este hotel.
+        if (errHuesped.code === '23505') {
+          const { data: retry } = await db().from('huespedes')
+            .select('id_huesped, nombre_completo, correo, telefono')
+            .eq('id_hotel', habitacion.id_hotel)
+            .ilike('correo', correoFinal).maybeSingle();
+          if (retry) {
+            huespedId = retry.id_huesped;
+            await db().from('huespedes').update({
+              nombre_completo: nombreUpper,
+              telefono: telefonoFinal || retry.telefono,
+              documento_identidad: dniUpper || null,
+            }).eq('id_huesped', huespedId);
+          } else {
+            throw errHuesped;
+          }
+        } else {
+          throw errHuesped;
+        }
+      } else {
+        huespedId = nuevoHuesped.id_huesped;
+      }
     }
 
     // Calcular noches
@@ -562,13 +605,21 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
 
     // 4. Emitir evento Socket para notificar a recepción
     const io = getIO();
+    const habNombre = habitacion.nombre_alias || habitacion.nombre_habitacion;
     if (io) {
-      const habNombre = habitacion.nombre_alias || habitacion.nombre_habitacion;
       io.emit('nueva_solicitud_reserva', {
         reserva: nuevaReserva,
         mensaje: `Nueva solicitud web: ${nombre} (${habNombre})`
       });
     }
+
+    await crearNotificacion({
+      hotelId: habitacion.id_hotel,
+      tipo: 'reserva_web',
+      titulo: 'Nueva solicitud de reserva',
+      mensaje: `${nombre} solicitó ${habNombre} (${noches} noche${noches === 1 ? '' : 's'})`,
+      link: '/reservas',
+    });
 
     // 5. Enviar correo de confirmación de forma asíncrona
     if (nuevaReserva?.id_reserva_hotel) {
@@ -653,6 +704,7 @@ router.post('/chat/init', async (req: Request, res: Response) => {
         .from('huespedes')
         .select('id_huesped')
         .eq('correo', correo.trim().toLowerCase())
+        .eq('id_hotel', chatHotelId)
         .maybeSingle();
       if (existingHuesped) {
         huespedId = existingHuesped.id_huesped;
@@ -675,11 +727,12 @@ router.post('/chat/init', async (req: Request, res: Response) => {
       }
     }
 
-    // Buscar si ya existe un canal para este identificador
+    // Buscar si ya existe un canal para este identificador (acotado al hotel actual)
     const { data: existingChannels } = await supabaseAdmin
       .from('chat_channels')
       .select('*')
       .eq('channel_type', 'cliente')
+      .eq('id_hotel', chatHotelId)
       .ilike('name', `%${nombre.split(' ')[0]}%`)
       .order('created_at', { ascending: false });
 
@@ -856,7 +909,7 @@ async function handleBotResponse(channelId: string, content: string) {
     // 1. Obtener la metadata del canal y el huésped para verificar si el bot está activo o desactivado
     const { data: channel } = await supabaseAdmin
       .from('chat_channels')
-      .select('metadata, id_huesped, channel_type')
+      .select('metadata, id_huesped, channel_type, id_hotel')
       .eq('id', channelId)
       .maybeSingle();
 
@@ -885,6 +938,16 @@ async function handleBotResponse(channelId: string, content: string) {
         io.emit('new_client_chat', {
           channel: { id: channelId, ...channel, metadata: newMetadata },
           mensaje: `🔔 Un cliente solicita hablar con un agente en recepción`
+        });
+      }
+
+      if (channel.id_hotel) {
+        await crearNotificacion({
+          hotelId: channel.id_hotel,
+          tipo: 'mensaje_cliente',
+          titulo: 'Cliente solicita un agente',
+          mensaje: 'Un huésped pidió hablar con recepción en el chat del portal',
+          link: '/chat',
         });
       }
 
@@ -1060,6 +1123,35 @@ router.get('/config', async (req: Request, res: Response) => {
 });
 
 // GET /api/public/hoteles
+// GET /api/public/hoteles/buscar?q=...
+router.get('/hoteles/buscar', async (req: Request, res: Response) => {
+  try {
+    const q = (req.query.q as string | undefined)?.trim();
+    if (!q || q.length < 2) return res.json([]);
+
+    const { data, error } = await db()
+      .from('hoteles')
+      .select('nombre_hotel, slug, ciudad, logo_url')
+      .eq('estado', 'activo')
+      .not('slug', 'is', null)
+      .ilike('nombre_hotel', `%${q}%`)
+      .limit(8);
+
+    if (error) throw error;
+
+    const mapped = (data || []).map((h: any) => ({
+      nombre: h.nombre_hotel,
+      slug: h.slug,
+      ciudad: h.ciudad,
+      logoUrl: h.logo_url,
+    }));
+
+    return res.json(mapped);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/hoteles', async (req: Request, res: Response) => {
   try {
     let query = db()
@@ -1370,12 +1462,34 @@ router.post('/invitacion/validar', async (req: Request, res: Response) => {
     if (!email || !codigo) return res.status(400).json({ error: 'email y codigo requeridos' });
 
     const client = supabaseAdmin ?? supabase;
-    const { data, error } = await client
+    // 1. Buscar en invitaciones (hotel/genérico)
+    let { data, error } = await client
       .from('invitaciones')
-      .select('id, email, codigo_unico, id_hotel, rol_sugerido, owner_id, usado, expira_en')
+      .select('id, email, codigo_unico, id_hotel, id_module, rol_sugerido, owner_id, usado, expira_en')
       .eq('email', email.toLowerCase().trim())
       .eq('codigo_unico', codigo.toUpperCase().trim())
       .maybeSingle();
+
+    let esGym = false;
+
+    // 2. Si no se encuentra, buscar en invitaciones_gym (gimnasio)
+    if (!data && !error) {
+      const { data: gymData, error: gymError } = await client
+        .from('invitaciones_gym')
+        .select('id, email, codigo_unico, id_gimnasio, rol_sugerido, owner_id, usado, expira_en')
+        .eq('email', email.toLowerCase().trim())
+        .eq('codigo_unico', codigo.toUpperCase().trim())
+        .maybeSingle();
+
+      if (gymError) return res.status(400).json({ error: gymError.message });
+      if (gymData) {
+        data = {
+          ...gymData,
+          id_hotel: (gymData as any).id_gimnasio
+        } as any;
+        esGym = true;
+      }
+    }
 
     if (error) return res.status(400).json({ error: error.message });
     if (!data)  return res.json({ valida: false, razon: 'Código o correo inválido' });
@@ -1387,12 +1501,162 @@ router.post('/invitacion/validar', async (req: Request, res: Response) => {
     return res.json({
       valida:       true,
       id_hotel:     data.id_hotel,
+      id_module:    data.id_module,
       rol_sugerido: data.rol_sugerido,
       owner_id:     data.owner_id,
       codigo:       data.codigo_unico,
+      es_gym:       esGym,
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Completar registro de invitación (crea el usuario via Admin API, sin email de confirmación) ──
+router.post('/invitacion/completar', async (req: Request, res: Response) => {
+  try {
+    const { email, codigo, password, nombre } = req.body as { email: string; codigo: string; password: string; nombre: string };
+    if (!email || !codigo || !password || !nombre) {
+      return res.status(400).json({ error: 'email, codigo, password y nombre son requeridos' });
+    }
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: 'El servicio de administración de Supabase no está configurado' });
+    }
+
+    // 1. Buscar en invitaciones
+    let { data: inv, error: invError } = await supabaseAdmin
+      .from('invitaciones')
+      .select('id, email, codigo_unico, id_hotel, id_module, rol_sugerido, owner_id, usado, expira_en')
+      .eq('email', email.toLowerCase().trim())
+      .eq('codigo_unico', codigo.toUpperCase().trim())
+      .maybeSingle();
+
+    let esGym = false;
+
+    // 2. Si no se encuentra, buscar en invitaciones_gym
+    if (!inv && !invError) {
+      const { data: gymInv, error: gymInvError } = await supabaseAdmin
+        .from('invitaciones_gym')
+        .select('id, email, codigo_unico, id_gimnasio, rol_sugerido, owner_id, usado, expira_en')
+        .eq('email', email.toLowerCase().trim())
+        .eq('codigo_unico', codigo.toUpperCase().trim())
+        .maybeSingle();
+
+      if (gymInvError) return res.status(400).json({ error: gymInvError.message });
+      if (gymInv) {
+        inv = {
+          ...gymInv,
+          id_hotel: (gymInv as any).id_gimnasio
+        } as any;
+        esGym = true;
+      }
+    }
+
+    if (invError) return res.status(400).json({ error: invError.message });
+    if (!inv) return res.status(400).json({ error: 'Código o correo inválido' });
+    if (inv.usado) return res.status(400).json({ error: 'Este código ya fue utilizado' });
+    if (new Date(inv.expira_en) < new Date()) {
+      return res.status(400).json({ error: 'El código de invitación ha expirado' });
+    }
+
+    // Crea el usuario ya confirmado, evitando el correo de confirmación de Supabase
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email: email.toLowerCase().trim(),
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: nombre.trim(), tipo_registro: 'staff' },
+    });
+
+    if (authError) return res.status(400).json({ error: authError.message });
+    const userId = authData.user?.id;
+    if (!userId) return res.status(400).json({ error: 'No se pudo crear el usuario' });
+
+    if (esGym) {
+      // Registrar en usuarios_roles_gym
+      const existingQuery = supabaseAdmin
+        .from('usuarios_roles_gym')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('owner_id', inv.owner_id);
+
+      const { data: existing } = await existingQuery.eq('id_gimnasio', inv.id_hotel).maybeSingle();
+
+      if (existing) {
+        const { error: updateError } = await supabaseAdmin
+          .from('usuarios_roles_gym')
+          .update({
+            rol: inv.rol_sugerido,
+            estado: 'activo',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existing.id);
+        if (updateError) return res.status(400).json({ error: updateError.message });
+      } else {
+        const { error: roleError } = await supabaseAdmin
+          .from('usuarios_roles_gym')
+          .insert({
+            user_id: userId,
+            owner_id: inv.owner_id,
+            id_gimnasio: inv.id_hotel,
+            rol: inv.rol_sugerido,
+            estado: 'activo',
+          });
+        if (roleError) return res.status(400).json({ error: roleError.message });
+      }
+
+      await supabaseAdmin
+        .from('invitaciones_gym')
+        .update({ usado: true, user_id: userId })
+        .eq('id', inv.id);
+
+    } else {
+      // Registrar en la tabla usuarios_roles original (hotel)
+      const existingQuery = supabaseAdmin
+        .from('usuarios_roles')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('owner_id', inv.owner_id);
+
+      const { data: existing } = inv.id_module
+        ? await existingQuery.eq('id_module', inv.id_module).maybeSingle()
+        : await existingQuery.is('id_module', null).maybeSingle();
+
+      if (existing) {
+        const { error: updateError } = await supabaseAdmin
+          .from('usuarios_roles')
+          .update({
+            rol: inv.rol_sugerido,
+            estado: 'activo',
+            id_hotel: inv.id_hotel || null,
+            id_module: inv.id_module || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existing.id);
+        if (updateError) return res.status(400).json({ error: updateError.message });
+      } else {
+        const { error: roleError } = await supabaseAdmin
+          .from('usuarios_roles')
+          .insert({
+            user_id: userId,
+            owner_id: inv.owner_id,
+            id_hotel: inv.id_hotel || null,
+            id_module: inv.id_module || null,
+            rol: inv.rol_sugerido,
+            estado: 'activo',
+          });
+        if (roleError) return res.status(400).json({ error: roleError.message });
+      }
+
+      await supabaseAdmin
+        .from('invitaciones')
+        .update({ usado: true, user_id: userId })
+        .eq('id', inv.id);
+    }
+
+    return res.json({ success: true, user_id: userId });
+  } catch (err: any) {
+    console.error('Error en /public/invitacion/completar:', err);
+    return res.status(500).json({ error: err.message || 'Error interno del servidor' });
   }
 });
 
@@ -1602,6 +1866,16 @@ async function applyQuoteDecision(id: string, estado: 'Aceptada' | 'Rechazada') 
         mensaje: `Cotización ${updatedQuote.numero_cotizacion} rechazada por el cliente ${updatedQuote.cliente_nombre}. Habitaciones liberadas.`
       });
     }
+  }
+
+  if (estado === 'Aceptada') {
+    await crearNotificacion({
+      hotelId: quote.id_hotel,
+      tipo: 'cotizacion_aceptada',
+      titulo: 'Cotización aceptada',
+      mensaje: `El cliente ${updatedQuote.cliente_nombre} aceptó la cotización ${updatedQuote.numero_cotizacion}`,
+      link: '/cotizaciones',
+    });
   }
 
   return { success: true as const, alreadyProcessed: false, quote: updatedQuote };

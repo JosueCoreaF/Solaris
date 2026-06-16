@@ -1,6 +1,7 @@
 import React from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
+import { RightSidebarChat } from './RightSidebarChat';
 
 export const Layout: React.FC = () => (
   <div className="dashboard-root">
@@ -10,5 +11,6 @@ export const Layout: React.FC = () => (
         <Outlet />
       </div>
     </div>
+    <RightSidebarChat />
   </div>
 );

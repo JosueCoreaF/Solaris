@@ -103,7 +103,7 @@ router.get('/owners', async (req, res) => {
       .select(`
         id_owner, nombre_empresa, email_contacto, telefono_contacto,
         estado, is_solarys_admin, created_at,
-        suscripciones_owner ( id_plan, estado, trial_end ),
+        suscripciones_owner ( id_plan, tipo_modulo, estado, trial_end, negocios_extra, current_period_end, cancel_at_period_end ),
         business_modules ( id_module, tipo_modulo, is_active )
       `, { count: 'exact' })
       .order('created_at', { ascending: false })
@@ -130,7 +130,7 @@ router.get('/owners/:id', async (req, res) => {
       .select(`
         id_owner, nombre_empresa, email_contacto, telefono_contacto,
         estado, is_solarys_admin, created_at, updated_at,
-        suscripciones_owner ( id_plan, estado, trial_end, created_at ),
+        suscripciones_owner ( id_plan, tipo_modulo, estado, trial_end, created_at, negocios_extra, current_period_end, cancel_at_period_end ),
         business_modules (
           id_module, tipo_modulo, is_active, created_at,
           hoteles ( id_hotel, nombre_hotel, ciudad, estado )
@@ -142,6 +142,24 @@ router.get('/owners/:id', async (req, res) => {
     if (error) throw error;
     if (!data) return res.status(404).json({ error: 'Owner no encontrado' });
     return res.json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /hub/admin/owners/:id/payments ───────────────────────────────────────
+
+router.get('/owners/:id/payments', async (req, res) => {
+  try {
+    const { data, error } = await db()
+      .from('historial_pagos')
+      .select('*')
+      .eq('owner_id', req.params.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) throw error;
+    return res.json(data ?? []);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -305,7 +323,7 @@ router.get('/plans', async (_req, res) => {
   try {
     const { data, error } = await db()
       .from('planes_suscripcion')
-      .select('id_plan, nombre, tipo_modulo, precio_mensual, precio_anual, activo')
+      .select('id_plan, nombre, tipo_modulo, precio_mensual, precio_anual, activo, limite_negocios')
       .order('precio_mensual');
     if (error) throw error;
     return res.json(data ?? []);
@@ -336,10 +354,17 @@ router.patch('/owners/:id/subscription', async (req, res) => {
       planName = planData?.nombre ?? undefined;
     }
 
+    // Resolver el módulo del plan destino para no mezclar suscripciones de distintos módulos
+    const { data: plan } = id_plan
+      ? await db().from('planes_suscripcion').select('tipo_modulo').eq('id_plan', id_plan).maybeSingle()
+      : { data: null as { tipo_modulo: string } | null };
+    const tipoModulo = plan?.tipo_modulo ?? 'hotel';
+
     const { data: existing } = await db()
       .from('suscripciones_owner')
       .select('id_suscripcion')
       .eq('owner_id', req.params.id)
+      .eq('tipo_modulo', tipoModulo)
       .maybeSingle();
 
     let resultData: any;
@@ -362,19 +387,13 @@ router.patch('/owners/:id/subscription', async (req, res) => {
       }
       resultData = data ?? existing;
     } else {
-      // No existe suscripción: crear
-      const { data: plan } = await db()
-        .from('planes_suscripcion')
-        .select('tipo_modulo')
-        .eq('id_plan', id_plan)
-        .maybeSingle();
-
+      // No existe suscripción para este módulo: crear
       const { data, error } = await db()
         .from('suscripciones_owner')
         .insert({
           owner_id:    req.params.id,
           id_plan,
-          tipo_modulo: plan?.tipo_modulo ?? 'hotel',
+          tipo_modulo: tipoModulo,
           estado:      estado ?? 'activa',
           trial_end:   trial_end || null,
         })
@@ -833,6 +852,12 @@ router.delete('/hoteles/:id_hotel', async (req, res) => {
 
 // ─── POST /hub/admin/impersonate/:ownerId ────────────────────────────────────
 
+const SUPPORT_APP_URLS: Record<string, string> = {
+  hotel: process.env.HOTEL_APP_URL || 'https://hotel.solarys.uk/',
+  gym: process.env.GYM_APP_URL || 'https://gym.solarys.uk/',
+  restaurant: process.env.RESTAURANT_APP_URL || 'https://restaurant.solarys.uk/',
+};
+
 router.post('/impersonate/:ownerId', async (req, res) => {
   try {
     const adminUserId = (req as any).adminUserId;
@@ -845,12 +870,14 @@ router.post('/impersonate/:ownerId', async (req, res) => {
 
     if (ownerErr || !owner) return res.status(404).json({ error: 'Owner no encontrado' });
 
-    const hotelAppUrl = process.env.HOTEL_APP_URL || 'https://hotel.solarys.uk';
+    const modulo = req.body?.modulo;
+    const appUrl = SUPPORT_APP_URLS[modulo] || SUPPORT_APP_URLS.hotel;
+    const redirectTo = `${appUrl}${appUrl.includes('?') ? '&' : '?'}soporte=1`;
 
     const { data: linkData, error: linkErr } = await db().auth.admin.generateLink({
       type: 'magiclink',
       email: owner.email_contacto,
-      options: { redirectTo: hotelAppUrl },
+      options: { redirectTo },
     });
 
     if (linkErr) throw linkErr;
@@ -863,7 +890,7 @@ router.post('/impersonate/:ownerId', async (req, res) => {
       accion: 'soporte',
       entidad: 'impersonation',
       usuario_email: `admin:${adminUserId}`,
-      cambios_resumidos: `Acceso de soporte generado por ${adminUserId}`,
+      cambios_resumidos: `Acceso de soporte (${modulo || 'hotel'}) generado por ${adminUserId}`,
     });
 
     return res.json({

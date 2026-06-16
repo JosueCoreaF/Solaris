@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, X, RefreshCw } from 'lucide-react';
-import { fetchInscripciones, crearInscripcion, actualizarInscripcion, fetchPlanes, type InscripcionGym, type PlanMembresia } from '../../api/membresiaService';
+import { Plus, X, RefreshCw, Dumbbell, Calendar, CheckCircle2, Circle, StickyNote } from 'lucide-react';
+import { fetchInscripciones, crearInscripcion, actualizarInscripcion, fetchAllPlanes, actualizarPlan, type InscripcionGym, type PlanMembresia } from '../../api/membresiaService';
 import { fetchMiembros, type Miembro } from '../../api/miembrosService';
 import { useToast } from '../../components/Toast';
 import { useSync } from '../../context/SyncContext';
@@ -28,9 +28,16 @@ export const Inscripciones: React.FC = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const [insc, pl, mb] = await Promise.all([fetchInscripciones(), fetchPlanes(), fetchMiembros()]);
+      const [insc, pl, mb] = await Promise.all([fetchInscripciones(), fetchAllPlanes(), fetchMiembros()]);
       setInscripciones(insc); setPlanes(pl); setMiembros(mb);
     } catch { addToast('Error cargando datos', 'error'); } finally { setLoading(false); }
+  };
+
+  const togglePlanActivo = async (plan: PlanMembresia) => {
+    try {
+      const updated = await actualizarPlan(plan.id_plan, { activo: !plan.activo });
+      setPlanes(prev => prev.map(p => p.id_plan === plan.id_plan ? { ...p, activo: updated.activo } : p));
+    } catch { addToast('Error al actualizar el plan', 'error'); }
   };
 
   useEffect(() => { load(); }, []);
@@ -95,23 +102,50 @@ export const Inscripciones: React.FC = () => {
         </div>
       </div>
 
-      {/* Planes activos */}
+      {/* Planes de membresía */}
       {planes.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 12 }}>Planes Activos</h3>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <h3 style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.14em', marginBottom: 12 }}>Planes de Membresía</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
             {planes.map(p => (
-              <div key={p.id_plan} style={{ background: 'var(--card-bg)', border: '1px solid var(--shell-border)', borderRadius: 12, padding: '14px 18px', minWidth: 160 }}>
-                <div style={{ fontWeight: 700, color: 'var(--text-h)', marginBottom: 4 }}>{p.nombre}</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent)' }}>L. {p.precio.toFixed(2)}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{p.duracion_dias} días</div>
+              <div key={p.id_plan} className="stat-card" style={{ padding: '16px 18px', opacity: p.activo ? 1 : 0.55 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                  <div style={{ fontWeight: 700, fontFamily: 'var(--display)', fontSize: 16, color: 'var(--text-h)', textTransform: 'uppercase', letterSpacing: '0.01em' }}>{p.nombre}</div>
+                  <button
+                    onClick={() => togglePlanActivo(p)}
+                    title={p.activo ? 'Desactivar plan' : 'Activar plan'}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.activo ? 'var(--success)' : 'var(--muted)', padding: 0, display: 'flex' }}
+                  >
+                    {p.activo ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+                  </button>
+                </div>
+                {p.descripcion && <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>{p.descripcion}</div>}
+                <div style={{ fontFamily: 'var(--display)', fontSize: 22, color: 'var(--accent)' }}>L. {p.precio.toFixed(2)}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, marginBottom: 10 }}>{p.duracion_dias} días</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {p.acceso_gym && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-bg)', border: '1px solid var(--accent-border)', borderRadius: 3, padding: '3px 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      <Dumbbell size={11} /> Gimnasio
+                    </span>
+                  )}
+                  {p.acceso_clases && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 700, color: '#60a5fa', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.28)', borderRadius: 3, padding: '3px 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      <Calendar size={11} /> Clases
+                    </span>
+                  )}
+                  {!p.activo && (
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-raised)', borderRadius: 3, padding: '3px 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Inactivo
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      <div style={{ background: 'var(--card-bg)', border: '1px solid var(--shell-border)', borderRadius: 16, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card-bg)', border: '1px solid var(--shell-border)', borderRadius: 4, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Cargando...</div>
         ) : inscripciones.length === 0 ? (
@@ -125,6 +159,7 @@ export const Inscripciones: React.FC = () => {
                 <th>Inicio</th>
                 <th>Vencimiento</th>
                 <th>Total</th>
+                <th>Saldo</th>
                 <th>Estado</th>
                 <th>Pago</th>
                 <th></th>
@@ -133,18 +168,58 @@ export const Inscripciones: React.FC = () => {
             <tbody>
               {inscripciones.map(i => (
                 <tr key={i.id_inscripcion}>
-                  <td style={{ fontWeight: 600 }}>{(i.miembros as any)?.nombre_completo ?? '—'}</td>
+                  <td style={{ fontWeight: 600 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {(i.miembros as any)?.nombre_completo ?? '—'}
+                      {i.notas && <StickyNote size={12} style={{ color: 'var(--muted)' }} title={i.notas} />}
+                    </div>
+                  </td>
                   <td>{(i.planes_membresia as any)?.nombre ?? '—'}</td>
                   <td style={{ fontSize: 12, color: 'var(--muted)' }}>{new Date(i.fecha_inicio).toLocaleDateString('es-HN')}</td>
-                  <td style={{ fontSize: 12, color: i.estado === 'vencida' ? '#dc2626' : 'var(--muted)' }}>
-                    {new Date(i.fecha_fin).toLocaleDateString('es-HN')}
+                  <td style={{ minWidth: 130 }}>
+                    {(() => {
+                      const inicio = new Date(i.fecha_inicio).getTime();
+                      const fin = new Date(i.fecha_fin).getTime();
+                      const ahora = Date.now();
+                      const total = Math.max(1, fin - inicio);
+                      const pct = Math.min(100, Math.max(0, Math.round(((ahora - inicio) / total) * 100)));
+                      const diasRestantes = Math.ceil((fin - ahora) / 86400000);
+                      const vencida = i.estado === 'vencida' || diasRestantes < 0;
+                      const porVencer = !vencida && diasRestantes <= 7;
+                      return (
+                        <>
+                          <div style={{ fontSize: 12, color: vencida ? 'var(--danger)' : 'var(--muted)', marginBottom: 4 }}>
+                            {new Date(i.fecha_fin).toLocaleDateString('es-HN')}
+                          </div>
+                          <div className="progress-track">
+                            <div className={`progress-fill ${vencida || porVencer ? 'is-full' : ''}`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 3 }}>
+                            {vencida ? 'Vencida' : `${diasRestantes} día${diasRestantes === 1 ? '' : 's'} restantes`}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </td>
                   <td style={{ fontWeight: 600 }}>L. {Number(i.total).toFixed(2)}</td>
+                  <td>
+                    {(() => {
+                      const saldo = Number(i.total) - Number(i.anticipo ?? 0);
+                      if (i.estado_pago === 'pagado' || i.estado_pago === 'cortesia') {
+                        return <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>;
+                      }
+                      return (
+                        <span style={{ fontWeight: 600, color: saldo > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                          L. {saldo.toFixed(2)}
+                        </span>
+                      );
+                    })()}
+                  </td>
                   <td><span className={`badge ${estadoBadge[i.estado] ?? 'badge-gray'}`}>{i.estado}</span></td>
                   <td><span className={`badge ${pagoBadge[i.estado_pago] ?? 'badge-gray'}`}>{i.estado_pago}</span></td>
                   <td>
                     <select
-                      style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--shell-border-strong)', background: 'transparent', cursor: 'pointer' }}
+                      style={{ fontSize: 11, padding: '5px 8px', borderRadius: 4, border: '1px solid var(--shell-border-strong)', background: 'var(--surface-raised)', color: 'var(--text-h)', cursor: 'pointer' }}
                       value={i.estado}
                       onChange={e => cambiarEstado(i.id_inscripcion, e.target.value as any)}
                     >
@@ -183,7 +258,7 @@ export const Inscripciones: React.FC = () => {
                 <label className="form-label">Plan de Membresía *</label>
                 <select className="form-select" value={form.id_plan} onChange={e => setForm(p => ({ ...p, id_plan: e.target.value }))}>
                   <option value="">Seleccionar plan...</option>
-                  {planes.map(p => (
+                  {planes.filter(p => p.activo).map(p => (
                     <option key={p.id_plan} value={p.id_plan}>{p.nombre} — L. {p.precio.toFixed(2)} ({p.duracion_dias} días)</option>
                   ))}
                 </select>
@@ -193,7 +268,7 @@ export const Inscripciones: React.FC = () => {
                 <input className="form-input" type="date" value={form.fecha_inicio} onChange={e => setForm(p => ({ ...p, fecha_inicio: e.target.value }))} />
               </div>
               {planSeleccionado && (
-                <div style={{ background: 'var(--accent-bg)', border: '1px solid var(--accent-border)', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
+                <div style={{ background: 'var(--accent-bg)', border: '1px solid var(--accent-border)', borderRadius: 4, padding: '12px 16px', marginBottom: 16 }}>
                   <div style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
                     Vencimiento: {fechaFin} · Total: L. {planSeleccionado.precio.toFixed(2)}
                   </div>

@@ -6,9 +6,24 @@
   100% {background-position: 0% 50%;} 
 } 
 
-.animate-gradient { 
-  background-size: 200% 200%; 
-  animation: gradient 15s ease infinite; 
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient 15s ease infinite;
+}
+
+@keyframes solaris-gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.solaris-text-gradient {
+  background-image: linear-gradient(90deg, #f59e0b, #2563eb, #0369a1, #2563eb, #047857, #4f46e5, #d97706, #f43f5e, #f59e0b);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: solaris-gradient-shift 12s ease infinite;
 }
 
 body {
@@ -29,9 +44,9 @@ body {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(15, 23, 42, 0.12);
   border-radius: 20px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.2);
+  background-color: rgba(15, 23, 42, 0.25);
 }

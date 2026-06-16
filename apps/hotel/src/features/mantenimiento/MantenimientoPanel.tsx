@@ -144,7 +144,8 @@ export const MantenimientoPanel: React.FC = () => {
       }
 
       if (resHabs.status === 'fulfilled') {
-        setHabitacionesList(Array.isArray(resHabs.value) ? resHabs.value : []);
+        const habs = (resHabs.value as any)?.data;
+        setHabitacionesList(Array.isArray(habs) ? habs : []);
       }
 
       if (resStaff.status === 'fulfilled') {

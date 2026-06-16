@@ -82,7 +82,36 @@ export const syncContext = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Hotel no encontrado' });
     }
 
-    return res.status(200).json({ data: hotel });
+    // Resolver el plan de suscripción del owner para exponer feature_flags al frontend
+    let plan: any = { id_plan: null, nombre: null, estado: null, feature_flags: [] };
+
+    if (hotel.id_module) {
+      const { data: businessModule } = await supabaseAdmin!
+        .from('business_modules')
+        .select('owner_id')
+        .eq('id_module', hotel.id_module)
+        .maybeSingle();
+
+      if (businessModule?.owner_id) {
+        const { data: sub } = await supabaseAdmin!
+          .from('suscripciones_owner')
+          .select('id_plan, estado, planes_suscripcion(nombre, feature_flags)')
+          .eq('owner_id', businessModule.owner_id)
+          .eq('tipo_modulo', 'hotel')
+          .maybeSingle();
+
+        if (sub) {
+          plan = {
+            id_plan: sub.id_plan,
+            estado: sub.estado,
+            nombre: (sub.planes_suscripcion as any)?.nombre ?? null,
+            feature_flags: (sub.planes_suscripcion as any)?.feature_flags ?? [],
+          };
+        }
+      }
+    }
+
+    return res.status(200).json({ data: { ...hotel, plan } });
   } catch (err: any) {
     console.error('Error en syncContext:', err);
     return res.status(500).json({ error: err.message });

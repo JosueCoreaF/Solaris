@@ -1,17 +1,21 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import SolarisLogo from '../../components/SolarisLogo';
 
 const RestaurantLanding: React.FC = () => {
-  const portalBase = `${window.location.protocol}//${window.location.hostname}:5177`;
+  const portalBase = import.meta.env.VITE_PORTAL_BASE_URL || `${window.location.protocol}//${window.location.hostname}:5177`;
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-50 to-white text-gray-900">
-      <header className="max-w-6xl mx-auto p-6 flex items-center justify-between">
-        <div className="text-2xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-amber-600 to-rose-500">Solaris</div>
-        <nav className="space-x-4 text-sm text-gray-700 flex items-center">
-          <a href="#features" className="hover:underline">Características</a>
-          <a href="#menu" className="hover:underline">Menú</a>
-          <a href="#contact" className="hover:underline">Contacto</a>
-          <a href={portalBase} className="ml-4 inline-block bg-white border border-gray-200 px-3 py-1 rounded-full text-sm text-gray-800 hover:bg-gray-50">Volver al Portal</a>
+      <header className="max-w-6xl mx-auto p-6 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <SolarisLogo variant="restaurant" size={88} />
+          <div className="text-2xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-amber-600 to-rose-500">Solaris</div>
+        </div>
+        <nav className="flex items-center gap-3 sm:gap-4 text-sm text-gray-700">
+          <a href="#features" className="hover:underline hidden sm:inline">Características</a>
+          <a href="#menu" className="hover:underline hidden sm:inline">Menú</a>
+          <a href="#contact" className="hover:underline hidden sm:inline">Contacto</a>
+          <a href={portalBase} className="inline-block bg-white border border-gray-200 px-3 py-1 rounded-full text-sm text-gray-800 hover:bg-gray-50 whitespace-nowrap">Volver al Portal</a>
         </nav>
       </header>
 

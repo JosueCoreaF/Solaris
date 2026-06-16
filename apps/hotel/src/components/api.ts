@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient';
+import { supabase } from '../api/supabase';
 
 const API_BASE_URL = (() => {
   // En Electron (file://) siempre usar el backend local en puerto 4000
@@ -1977,12 +1977,12 @@ export async function saveCierreDiario(cierre: {
   const { data: { session } } = await supabase.auth.getSession();
   const { error } = await supabase.from('cierres_diarios').upsert({
     fecha: cierre.fecha,
-    hotel: cierre.hotel,
+    id_hotel: cierre.hotel,
     encargado_id: session?.user?.id ?? null,
     encargado_nombre: cierre.encargadoNombre,
     snapshot: cierre.snapshot,
     updated_at: new Date().toISOString(),
-  }, { onConflict: 'fecha,hotel' });
+  }, { onConflict: 'fecha,id_hotel' });
   if (error) throw error;
 }
 
@@ -1991,14 +1991,14 @@ export async function loadCierreDiario(fecha: string, hotel: string): Promise<Ci
     .from('cierres_diarios')
     .select('*')
     .eq('fecha', fecha)
-    .eq('hotel', hotel)
+    .eq('id_hotel', hotel)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
   return {
     id: data.id,
     fecha: data.fecha,
-    hotel: data.hotel,
+    hotel: data.id_hotel,
     encargadoId: data.encargado_id,
     encargadoNombre: data.encargado_nombre,
     snapshot: data.snapshot,
@@ -2008,16 +2008,24 @@ export async function loadCierreDiario(fecha: string, hotel: string): Promise<Ci
 }
 
 export async function listCierresDiarios(limit = 30): Promise<CierreDiarioRecord[]> {
-  const { data, error } = await supabase
+  const activeHotelId = localStorage.getItem('active_hotel_id') || '';
+  let query = supabase
     .from('cierres_diarios')
-    .select('*')
+    .select('*');
+  
+  if (activeHotelId && activeHotelId !== 'all') {
+    query = query.eq('id_hotel', activeHotelId);
+  }
+
+  const { data, error } = await query
     .order('fecha', { ascending: false })
     .limit(limit);
+    
   if (error) throw error;
   return (data ?? []).map((d: any) => ({
     id: d.id,
     fecha: d.fecha,
-    hotel: d.hotel,
+    hotel: d.id_hotel,
     encargadoId: d.encargado_id,
     encargadoNombre: d.encargado_nombre,
     snapshot: d.snapshot,

@@ -1,5 +1,20 @@
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api/public';
 
+export interface HotelSuggestion {
+  nombre: string;
+  slug: string;
+  ciudad: string | null;
+  logoUrl: string | null;
+}
+
+export async function buscarHoteles(q: string): Promise<HotelSuggestion[]> {
+  if (!q || q.trim().length < 2) return [];
+  const params = new URLSearchParams({ q });
+  const res = await fetch(`${BASE}/hoteles/buscar?${params}`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function fetchHotelBySlug(slug: string) {
   const res = await fetch(`${BASE}/hotel/${slug}`);
   if (!res.ok) {

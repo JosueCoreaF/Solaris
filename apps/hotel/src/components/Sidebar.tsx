@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useRole } from '../hooks/useRole';
 import { fetchHoteles } from '../api/bookingsService';
 import { useSync } from '../context/SyncContext';
+import SolarisLogo from './SolarisLogo';
 
 /* ── Iconos SVG ─────────────────────────────────────────── */
 const IconPanel = () => (
@@ -131,11 +132,18 @@ const IconCheck = () => (
     <polyline points="20 6 9 17 4 12" />
   </svg>
 );
-const getSidebarSections = (role: string) => {
+/* ── Insignia visual del plan de suscripción activo ───────── */
+const PLAN_BADGES: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  hotel_starter: { label: 'Starter', color: '#64748b', bg: 'rgba(100,116,139,.10)', border: 'rgba(100,116,139,.25)' },
+  hotel_pro: { label: 'Estándar', color: '#2563eb', bg: 'rgba(37,99,235,.10)', border: 'rgba(37,99,235,.25)' },
+  hotel_business: { label: 'Premium', color: '#d97706', bg: 'rgba(217,119,6,.10)', border: 'rgba(217,119,6,.25)' },
+};
+
+const getSidebarSections = (role: string, featureFlags: string[]) => {
   // Roles alineados con src/config/rbac.ts ROUTE_ROLES
   const sections: Array<{
     title: string;
-    items: Array<{ to: string; label: string; icon: () => JSX.Element; roles?: string[] }>;
+    items: Array<{ to: string; label: string; icon: () => JSX.Element; roles?: string[]; feature?: string }>;
   }> = [
       {
         title: 'Operativos',
@@ -148,7 +156,7 @@ const getSidebarSections = (role: string) => {
           { to: '/pagos', label: 'Pagos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/clientes', label: 'Clientes', icon: IconClients, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/empresas', label: 'Empresas', icon: IconBuilding, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
-          { to: '/cotizaciones', label: 'Cotizaciones', icon: IconQuotes, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
+          { to: '/cotizaciones', label: 'Cotizaciones', icon: IconQuotes, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'], feature: 'cotizaciones' },
           { to: '/estado-cuenta', label: 'Estado de Cuenta', icon: IconWallet, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'CONTADOR'] },
           { to: '/chat', label: 'Chat', icon: IconChat, roles: ['PROPIETARIO', 'ADMIN', 'RECEPCIONISTA', 'MANTENIMIENTO', 'CONTADOR'] },
         ],
@@ -158,42 +166,95 @@ const getSidebarSections = (role: string) => {
         items: [
           { to: '/finanzas', label: 'Ingresos', icon: IconPayments, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
           { to: '/tarifas', label: 'Tarifas', icon: IconRates, roles: ['PROPIETARIO', 'ADMIN'] },
-          { to: '/exportar', label: 'Exportar Datos', icon: IconExport, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
+          { to: '/exportar', label: 'Exportar Datos', icon: IconExport, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'], feature: 'exportador_datos' },
           { to: '/importar-reservas', label: 'Importar', icon: IconUploadCloud, roles: ['PROPIETARIO', 'ADMIN'] },
           { to: '/config', label: 'Configuración', icon: IconSettings, roles: ['PROPIETARIO', 'ADMIN'] },
-          { to: '/plantillas-correo', label: 'Plantillas Correo', icon: IconMail, roles: ['PROPIETARIO', 'ADMIN'] },
+          { to: '/plantillas-correo', label: 'Plantillas Correo', icon: IconMail, roles: ['PROPIETARIO', 'ADMIN'], feature: 'email_studio' },
           { to: '/gestionar-roles', label: 'Roles y Permisos', icon: IconUsers, roles: ['PROPIETARIO'] },
-          { to: '/auditoria', label: 'Auditoría', icon: IconShield, roles: ['PROPIETARIO', 'ADMIN'] },
+          { to: '/auditoria', label: 'Auditoría', icon: IconShield, roles: ['PROPIETARIO', 'ADMIN'], feature: 'auditoria' },
         ],
       },
       {
         title: 'Reportes',
         items: [
-          { to: '/reportes', label: 'Reportes', icon: IconChart, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'] },
+          { to: '/reportes', label: 'Reportes', icon: IconChart, roles: ['PROPIETARIO', 'ADMIN', 'CONTADOR'], feature: 'reportes' },
         ],
       },
     ];
 
-  // Filtrar secciones y items según el rol
+  // Filtrar secciones y items según el rol y los feature flags del plan
   return sections
     .map(section => ({
       ...section,
-      items: section.items.filter(item => !item.roles || item.roles.includes(role)),
+      items: section.items.filter(item =>
+        (!item.roles || item.roles.includes(role)) &&
+        (!item.feature || featureFlags.includes(item.feature))
+      ),
     }))
     .filter(section => section.items.length > 0);
 };
 
 /* ── Items para rail (todos los items filtrados) ──────────── */
-const getAllItems = (role: string) => {
-  const sections = getSidebarSections(role);
+const getAllItems = (role: string, featureFlags: string[]) => {
+  const sections = getSidebarSections(role, featureFlags);
   return sections.flatMap(s => s.items);
+};
+
+/* ── Iniciales de un hotel para su avatar (ej. "Hotel Solar" -> "HS") ── */
+const getHotelInitials = (nombre?: string) => {
+  if (!nombre) return 'H';
+  const palabras = nombre.trim().split(/\s+/).filter(Boolean);
+  if (palabras.length === 1) return palabras[0].slice(0, 2).toUpperCase();
+  return (palabras[0][0] + palabras[1][0]).toUpperCase();
 };
 
 /* ── Componente ─────────────────────────────────────────── */
 export const Sidebar: React.FC = () => {
-  const { user, signOut } = useAuth();
+  const { user, session, signOut, supportMode } = useAuth();
   const { role } = useRole();
   const { hotel: syncHotel } = useSync();
+
+  const getHubUrl = () => {
+    const envHubUrl = import.meta.env.VITE_HUB_URL;
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
+    if (isLocal) {
+      return envHubUrl || 'http://localhost:5174';
+    }
+    
+    if (!envHubUrl || envHubUrl.includes('localhost') || envHubUrl.includes('127.0.0.1')) {
+      const hostname = window.location.hostname;
+      if (hostname.endsWith('.solarys.uk')) {
+        return 'https://hub.solarys.uk';
+      }
+      if (hostname.includes('-gym')) {
+        return `${window.location.protocol}//${hostname.replace('-gym', '-hub')}`;
+      }
+      if (hostname.includes('-hotel')) {
+        return `${window.location.protocol}//${hostname.replace('-hotel', '-hub')}`;
+      }
+      const parts = hostname.split('.');
+      if (parts.length > 2) {
+        return `${window.location.protocol}//hub.${parts.slice(1).join('.')}`;
+      }
+      return 'https://hub.solarys.uk';
+    }
+    return envHubUrl;
+  };
+
+  const hubUrl = getHubUrl();
+
+  const goToHub = () => {
+    if (session) {
+      const params = new URLSearchParams({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      });
+      window.location.href = `${hubUrl}/dashboard?${params.toString()}`;
+    } else {
+      window.location.href = hubUrl;
+    }
+  };
   const [unreadCount, setUnreadCount] = useState(0);
   const [hoteles, setHoteles] = useState<any[]>([]);
   const [activeHotelId, setActiveHotelId] = useState(localStorage.getItem('active_hotel_id') || '');
@@ -249,15 +310,33 @@ export const Sidebar: React.FC = () => {
     };
   }, []);
 
-  const sidebarSections = getSidebarSections(role);
-  const allItems = getAllItems(role);
+  const featureFlags = syncHotel?.plan?.feature_flags ?? [];
+  const sidebarSections = getSidebarSections(role, featureFlags);
+  const allItems = getAllItems(role, featureFlags);
 
   return (
     <div className="sidebar-cluster">
       {/* Rail compacto (visible por defecto) */}
       <aside className="sidebar-rail">
         <div className="sidebar-rail-head">
-          <div className="brand-badge" style={{ width: 38, height: 38, fontSize: 11, borderRadius: 12 }}>PC</div>
+          <div style={{ position: 'relative' }}>
+            <SolarisLogo variant="hotel" size={38} />
+            {syncHotel?.plan?.id_plan && PLAN_BADGES[syncHotel.plan.id_plan] && (
+              <div
+                title={`Plan ${PLAN_BADGES[syncHotel.plan.id_plan].label}`}
+                style={{
+                  position: 'absolute',
+                  bottom: -3,
+                  right: -3,
+                  width: 12,
+                  height: 12,
+                  borderRadius: '50%',
+                  background: PLAN_BADGES[syncHotel.plan.id_plan].color,
+                  border: '2px solid var(--shell-bg)',
+                }}
+              />
+            )}
+          </div>
           <div
             style={{
               marginTop: 10,
@@ -276,6 +355,7 @@ export const Sidebar: React.FC = () => {
           >
             🏨
           </div>
+
         </div>
 
         <nav className="sidebar-rail-menu">
@@ -304,29 +384,41 @@ export const Sidebar: React.FC = () => {
         </nav>
 
         <div style={{ marginTop: 'auto', paddingBottom: 10 }}>
-          <button
-            className="sidebar-rail-item"
-            title="Volver al Hub"
-            style={{ border: 'none', background: 'transparent', cursor: 'pointer', marginBottom: '8px' }}
-            onClick={() => {
-              const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
-              window.location.href = hubUrl;
-            }}
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          </button>
-          <button
-            className="sidebar-rail-item"
-            title="Cerrar sesión"
-            style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}
-            onClick={() => signOut()}
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-            </svg>
-          </button>
+          {supportMode ? (
+            <button
+              className="sidebar-rail-item"
+              title="Terminar soporte"
+              style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#dc2626' }}
+              onClick={() => signOut()}
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+              </svg>
+            </button>
+          ) : (
+            <>
+              <button
+                className="sidebar-rail-item"
+                title="Volver al Hub"
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', marginBottom: '8px' }}
+                onClick={goToHub}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+              </button>
+              <button
+                className="sidebar-rail-item"
+                title="Cerrar sesión"
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}
+                onClick={() => signOut()}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                </svg>
+              </button>
+            </>
+          )}
         </div>
       </aside>
 
@@ -334,7 +426,7 @@ export const Sidebar: React.FC = () => {
       <aside className="sidebar">
         <div className="sidebar-top">
           <div className="brand-lockup sidebar-brand-lockup">
-            <div className="brand-badge" style={{ width: 40, height: 40, borderRadius: 12 }}>PC</div>
+            <SolarisLogo variant="hotel" size={40} />
             <div className="brand-copy">
               <strong className="brand">Partner Central</strong>
               <span>Sistema hotelero</span>
@@ -346,38 +438,98 @@ export const Sidebar: React.FC = () => {
           <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>
             Propiedad Activa
           </label>
-          <button
-            onClick={() => setModalOpen(true)}
-            style={{
-              width: '100%',
-              padding: '10px 14px',
-              borderRadius: '12px',
-              border: '1px solid var(--shell-border-strong)',
-              backgroundColor: 'rgba(0, 0, 0, 0.03)',
-              color: 'var(--text-h)',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
-            onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--shell-border-strong)'}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {syncHotel ? syncHotel.nombre_hotel : (hoteles.find(h => h.id_hotel === activeHotelId)?.nombre_hotel || 'Cargando...')}
-            </div>
-            <div style={{ color: 'var(--muted)', display: 'flex', flexShrink: 0 }}>
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-            </div>
-          </button>
+          {(() => {
+            const propiedadActiva = syncHotel
+              ? { nombre_hotel: syncHotel.nombre_hotel, ciudad: hoteles.find(h => h.id_hotel === activeHotelId)?.ciudad }
+              : hoteles.find(h => h.id_hotel === activeHotelId);
+            const puedeCambiar = hoteles.length > 1;
+            return (
+              <button
+                onClick={() => puedeCambiar && setModalOpen(true)}
+                title={puedeCambiar ? 'Cambiar de propiedad' : 'Esta es tu única propiedad'}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: '12px',
+                  border: '1px solid var(--shell-border-strong)',
+                  backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                  color: 'var(--text-h)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: puedeCambiar ? 'pointer' : 'default',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 10,
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                }}
+                onMouseEnter={(e) => { if (puedeCambiar) e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--shell-border-strong)'; }}
+              >
+                <div style={{
+                  width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                  background: 'var(--sidebar-item-hover)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 11, fontWeight: 800, color: 'var(--text-h)',
+                }}>
+                  {getHotelInitials(propiedadActiva?.nombre_hotel)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                  <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {propiedadActiva?.nombre_hotel || 'Cargando...'}
+                  </div>
+                  {propiedadActiva?.ciudad && (
+                    <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {propiedadActiva.ciudad}
+                    </div>
+                  )}
+                </div>
+                {puedeCambiar && (
+                  <div style={{ color: 'var(--muted)', display: 'flex', flexShrink: 0 }}>
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                  </div>
+                )}
+              </button>
+            );
+          })()}
         </div>
+
+        {(() => {
+          const planInfo = syncHotel?.plan?.id_plan ? PLAN_BADGES[syncHotel.plan.id_plan] : null;
+          if (!planInfo) return null;
+          const isTopTier = syncHotel?.plan?.id_plan === 'hotel_business';
+          return (
+            <div style={{ padding: '6px 8px 0' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  borderRadius: 12,
+                  background: planInfo.bg,
+                  border: `1px solid ${planInfo.border}`,
+                }}
+              >
+                <span style={{ fontSize: 11, fontWeight: 800, color: planInfo.color, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                  Plan {planInfo.label}
+                </span>
+                {!isTopTier && (
+                  <a
+                    href={`${hubUrl}/upgrade`}
+                    style={{ fontSize: 11, fontWeight: 700, color: planInfo.color, textDecoration: 'none' }}
+                  >
+                    Mejorar →
+                  </a>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         <nav className="menu">
           {sidebarSections.map((section, idx) => (
@@ -430,49 +582,68 @@ export const Sidebar: React.FC = () => {
             <span>{user?.email ?? 'Partner Central'}</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{role}</span>
           </div>
-          <button
-            onClick={() => {
-              const hubUrl = import.meta.env.VITE_HUB_URL || 'http://localhost:5174';
-              window.location.href = hubUrl;
-            }}
-            style={{
-              marginTop: 6, width: '100%', padding: 9, borderRadius: 10,
-              border: '1px solid rgba(37, 99, 235, 0.2)',
-              background: 'rgba(37, 99, 235, 0.06)', color: '#2563eb',
-              fontWeight: 600, fontSize: 13, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              transition: 'all .18s ease'
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.12)';
-              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(37, 99, 235, 0.36)';
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.06)';
-              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(37, 99, 235, 0.2)';
-            }}
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-            Volver al Hub
-          </button>
-          <NavLink
-            to="/perfil"
-            className={({ isActive }) => isActive ? 'logout-button active' : 'logout-button'}
-            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" />
-            </svg>
-            Mi Perfil
-          </NavLink>
-          <button className="logout-button" onClick={() => signOut()}>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-            </svg>
-            Cerrar Sesión
-          </button>
+          {supportMode ? (
+            <button
+              className="logout-button"
+              onClick={() => signOut()}
+              style={{
+                marginTop: 6, width: '100%', padding: 9, borderRadius: 10,
+                border: '1px solid rgba(220, 38, 38, 0.25)',
+                background: 'rgba(220, 38, 38, 0.06)', color: '#dc2626',
+                fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                transition: 'all .18s ease'
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+              </svg>
+              Terminar soporte
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={goToHub}
+                style={{
+                  marginTop: 6, width: '100%', padding: 9, borderRadius: 10,
+                  border: '1px solid rgba(37, 99, 235, 0.2)',
+                  background: 'rgba(37, 99, 235, 0.06)', color: '#2563eb',
+                  fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  transition: 'all .18s ease'
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.12)';
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(37, 99, 235, 0.36)';
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.06)';
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(37, 99, 235, 0.2)';
+                }}
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+                Volver al Hub
+              </button>
+              <NavLink
+                to="/perfil"
+                className={({ isActive }) => isActive ? 'logout-button active' : 'logout-button'}
+                style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" />
+                </svg>
+                Mi Perfil
+              </NavLink>
+              <button className="logout-button" onClick={() => signOut()}>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                </svg>
+                Cerrar Sesión
+              </button>
+            </>
+          )}
         </footer>
       </aside>
 
@@ -532,7 +703,7 @@ export const Sidebar: React.FC = () => {
                   onMouseLeave={(e) => { if (activeHotelId !== h.id_hotel) e.currentTarget.style.backgroundColor = 'transparent' }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '8px', background: 'var(--sidebar-item-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>Htl</div>
+                    <div style={{ width: 40, height: 40, borderRadius: '8px', background: 'var(--sidebar-item-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>{getHotelInitials(h.nombre_hotel)}</div>
                     <div>
                       <div style={{ color: 'var(--text-h)', fontWeight: 600, fontSize: 15 }}>{h.nombre_hotel}</div>
                       <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>{h.ciudad || 'Operación regular'}</div>

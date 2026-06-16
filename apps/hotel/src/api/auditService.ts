@@ -58,6 +58,40 @@ export interface AuditLogsResponse {
   offset: number;
 }
 
+// Etiquetas legibles para entidades (nombres de tablas) — para no exponer nombres técnicos
+export const ETIQUETA_ENTIDAD: Record<string, string> = {
+  reservas_hotel: 'Reservas',
+  pagos_hotel: 'Pagos',
+  huespedes: 'Huéspedes',
+  usuarios_roles: 'Usuarios & Roles',
+  saldos_clientes: 'Saldos de Clientes',
+  habitaciones: 'Habitaciones',
+  bloqueos_habitacion: 'Bloqueos de Habitación',
+  empresas: 'Empresas',
+  cierres_diarios: 'Cierres Diarios',
+  cotizaciones: 'Cotizaciones',
+  servicios_adicionales: 'Servicios Adicionales',
+  hoteles: 'Hotel',
+};
+
+// Etiquetas legibles para campos técnicos
+export const ETIQUETA_CAMPO: Record<string, string> = {
+  estado: 'Estado', estado_pago: 'Estado de Pago', estado_display: 'Estado (visual)',
+  total_reserva: 'Total Reserva', monto: 'Monto', moneda: 'Moneda',
+  check_in: 'Check-in', check_out: 'Check-out', updated_at: 'Actualizado',
+  created_at: 'Creado', id_huesped: 'Huésped', id_habitacion: 'Habitación',
+  id_hotel: 'Hotel', observaciones: 'Observaciones', origen_reserva: 'Origen',
+  es_cortesia: 'Cortesía', metodo_pago: 'Método de Pago', fecha_pago: 'Fecha de Pago',
+  rol: 'Rol', email: 'Email', nombre_completo: 'Nombre', tipo: 'Tipo',
+  aplicado: 'Aplicado', detalles_estado: 'Detalles del Estado',
+};
+
+// Campos internos que no aportan información al usuario
+const CAMPOS_IGNORADOS = new Set([
+  'id', 'id_reserva_hotel', 'id_pago_hotel', 'id_saldo', 'id_empresa',
+  'usuario_id', 'id_usuario', 'id_hotel', 'created_at', 'updated_at',
+]);
+
 const PREFIX = '/hotel/audit/logs';
 
 class AuditService {
@@ -144,6 +178,41 @@ class AuditService {
       BLOCK_ROOM: 'Habitación bloqueada', UNBLOCK_ROOM: 'Habitación desbloqueada',
     };
     return map[accion] || accion;
+  }
+
+  /** Nombre legible de la entidad/módulo afectado, sin exponer el nombre técnico de la tabla. */
+  etiquetaEntidad(entidad: string | null | undefined): string {
+    if (!entidad) return 'Registro';
+    return ETIQUETA_ENTIDAD[entidad] ?? entidad.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+  }
+
+  /** Lista de campos que cambiaron entre dos snapshots, ignorando IDs e internos. */
+  camposModificados(anterior: Record<string, unknown> | null, nuevo: Record<string, unknown> | null): string[] {
+    const todos = new Set([...Object.keys(anterior ?? {}), ...Object.keys(nuevo ?? {})]);
+    const cambios: string[] = [];
+    todos.forEach((campo) => {
+      if (CAMPOS_IGNORADOS.has(campo)) return;
+      if (JSON.stringify(anterior?.[campo]) !== JSON.stringify(nuevo?.[campo])) cambios.push(campo);
+    });
+    return cambios;
+  }
+
+  /** Resumen legible en español de lo que cambió, en vez del crudo "INSERT en <tabla>". */
+  describirCambio(log: AuditLog): string {
+    const entidadLabel = this.etiquetaEntidad(log.entidad);
+
+    if (log.accion === 'INSERT') return `Se creó un registro en ${entidadLabel}`;
+    if (log.accion === 'DELETE') return `Se eliminó un registro en ${entidadLabel}`;
+
+    if (log.accion === 'UPDATE') {
+      const campos = this.camposModificados(log.datos_anteriores, log.datos_nuevos);
+      if (campos.length === 0) return `Se actualizó un registro en ${entidadLabel}`;
+      const etiquetas = campos.slice(0, 3).map(c => ETIQUETA_CAMPO[c] ?? c.replace(/_/g, ' '));
+      const extra = campos.length > 3 ? ` y ${campos.length - 3} campo(s) más` : '';
+      return `Se actualizó ${etiquetas.join(', ')}${extra} en ${entidadLabel}`;
+    }
+
+    return `${this.obtenerEtiquetaAccion(log.accion)} — ${entidadLabel}`;
   }
 }
 

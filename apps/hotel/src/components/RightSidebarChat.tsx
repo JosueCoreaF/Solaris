@@ -1,13 +1,75 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ChatOperativo from './ChatOperativo';
 import { AsistenteAI } from './AsistenteAI';
-import { MessageSquare, Bot, ChevronRight, ChevronLeft } from 'lucide-react';
+import { NotificationsPanel } from './NotificationsPanel';
+import { MessageSquare, Bot, Bell, ChevronRight, ChevronLeft } from 'lucide-react';
+import { useHasFeature } from '../hooks/usePlanFeature';
+import { fetchUnreadCount } from '../api/notificacionesService';
+import { getSocket } from '../api/chatService';
+import { playNotificationChime } from '../utils/notificationSound';
+
+const NOTIF_SOUND_INTERVAL_MS = 5 * 60 * 1000;
 
 export const RightSidebarChat: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'operativo' | 'ai'>('operativo');
+  const [activeTab, setActiveTab] = useState<'operativo' | 'ai' | 'notificaciones'>('operativo');
   const [unreadCount, setUnreadCount] = useState(0);
+  const [notifUnread, setNotifUnread] = useState(0);
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    try { return localStorage.getItem('notif-sound-enabled') !== 'false'; } catch { return true; }
+  });
+  const hasAIAssistant = useHasFeature('ai_asistente');
+
+  // Conteo inicial de notificaciones no leídas + actualización en tiempo real
+  useEffect(() => {
+    fetchUnreadCount().then(setNotifUnread).catch(() => {});
+
+    const activeHotelId = localStorage.getItem('active_hotel_id');
+    const s = getSocket();
+
+    const onConnect = () => {
+      if (activeHotelId) {
+        s.emit('join_hotel', activeHotelId);
+      }
+    };
+
+    s.on('connect', onConnect);
+    // Initial join if already connected
+    if (s.connected && activeHotelId) {
+      s.emit('join_hotel', activeHotelId);
+    }
+
+    const onNueva = () => setNotifUnread(c => c + 1);
+    s.on('nueva_notificacion', onNueva);
+
+    return () => {
+      s.off('connect', onConnect);
+      s.off('nueva_notificacion', onNueva);
+    };
+  }, []);
+
+  const handleNotifUnreadChange = useCallback((count: number) => {
+    setNotifUnread(count);
+  }, []);
+
+  const toggleSound = useCallback(() => {
+    setSoundEnabled(prev => {
+      const next = !prev;
+      try { localStorage.setItem('notif-sound-enabled', String(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  // Timbre recordatorio cada 5 minutos mientras haya notificaciones sin leer
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (soundEnabled && notifUnread > 0) {
+        playNotificationChime();
+      }
+    }, NOTIF_SOUND_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [soundEnabled, notifUnread]);
 
   // Synchronize unread count from session storage / global event
   useEffect(() => {
@@ -40,6 +102,13 @@ export const RightSidebarChat: React.FC = () => {
     window.addEventListener('open-right-chat', handleOpen);
     return () => window.removeEventListener('open-right-chat', handleOpen);
   }, []);
+
+  // Si el plan pierde el acceso al Asistente IA mientras está activo, volver al chat operativo
+  useEffect(() => {
+    if (!hasAIAssistant && activeTab === 'ai') {
+      setActiveTab('operativo');
+    }
+  }, [hasAIAssistant, activeTab]);
 
   // Toggle class on the dashboard-root element to shift/push the content
   useEffect(() => {
@@ -190,22 +259,66 @@ export const RightSidebarChat: React.FC = () => {
           border: 2px solid var(--shell-panel-strong);
           box-shadow: 0 2px 8px rgba(0,0,0,0.15);
         }
+
+        .right-sidebar-handle-badge-notif {
+          position: absolute;
+          bottom: -4px;
+          left: -4px;
+          background: #ef4444;
+          color: white;
+          font-size: 10px;
+          font-weight: 700;
+          min-width: 18px;
+          height: 18px;
+          border-radius: 999px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 4px;
+          border: 2px solid var(--shell-panel-strong);
+          box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        @keyframes right-sidebar-handle-shake {
+          0%, 100% { transform: translateX(0) translateY(0); }
+          10% { transform: translateX(-3px) translateY(-1px); }
+          20% { transform: translateX(3px) translateY(1px); }
+          30% { transform: translateX(-3px) translateY(-1px); }
+          40% { transform: translateX(3px) translateY(1px); }
+          50% { transform: translateX(-2px); }
+          60% { transform: translateX(2px); }
+          70%, 100% { transform: translateX(0); }
+        }
+
+        @keyframes right-sidebar-handle-glow {
+          0%, 100% { box-shadow: 0 8px 24px rgba(37, 99, 235, 0.35), 0 0 0 0 rgba(239, 68, 68, 0.55); }
+          50% { box-shadow: 0 8px 24px rgba(37, 99, 235, 0.35), 0 0 0 10px rgba(239, 68, 68, 0); }
+        }
+
+        .right-sidebar-handle.has-unread-notif {
+          animation: right-sidebar-handle-glow 2.2s ease-in-out infinite, right-sidebar-handle-shake 4s ease-in-out infinite;
+        }
       `}</style>
 
       {/* Collapsed Trigger Floating Button */}
       {!isOpen && (
         <button
-          className="right-sidebar-handle"
+          className={`right-sidebar-handle${notifUnread > 0 ? ' has-unread-notif' : ''}`}
           onClick={() => setIsOpen(true)}
           title="Abrir Chat & Asistente AI"
         >
           {activeTab === 'operativo' ? (
             <MessageSquare size={20} />
-          ) : (
+          ) : activeTab === 'ai' ? (
             <Bot size={20} />
+          ) : (
+            <Bell size={20} />
           )}
           {unreadCount > 0 && (
             <span className="right-sidebar-handle-badge">{unreadCount}</span>
+          )}
+          {notifUnread > 0 && (
+            <span className="right-sidebar-handle-badge-notif">{notifUnread > 9 ? '9+' : notifUnread}</span>
           )}
         </button>
       )}
@@ -231,12 +344,26 @@ export const RightSidebarChat: React.FC = () => {
                   <MessageSquare size={13} />
                   Chat
                 </button>
+                {hasAIAssistant && (
+                  <button
+                    className={`right-sidebar-tab-btn${activeTab === 'ai' ? ' active' : ''}`}
+                    onClick={() => setActiveTab('ai')}
+                  >
+                    <Bot size={13} />
+                    Asistente AI
+                  </button>
+                )}
                 <button
-                  className={`right-sidebar-tab-btn${activeTab === 'ai' ? ' active' : ''}`}
-                  onClick={() => setActiveTab('ai')}
+                  className={`right-sidebar-tab-btn${activeTab === 'notificaciones' ? ' active' : ''}`}
+                  onClick={() => setActiveTab('notificaciones')}
                 >
-                  <Bot size={13} />
-                  Asistente AI
+                  <Bell size={13} />
+                  Notificaciones
+                  {notifUnread > 0 && (
+                    <span className="right-sidebar-handle-badge-notif" style={{ position: 'static', marginLeft: 2 }}>
+                      {notifUnread > 9 ? '9+' : notifUnread}
+                    </span>
+                  )}
                 </button>
               </div>
 
@@ -254,8 +381,15 @@ export const RightSidebarChat: React.FC = () => {
             <div className="right-sidebar-content">
               {activeTab === 'operativo' ? (
                 <ChatOperativo embedded />
-              ) : (
+              ) : activeTab === 'ai' ? (
                 <AsistenteAI embedded />
+              ) : (
+                <NotificationsPanel
+                  embedded
+                  onUnreadChange={handleNotifUnreadChange}
+                  soundEnabled={soundEnabled}
+                  onToggleSound={toggleSound}
+                />
               )}
             </div>
           </motion.div>

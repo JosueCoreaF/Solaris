@@ -10,10 +10,15 @@ import apiClient from './services/api';
 import './index.css';
 
 import Support from './pages/Support';
+<<<<<<< HEAD
+=======
+import HotelLanding from './pages/landing/HotelLanding';
+>>>>>>> origin/main
 import GymLanding from './pages/landing/GymLanding';
 import RestaurantLanding from './pages/landing/RestaurantLanding';
 import Billing from './pages/Billing';
 import { UpgradePlan } from './pages/UpgradePlan';
+import { McpTokens } from './pages/McpTokens';
 import Notifications from './pages/Notifications';
 import ChatHub from './pages/ChatHub';
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -27,6 +32,10 @@ const AppRoutes = () => {
 
   return (
     <Routes>
+<<<<<<< HEAD
+=======
+      <Route path="/landing/hotel" element={<HotelLanding />} />
+>>>>>>> origin/main
       <Route path="/landing/gym" element={<GymLanding />} />
       <Route path="/landing/restaurant" element={<RestaurantLanding />} />
       <Route path="/login" element={session ? <Navigate to="/dashboard" replace /> : <Login />} />
@@ -39,6 +48,7 @@ const AppRoutes = () => {
       <Route path="/upgrade" element={session ? <UpgradePlan /> : <Navigate to="/login" replace />} />
       <Route path="/notifications" element={session ? <Notifications /> : <Navigate to="/login" replace />} />
       <Route path="/chat" element={session ? <ChatHub /> : <Navigate to="/login" replace />} />
+      <Route path="/mcp" element={session ? <McpTokens /> : <Navigate to="/login" replace />} />
       <Route path="/admin" element={session ? <AdminGuard><AdminDashboard /></AdminGuard> : <Navigate to="/login" replace />} />
       <Route path="/admin/owners" element={session ? <AdminGuard><AdminOwners /></AdminGuard> : <Navigate to="/login" replace />} />
       <Route path="/admin/billing" element={session ? <AdminGuard><AdminBilling /></AdminGuard> : <Navigate to="/login" replace />} />

@@ -15,10 +15,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const init = async () => {
+      const params       = new URLSearchParams(window.location.search);
+      const accessToken  = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+
+      if (accessToken && refreshToken) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        const { data, error } = await supabase.auth.setSession({
+          access_token: accessToken, refresh_token: refreshToken,
+        });
+        if (!error && data.session) {
+          setSession(data.session);
+          setLoading(false);
+          return;
+        }
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
       setLoading(false);
-    });
+    };
+
+    init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);

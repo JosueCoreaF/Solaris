@@ -11,6 +11,7 @@ import auditRouter from './routes/audit.js';
 import publicRouter from './routes/public.js';
 import hubRouter from './routes/hub.js';
 import aiRouter from './routes/ai.js';
+import solarisAiRouter from './routes/solaris-ai.js';
 // Hotel sub-routers
 import hotelRouter from './routes/hotel/index.js';
 import configRouter from './routes/hotel/config.js';
@@ -47,7 +48,7 @@ setIO(io);
 // navegador envía el header Origin con la URL del backend, así que ese
 // origen debe estar permitido aunque no figure entre los del frontend.
 const allowedOrigins = config_env.corsOrigin.split(',').map((o: string) => o.trim());
-for (const ownOrigin of [`http://localhost:${config_env.port}`, process.env.BACKEND_PUBLIC_URL]) {
+for (const ownOrigin of [`http://localhost:${config_env.port}`, process.env.BACKEND_PUBLIC_URL || 'https://api.solarys.uk']) {
   if (ownOrigin && !allowedOrigins.includes(ownOrigin)) allowedOrigins.push(ownOrigin);
 }
 app.use(cors({
@@ -97,6 +98,7 @@ app.use('/api/roles', rolesRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/media', mediaRouter);
 app.use('/api/hub/ai', aiRouter);
+app.use('/api/hub/ai/solaris', solarisAiRouter);
 app.use('/api/hub', hubRouter);
 app.use('/api', auditRouter);
 // Hotel routes (todas bajo /api/hotel/*)
@@ -133,6 +135,11 @@ app.get('/api', (req: Request, res: Response) => {
 
 io.on('connection', (socket) => {
   console.log(`👤 Usuario conectado: ${socket.id}`);
+
+  // Join sala de notificaciones del hotel activo
+  socket.on('join_hotel', (hotelId: string) => {
+    if (hotelId) socket.join(`hotel:${hotelId}`);
+  });
 
   // Join channel
   socket.on('join_channel', (channelId: string) => {

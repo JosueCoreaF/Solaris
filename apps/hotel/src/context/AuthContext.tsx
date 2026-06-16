@@ -14,6 +14,7 @@ interface AuthContextValue {
   role:           UserRole;
   loadingRole:    boolean;
   accountBlocked: AccountBlockedReason;
+  supportMode:    boolean;
   refreshRole:    () => Promise<void>;
   signIn:  (email: string, password: string) => Promise<{ error: string | null }>;
   signUp:  (email: string, password: string, metadata?: Record<string, any>) => Promise<{ error: string | null; user_id?: string }>;
@@ -61,6 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [role,           setRole]           = useState<UserRole>('INVITADO');
   const [loadingRole,    setLoadingRole]    = useState(false);
   const [accountBlocked, setAccountBlocked] = useState<AccountBlockedReason>(null);
+  const [supportMode,    setSupportMode]    = useState(() => sessionStorage.getItem('solaris_support_mode') === '1');
 
   const refreshRole = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -88,13 +90,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const accessToken  = params.get('access_token');
       const refreshToken = params.get('refresh_token');
       const hotelId      = params.get('hotel_id') || params.get('business_id');
+      const soporte      = params.get('soporte');
 
       if (hotelId) {
         localStorage.setItem('active_hotel_id', hotelId);
       } else if (accessToken) {
         localStorage.removeItem('active_hotel_id');
       }
-      if (accessToken || refreshToken || hotelId) {
+      if (soporte === '1') {
+        sessionStorage.setItem('solaris_support_mode', '1');
+        setSupportMode(true);
+      }
+      if (accessToken || refreshToken || hotelId || soporte) {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
 
@@ -213,8 +220,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = async () => {
     localStorage.removeItem('autoLoginSession');
+    sessionStorage.removeItem('solaris_support_mode');
     setRole('INVITADO');
     setAccountBlocked(null);
+    setSupportMode(false);
     await supabase.auth.signOut();
   };
 
@@ -222,6 +231,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider value={{
       session, user, loading,
       role, loadingRole, accountBlocked,
+      supportMode,
       refreshRole,
       signIn, signUp, signOut,
     }}>

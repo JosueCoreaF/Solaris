@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS public.planes_suscripcion (
   nombre                  varchar     NOT NULL,
   descripcion             text,
   features                jsonb       NOT NULL DEFAULT '[]',
+  feature_flags           jsonb       NOT NULL DEFAULT '[]',
   stripe_price_id_mensual varchar,
   stripe_price_id_anual   varchar,
   limite_negocios         integer     NOT NULL DEFAULT 1,
@@ -52,6 +53,7 @@ CREATE TABLE IF NOT EXISTS public.suscripciones_owner (
   trial_end              timestamptz,
   current_period_end     timestamptz,
   negocios_extra         integer     NOT NULL DEFAULT 0,
+  cancel_at_period_end   boolean     NOT NULL DEFAULT false,
   created_at             timestamptz NOT NULL DEFAULT now(),
   updated_at             timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT suscripciones_owner_pkey PRIMARY KEY (id_suscripcion)
@@ -281,6 +283,22 @@ VALUES
   ('gym_pro',        'gym',        'Pro',        '3 gimnasios',     3,  49.00,  490.00, '["3 gimnasios","Todo Starter","Reportes"]')
 ON CONFLICT (id_plan) DO NOTHING;
 
+-- Feature flags por plan (gating progresivo de funcionalidad, módulo hotel)
+UPDATE public.planes_suscripcion SET feature_flags = '[]'::jsonb
+  WHERE id_plan = 'hotel_starter';
+UPDATE public.planes_suscripcion SET feature_flags = '["cotizaciones","email_studio","ai_asistente","email_confirmaciones"]'::jsonb
+  WHERE id_plan = 'hotel_pro';
+UPDATE public.planes_suscripcion SET feature_flags = '["cotizaciones","email_studio","ai_asistente","auditoria","multimoneda","reportes","exportador_datos","email_confirmaciones"]'::jsonb
+  WHERE id_plan = 'hotel_business';
+
+-- Beneficios mostrados en las cards de planes (alineados con feature_flags)
+UPDATE public.planes_suscripcion SET features = '["1 hotel","Reservas y gestión de huéspedes","Chat operativo"]'::jsonb
+  WHERE id_plan = 'hotel_starter';
+UPDATE public.planes_suscripcion SET features = '["Hasta 5 hoteles","Todo lo de Starter","Cotizaciones","Email Studio (plantillas de correo)","Asistente IA","Emails automáticos de confirmación de reserva"]'::jsonb
+  WHERE id_plan = 'hotel_pro';
+UPDATE public.planes_suscripcion SET features = '["Hasta 20 hoteles","Todo lo de Estándar","Auditoría cruzada","Multi-moneda","Reportes","Exportador de datos","Soporte prioritario","Emails automáticos de confirmación de reserva"]'::jsonb
+  WHERE id_plan = 'hotel_business';
+
 
 -- =============================================================================
 -- HOTEL: Tablas del módulo
@@ -309,9 +327,10 @@ CREATE TABLE IF NOT EXISTS public.hoteles (
 );
 
 -- FKs diferidas a hoteles (tablas creadas antes)
-ALTER TABLE public.audit_log      ADD CONSTRAINT IF NOT EXISTS audit_log_hotel_fkey      FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel);
-ALTER TABLE public.usuarios_roles ADD CONSTRAINT IF NOT EXISTS uroles_hotel_fkey          FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel);
-ALTER TABLE public.invitaciones   ADD CONSTRAINT IF NOT EXISTS invitaciones_hotel_fkey    FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel);
+-- Eliminadas para soportar polimorfismo en módulos (Gimnasios y Restaurantes comparten usuarios_roles/invitaciones)
+-- ALTER TABLE public.audit_log      ADD CONSTRAINT IF NOT EXISTS audit_log_hotel_fkey      FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel);
+-- ALTER TABLE public.usuarios_roles ADD CONSTRAINT IF NOT EXISTS uroles_hotel_fkey          FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel);
+-- ALTER TABLE public.invitaciones   ADD CONSTRAINT IF NOT EXISTS invitaciones_hotel_fkey    FOREIGN KEY (id_hotel) REFERENCES public.hoteles(id_hotel);
 
 CREATE TABLE IF NOT EXISTS public.configuracion_hotelera (
   id_config                   uuid        NOT NULL DEFAULT gen_random_uuid(),
@@ -672,6 +691,7 @@ CREATE TABLE IF NOT EXISTS public.cierres_diarios (
   fecha            date        NOT NULL,
   encargado_id     uuid        REFERENCES auth.users(id),
   encargado_nombre varchar,
+  snapshot         jsonb       NOT NULL DEFAULT '{}'::jsonb,
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT cierres_diarios_pkey      PRIMARY KEY (id),
@@ -756,6 +776,19 @@ CREATE TABLE IF NOT EXISTS public.chat_references (
   CONSTRAINT chat_references_pkey PRIMARY KEY (id)
 );
 
+-- ── Notificaciones in-app ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.notificaciones (
+  id_notificacion uuid         NOT NULL DEFAULT gen_random_uuid(),
+  id_hotel        uuid         NOT NULL REFERENCES public.hoteles(id_hotel) ON DELETE CASCADE,
+  tipo            varchar(40)  NOT NULL,
+  titulo          varchar(160) NOT NULL,
+  mensaje         text,
+  link            text,
+  leida           boolean      NOT NULL DEFAULT false,
+  created_at      timestamptz  NOT NULL DEFAULT now(),
+  CONSTRAINT notificaciones_pkey PRIMARY KEY (id_notificacion)
+);
+
 -- ── Índices hotel ─────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_uroles_hotel  ON public.usuarios_roles (id_hotel) WHERE id_hotel IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_audit_hotel   ON public.audit_log (id_hotel);
@@ -778,6 +811,8 @@ CREATE INDEX IF NOT EXISTS idx_cierre_hotel  ON public.cierres_diarios (id_hotel
 CREATE INDEX IF NOT EXISTS idx_chch_hotel    ON public.chat_channels (id_hotel);
 CREATE INDEX IF NOT EXISTS idx_chmsg_channel ON public.chat_messages (channel_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_entidad ON public.audit_log (owner_id, entidad, entidad_id);
+CREATE INDEX IF NOT EXISTS idx_notificaciones_hotel_created ON public.notificaciones (id_hotel, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notificaciones_hotel_unread  ON public.notificaciones (id_hotel, leida) WHERE leida = false;
 
 
 -- =============================================================================

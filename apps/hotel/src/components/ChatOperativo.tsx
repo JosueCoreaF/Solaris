@@ -609,7 +609,12 @@ const ChatOperativo: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
       }
     };
 
-    const onConnect    = () => setConnected(true);
+    const onConnect    = () => {
+      setConnected(true);
+      if (activeIdRef.current) {
+        joinChannel(activeIdRef.current);
+      }
+    };
     const onDisconnect = () => { setConnected(false); setTimeout(() => s.connect(), 3000); };
     
     const onMsg = (msg: ChatMessage) => {
@@ -658,7 +663,14 @@ const ChatOperativo: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
     s.on('new_client_chat', onNewClientChat);
     s.on('user_typing', onTyping);
     s.on('user_stop_typing', onStopTyping);
-    if (s.connected) setConnected(true); else s.connect();
+    if (s.connected) {
+      setConnected(true);
+      if (activeIdRef.current) {
+        joinChannel(activeIdRef.current);
+      }
+    } else {
+      s.connect();
+    }
 
     return () => {
       s.off('connect', onConnect); s.off('disconnect', onDisconnect);

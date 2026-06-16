@@ -1,8 +1,8 @@
 import { supabase } from './supabase';
+import { getGymContext } from './gymContext';
 
 export interface PlanMembresia {
   id_plan: string;
-  owner_id: string;
   id_gimnasio: string;
   nombre: string;
   descripcion?: string;
@@ -16,14 +16,13 @@ export interface PlanMembresia {
 
 export interface InscripcionGym {
   id_inscripcion: string;
-  owner_id: string;
-  id_miembro: string;
   id_gimnasio: string;
+  id_miembro: string;
   id_plan: string;
   fecha_inicio: string;
   fecha_fin: string;
   estado: 'activa' | 'vencida' | 'cancelada' | 'congelada';
-  estado_pago: 'pagado' | 'deuda' | 'cortesia';
+  estado_pago: 'pagado' | 'deuda' | 'cortesia' | 'abonada';
   total: number;
   anticipo: number;
   notas?: string;
@@ -32,34 +31,38 @@ export interface InscripcionGym {
   planes_membresia?: { nombre: string; duracion_dias: number; precio: number };
 }
 
-const getOwnerId = async (): Promise<string | null> => {
-  const { data } = await supabase.auth.getUser();
-  if (!data.user) return null;
-  const { data: rol } = await supabase
-    .from('usuarios_roles')
-    .select('owner_id')
-    .eq('usuario_id', data.user.id)
-    .eq('estado', 'activo')
-    .single();
-  return rol?.owner_id ?? null;
+export const fetchPlanes = async (id_gimnasio?: string): Promise<PlanMembresia[]> => {
+  const ctx = await getGymContext();
+  if (!ctx) return [];
+  const gimnasioId = id_gimnasio ?? ctx.gimnasioId;
+  const { data, error } = await supabase
+    .from('planes_membresia')
+    .select('*')
+    .eq('id_gimnasio', gimnasioId)
+    .eq('activo', true)
+    .order('precio');
+  if (error) throw error;
+  return data ?? [];
 };
 
-export const fetchPlanes = async (id_gimnasio?: string): Promise<PlanMembresia[]> => {
-  const ownerId = await getOwnerId();
-  if (!ownerId) return [];
-  let query = supabase.from('planes_membresia').select('*').eq('owner_id', ownerId).eq('activo', true);
-  if (id_gimnasio) query = query.eq('id_gimnasio', id_gimnasio);
-  const { data, error } = await query.order('precio');
+export const fetchAllPlanes = async (): Promise<PlanMembresia[]> => {
+  const ctx = await getGymContext();
+  if (!ctx) return [];
+  const { data, error } = await supabase
+    .from('planes_membresia')
+    .select('*')
+    .eq('id_gimnasio', ctx.gimnasioId)
+    .order('precio');
   if (error) throw error;
   return data ?? [];
 };
 
 export const crearPlan = async (plan: Partial<PlanMembresia>): Promise<PlanMembresia> => {
-  const ownerId = await getOwnerId();
-  if (!ownerId) throw new Error('No owner_id');
+  const ctx = await getGymContext();
+  if (!ctx) throw new Error('Sin contexto de gimnasio');
   const { data, error } = await supabase
     .from('planes_membresia')
-    .insert({ ...plan, owner_id: ownerId })
+    .insert({ ...plan, id_gimnasio: ctx.gimnasioId })
     .select()
     .single();
   if (error) throw error;
@@ -78,23 +81,23 @@ export const actualizarPlan = async (id: string, updates: Partial<PlanMembresia>
 };
 
 export const fetchInscripciones = async (): Promise<InscripcionGym[]> => {
-  const ownerId = await getOwnerId();
-  if (!ownerId) return [];
+  const ctx = await getGymContext();
+  if (!ctx) return [];
   const { data, error } = await supabase
     .from('inscripciones_gym')
     .select('*, miembros(nombre_completo, correo), planes_membresia(nombre, duracion_dias, precio)')
-    .eq('owner_id', ownerId)
+    .eq('id_gimnasio', ctx.gimnasioId)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data ?? [];
 };
 
 export const crearInscripcion = async (insc: Partial<InscripcionGym>): Promise<InscripcionGym> => {
-  const ownerId = await getOwnerId();
-  if (!ownerId) throw new Error('No owner_id');
+  const ctx = await getGymContext();
+  if (!ctx) throw new Error('Sin contexto de gimnasio');
   const { data, error } = await supabase
     .from('inscripciones_gym')
-    .insert({ ...insc, owner_id: ownerId })
+    .insert({ ...insc, id_gimnasio: ctx.gimnasioId })
     .select()
     .single();
   if (error) throw error;

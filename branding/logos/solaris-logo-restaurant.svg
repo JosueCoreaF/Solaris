@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-240 -240 480 480" width="480" height="480" role="img" aria-label="Solaris">
+  <defs>
+    <linearGradient id="solaris-grad-restaurant" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d97706" />
+      <stop offset="100%" stop-color="#f43f5e" />
+    </linearGradient>
+  </defs>
+  <g fill="url(#solaris-grad-restaurant)">
+        <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(0)" />
+        <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(30)" />
+        <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(60)" />
+        <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(90)" />
+        <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(120)" />
+        <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(150)" />
+        <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(180)" />
+        <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(210)" />
+        <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(240)" />
+        <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(270)" />
+        <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(300)" />
+        <path d="M1.6,-230 L42.1,-105.9 L-42.1,-154.3 Z" transform="rotate(330)" />
+        
+    <g transform="scale(2.5)">
+      <rect x="-15" y="-28" width="6" height="14" />
+      <rect x="-3" y="-28" width="6" height="20" />
+      <rect x="9" y="-28" width="6" height="14" />
+      <rect x="-15" y="-14" width="30" height="6" />
+      <rect x="-3" y="-8" width="6" height="36" />
+    </g>
+  </g>
+</svg>

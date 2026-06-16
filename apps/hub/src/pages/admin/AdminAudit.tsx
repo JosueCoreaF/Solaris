@@ -22,6 +22,29 @@ const ACCION_COLOR: Record<string, string> = {
   LOGIN:  'bg-purple-100 text-purple-700',
 };
 
+const ACCION_LABEL: Record<string, string> = {
+  INSERT: 'Registro creado', UPDATE: 'Registro actualizado', DELETE: 'Registro eliminado',
+  LOGIN: 'Inicio de sesión', LOGOUT: 'Cierre de sesión',
+  CREATE_USER: 'Usuario creado', CHANGE_ROLE: 'Rol actualizado',
+};
+
+// Nombres legibles para entidades/tablas, sin exponer los nombres técnicos
+const ETIQUETA_ENTIDAD: Record<string, string> = {
+  reservas_hotel: 'Reservas', pagos_hotel: 'Pagos', huespedes: 'Huéspedes',
+  usuarios_roles: 'Usuarios & Roles', saldos_clientes: 'Saldos de Clientes',
+  habitaciones: 'Habitaciones', bloqueos_habitacion: 'Bloqueos de Habitación',
+  empresas: 'Empresas', cierres_diarios: 'Cierres Diarios', cotizaciones: 'Cotizaciones',
+  servicios_adicionales: 'Servicios Adicionales', hoteles: 'Hotel',
+};
+
+function etiquetaEntidad(entidad: string): string {
+  return ETIQUETA_ENTIDAD[entidad] ?? entidad.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+}
+
+function describirCambio(log: AuditEntry): string {
+  return ACCION_LABEL[log.accion] ?? log.accion;
+}
+
 export default function AdminAudit() {
   const [logs, setLogs]       = useState<AuditEntry[]>([]);
   const [total, setTotal]     = useState(0);
@@ -83,10 +106,8 @@ export default function AdminAudit() {
                       </span>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-800 truncate">
-                          {log.entidad.replace('_', ' ')}
-                          {log.cambios_resumidos && (
-                            <span className="font-normal text-slate-500"> — {log.cambios_resumidos}</span>
-                          )}
+                          {etiquetaEntidad(log.entidad)}
+                          <span className="font-normal text-slate-500"> — {describirCambio(log)}</span>
                         </p>
                         <p className="text-xs text-slate-400">
                           {log.usuario_email ?? 'Sistema'}{log.usuario_rol ? ` · ${log.usuario_rol}` : ''}

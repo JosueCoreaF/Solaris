@@ -1,7 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Users, CreditCard, TrendingUp, Calendar, AlertTriangle, UserPlus } from 'lucide-react';
-import { fetchDashboardKPIs, type DashboardKPIs } from '../api/dashboardService';
+import { Users, CreditCard, TrendingUp, Calendar, AlertTriangle, UserPlus, ArrowUpRight } from 'lucide-react';
+import { fetchDashboardKPIs, fetchDashboardTrends, fetchRecentActivity, type DashboardKPIs, type DashboardTrends, type ActivityItem } from '../api/dashboardService';
+import { fetchClases, type ClaseGym } from '../api/clasesService';
+import { fetchAsistenciaPorFecha } from '../api/asistenciaService';
 import { useSync } from '../context/SyncContext';
+import { MemberGrowthChart, WeeklyRevenueChart } from './dashboard/TrendsCharts';
+import { ClassesToday } from './dashboard/ClassesToday';
+import { ActivityFeed } from './dashboard/ActivityFeed';
+
+const DIAS_SEMANA = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
 
 const fmt = (n: number) => n.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -10,8 +17,15 @@ interface KPICard {
   value: string | number;
   sub: string;
   icon: React.ReactNode;
-  color: string;
+  accent?: boolean;
 }
+
+const quickLinks = [
+  { label: 'Nuevo Miembro', path: '/miembros' },
+  { label: 'Nueva Inscripción', path: '/inscripciones' },
+  { label: 'Registrar Pago', path: '/pagos' },
+  { label: 'Clases de Hoy', path: '/clases' },
+];
 
 export const Dashboard: React.FC = () => {
   const { gimnasio } = useSync();
@@ -19,93 +33,166 @@ export const Dashboard: React.FC = () => {
     totalMiembros: 0, miembrosActivos: 0, inscripcionesActivas: 0,
     vencenEsteMes: 0, ingresosMes: 0, clasesHoy: 0, nuevosEstaSemana: 0,
   });
+  const [trends, setTrends] = useState<DashboardTrends>({ memberGrowth: [], weeklyRevenue: [] });
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [clasesHoy, setClasesHoy] = useState<ClaseGym[]>([]);
+  const [asistenciaPorClase, setAsistenciaPorClase] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchDashboardKPIs().then(setKpis).finally(() => setLoading(false));
+    fetchDashboardTrends().then(setTrends);
+    fetchRecentActivity().then(setActivity);
+    fetchClases().then(clases => {
+      const diaHoy = DIAS_SEMANA[new Date().getDay()];
+      setClasesHoy(clases.filter(c => c.dia_semana === diaHoy && c.activa));
+    });
+    const hoy = new Date().toISOString().split('T')[0];
+    fetchAsistenciaPorFecha(hoy).then(asistencias => {
+      const map: Record<string, number> = {};
+      for (const a of asistencias) {
+        if (a.estado === 'asistio') map[a.id_clase] = (map[a.id_clase] ?? 0) + 1;
+      }
+      setAsistenciaPorClase(map);
+    });
   }, []);
 
   const cards: KPICard[] = [
-    { label: 'Total Miembros', value: kpis.totalMiembros, sub: `${kpis.miembrosActivos} activos`, icon: <Users size={22} />, color: '#16a34a' },
-    { label: 'Membresías Activas', value: kpis.inscripcionesActivas, sub: 'inscripciones vigentes', icon: <CreditCard size={22} />, color: '#2563eb' },
-    { label: 'Vencen Este Mes', value: kpis.vencenEsteMes, sub: 'por renovar', icon: <AlertTriangle size={22} />, color: '#d97706' },
-    { label: 'Ingresos del Mes', value: `L. ${fmt(kpis.ingresosMes)}`, sub: 'total cobrado', icon: <TrendingUp size={22} />, color: '#16a34a' },
-    { label: 'Clases Hoy', value: kpis.clasesHoy, sub: 'sesiones programadas', icon: <Calendar size={22} />, color: '#7c3aed' },
-    { label: 'Nuevos (7 días)', value: kpis.nuevosEstaSemana, sub: 'miembros registrados', icon: <UserPlus size={22} />, color: '#0891b2' },
+    { label: 'Total Miembros', value: kpis.totalMiembros, sub: `${kpis.miembrosActivos} activos`, icon: <Users size={18} /> },
+    { label: 'Membresías Activas', value: kpis.inscripcionesActivas, sub: 'inscripciones vigentes', icon: <CreditCard size={18} /> },
+    { label: 'Vencen Este Mes', value: kpis.vencenEsteMes, sub: 'por renovar', icon: <AlertTriangle size={18} />, accent: kpis.vencenEsteMes > 0 },
+    { label: 'Ingresos del Mes', value: `L. ${fmt(kpis.ingresosMes)}`, sub: 'total cobrado', icon: <TrendingUp size={18} /> },
+    { label: 'Clases Hoy', value: kpis.clasesHoy, sub: 'sesiones programadas', icon: <Calendar size={18} /> },
+    { label: 'Nuevos (7 días)', value: kpis.nuevosEstaSemana, sub: 'miembros registrados', icon: <UserPlus size={18} /> },
   ];
 
   return (
     <div>
-      <div className="page-header">
-        <h1 className="page-title">
-          {gimnasio ? `Panel — ${gimnasio.nombre_gimnasio}` : 'Panel de Control'}
-        </h1>
-        <p className="page-subtitle">Resumen general del gimnasio</p>
+      <div className="page-header" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <h1 className="page-title">
+            {gimnasio ? gimnasio.nombre_gimnasio : 'Panel de Control'}
+          </h1>
+          <p className="page-subtitle">// Resumen general del gimnasio</p>
+        </div>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.1em', textTransform: 'uppercase', textAlign: 'right' }}>
+          {new Date().toLocaleDateString('es-HN', { weekday: 'long', day: '2-digit', month: 'long' })}
+        </div>
       </div>
 
       {loading ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--muted)', fontSize: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--muted)', fontSize: 13, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           <div className="auth-loading-spinner" style={{ width: 18, height: 18 }} />
           Cargando métricas...
         </div>
       ) : (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16, marginBottom: 32 }}>
-            {cards.map(card => (
-              <div key={card.label} className="stat-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 14, marginBottom: 32 }}>
+            {cards.map((card, i) => (
+              <div
+                key={card.label}
+                className="stat-card"
+                style={{
+                  animation: `fadeInUp 0.4s ease-out ${i * 0.05}s both`,
+                  borderColor: card.accent ? 'var(--accent2-bg)' : undefined,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.14em' }}>
                     {card.label}
                   </span>
-                  <div style={{ color: card.color, opacity: 0.8 }}>{card.icon}</div>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: card.accent ? 'var(--accent2)' : 'var(--accent)',
+                    background: card.accent ? 'var(--accent2-bg)' : 'var(--accent-bg)',
+                  }}>
+                    {card.icon}
+                  </div>
                 </div>
-                <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-h)', lineHeight: 1 }}>
+                <div style={{ fontFamily: 'var(--display)', fontSize: 38, color: 'var(--text-h)', lineHeight: 1, letterSpacing: '0.01em' }}>
                   {card.value}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{card.sub}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>{card.sub}</div>
               </div>
             ))}
           </div>
 
           {kpis.vencenEsteMes > 0 && (
             <div style={{
-              background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.24)',
-              borderRadius: 12, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24
+              background: 'var(--accent2-bg)', border: '1px solid rgba(255,92,53,0.28)',
+              borderRadius: 4, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24,
+              borderLeft: '3px solid var(--accent2)',
             }}>
-              <AlertTriangle size={18} style={{ color: '#d97706', flexShrink: 0 }} />
+              <AlertTriangle size={20} style={{ color: 'var(--accent2)', flexShrink: 0 }} />
               <div>
-                <strong style={{ fontSize: 13, color: '#92400e' }}>
+                <strong style={{ fontSize: 13, color: 'var(--text-h)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   {kpis.vencenEsteMes} membresía(s) vencen este mes
                 </strong>
-                <p style={{ fontSize: 12, color: '#78350f', margin: '2px 0 0' }}>
+                <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>
                   Revisa la sección de Membresías para gestionar las renovaciones.
                 </p>
               </div>
             </div>
           )}
 
-          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--shell-border)', borderRadius: 16, padding: 24 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-h)', marginBottom: 16 }}>Accesos Rápidos</h3>
+          <div className="dashboard-trends-grid" style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 16, marginBottom: 24 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="stat-card chart-card">
+                <div className="chart-header">
+                  <div>
+                    <div className="chart-title">Crecimiento de Miembros</div>
+                    <div className="chart-sub">// Últimos 6 meses</div>
+                  </div>
+                </div>
+                <div className="chart-body">
+                  <MemberGrowthChart data={trends.memberGrowth} />
+                </div>
+              </div>
+              <div className="stat-card chart-card">
+                <div className="chart-header">
+                  <div>
+                    <div className="chart-title">Ingresos Semanales</div>
+                    <div className="chart-sub">// Últimos 7 días</div>
+                  </div>
+                </div>
+                <div className="chart-body">
+                  <WeeklyRevenueChart data={trends.weeklyRevenue} />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="stat-card" style={{ padding: '20px 22px' }}>
+                <h3 style={{ fontSize: 16, fontFamily: 'var(--display)', textTransform: 'uppercase', letterSpacing: '0.02em', color: 'var(--text-h)', marginBottom: 4, position: 'relative', zIndex: 1 }}>
+                  Aforo de Hoy
+                </h3>
+                <div className="chart-sub" style={{ marginBottom: 8, position: 'relative', zIndex: 1 }}>// Clases programadas y ocupación</div>
+                <ClassesToday clases={clasesHoy} asistenciaPorClase={asistenciaPorClase} />
+              </div>
+              <div className="stat-card" style={{ padding: '20px 22px' }}>
+                <h3 style={{ fontSize: 16, fontFamily: 'var(--display)', textTransform: 'uppercase', letterSpacing: '0.02em', color: 'var(--text-h)', marginBottom: 4, position: 'relative', zIndex: 1 }}>
+                  Actividad Reciente
+                </h3>
+                <div className="chart-sub" style={{ marginBottom: 8, position: 'relative', zIndex: 1 }}>// Últimos movimientos</div>
+                <ActivityFeed items={activity} />
+              </div>
+            </div>
+          </div>
+
+          <div className="stat-card" style={{ padding: 26 }}>
+            <h3 style={{ fontSize: 18, fontFamily: 'var(--display)', textTransform: 'uppercase', letterSpacing: '0.02em', color: 'var(--text-h)', marginBottom: 18 }}>
+              Accesos Rápidos
+            </h3>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              {[
-                { label: '+ Nuevo Miembro', path: '/miembros' },
-                { label: '+ Nueva Inscripción', path: '/inscripciones' },
-                { label: '+ Registrar Pago', path: '/pagos' },
-                { label: 'Ver Clases de Hoy', path: '/clases' },
-              ].map(item => (
+              {quickLinks.map(item => (
                 <a
                   key={item.path}
                   href={item.path}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center',
-                    padding: '9px 16px', borderRadius: 8,
-                    background: 'var(--accent-bg)', color: 'var(--accent)',
-                    border: '1px solid var(--accent-border)',
-                    fontSize: 13, fontWeight: 600, textDecoration: 'none',
-                    transition: 'all 0.15s ease'
-                  }}
+                  className="btn-secondary"
+                  style={{ textDecoration: 'none' }}
                 >
                   {item.label}
+                  <ArrowUpRight size={14} />
                 </a>
               ))}
             </div>

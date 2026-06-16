@@ -17,6 +17,7 @@ import {
   addDays,
   getOnlyDate,
 } from '../../api/bookingsService';
+import { useHasFeature } from '../../hooks/usePlanFeature';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,7 @@ const defaultForm = (): PagoForm => ({
 export const Pagos: React.FC = () => {
   const today = toDateKey(new Date());
   const [searchParams] = useSearchParams();
+  const hasMultimoneda = useHasFeature('multimoneda');
 
   const [desde, setDesde] = useState(() => toDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
   const [hasta, setHasta] = useState(today);
@@ -295,7 +297,12 @@ export const Pagos: React.FC = () => {
           });
         const totalDeuda = reservasEmp.reduce((s, r) => s + r.saldo, 0);
         const reservasPendientesEmp = reservasEmp.filter(r => r.saldo > 0.01);
-        const reservasVencidas = reservasPendientesEmp.filter(r => new Date(r.check_out).setHours(0,0,0,0) <= todayMs);
+        const diasCredito = emp.dias_credito ?? 30;
+        const reservasVencidas = reservasPendientesEmp.filter(r => {
+          const checkOutMs = new Date(r.check_out).setHours(0,0,0,0);
+          const diasDesdeCheckout = Math.floor((Date.now() - checkOutMs) / 86400000);
+          return diasDesdeCheckout > diasCredito && checkOutMs <= todayMs;
+        });
         return { empresa: emp, reservas: reservasEmp, totalDeuda, pendientes: reservasPendientesEmp.length, vencidas: reservasVencidas.length };
       })
       .filter(e => e.reservas.length > 0)
@@ -364,7 +371,7 @@ export const Pagos: React.FC = () => {
 
   const reservasPendientes = useMemo(() => {
     return reservas
-      .filter(r => r.estado !== 'cancelada' && !r.es_cortesia)
+      .filter(r => r.estado !== 'cancelada' && !r.es_cortesia && !r.id_empresa)
       .map(r => {
         const pagado = (r.pagos ?? []).filter(p => p.estado !== 'anulado').reduce((s, p) => s + p.monto, 0);
         const saldo = r.total_reserva - pagado;
@@ -1298,9 +1305,10 @@ export const Pagos: React.FC = () => {
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Moneda</label>
                   <select value={form.moneda} onChange={e => setForm(f => ({ ...f, moneda: e.target.value }))}
-                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 8px', fontSize: 13 }}>
+                    disabled={!hasMultimoneda}
+                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 8px', fontSize: 13, ...(hasMultimoneda ? {} : { background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }) }}>
                     <option value="HNL">HNL</option>
-                    <option value="USD">USD</option>
+                    {hasMultimoneda && <option value="USD">USD</option>}
                   </select>
                 </div>
               </div>
@@ -1560,9 +1568,10 @@ export const Pagos: React.FC = () => {
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Moneda</label>
                   <select value={form.moneda} onChange={e => setForm(f => ({ ...f, moneda: e.target.value }))}
-                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, background: '#fff' }}>
+                    disabled={!hasMultimoneda}
+                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, background: hasMultimoneda ? '#fff' : '#f1f5f9', color: hasMultimoneda ? undefined : '#94a3b8', cursor: hasMultimoneda ? undefined : 'not-allowed' }}>
                     <option value="HNL">HNL</option>
-                    <option value="USD">USD</option>
+                    {hasMultimoneda && <option value="USD">USD</option>}
                   </select>
                 </div>
               </div>
