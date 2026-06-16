@@ -372,6 +372,29 @@ router.post(['/business', '/businesses'], checkPlanLimits, async (req, res) => {
       businessId = gym.id_gimnasio;
     }
 
+    if (tipo_modulo.toLowerCase() === 'restaurant') {
+      const { data: rest, error: restErr } = await db
+        .from('restaurant')
+        .insert({
+          id_owner:           owner_id,
+          id_module:          mod.id_module,
+          nombre_restaurante: nombre_modulo,
+          ciudad:             ciudad     ?? 'Sin definir',
+          direccion:          direccion  ?? 'Sin definir',
+          telefono:           telefono   ?? null,
+          correo:             correo_contacto ?? null,
+          activo:             true,
+        })
+        .select('id_restaurant')
+        .single();
+
+      if (restErr) {
+        await db.from('business_modules').delete().eq('id_module', mod.id_module);
+        return res.status(400).json({ error: restErr.message });
+      }
+      businessId = rest.id_restaurant;
+    }
+
     return res.status(201).json({ success: true, businessId, moduleId: mod.id_module, type: tipo_modulo, name: nombre_modulo, slug: hotelSlug });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -444,10 +467,10 @@ router.get('/dashboard-summary', async (req, res) => {
     let restaurantes: any[] = [];
     if (moduleIds.length > 0) {
       const { data: r } = await db
-        .from('restaurante')
-        .select('id_restaurante, nombre_restaurante, estado, id_module')
+        .from('restaurant')
+        .select('id_restaurant, nombre_restaurante, activo, id_module')
         .in('id_module', moduleIds)
-        .eq('estado', 'activo');
+        .eq('activo', true);
       restaurantes = r || [];
     }
 
@@ -470,7 +493,7 @@ router.get('/dashboard-summary', async (req, res) => {
 
     const moduleIdByRest: Record<string, string> = {};
     restaurantes.forEach((r: any) => {
-      if (r.id_module) moduleIdByRest[r.id_restaurante] = r.id_module;
+      if (r.id_module) moduleIdByRest[r.id_restaurant] = r.id_module;
     });
 
     const combinedModules = (modules || []).map((m: any) => ({
@@ -608,11 +631,59 @@ router.get('/dashboard-summary', async (req, res) => {
     }
 
     // ── MÉTRICAS RESTAURANTES ──
-    const allRestIds = restaurantes.map((r: any) => r.id_restaurante);
+    const allRestIds = restaurantes.map((r: any) => r.id_restaurant);
     if (allRestIds.length > 0) {
-      // Asumiendo que pueden haber pagos en pagos_rest, pero es una tabla de gastos (categorias_gasto_rest).
-      // Si la base de datos de restaurante no tiene tabla de ingresos, mantenemos en 0 o lo que haya.
-      // Aquí se omiten métricas de ingresos/ocupacion de restaurantes por ahora, o podríamos usar pagos si fuera ingresos.
+      // Ingresos del mes: facturas_restaurante
+      const { data: facturas } = await db
+        .from('factura_restaurante')
+        .select('total, id_restaurant')
+        .in('id_restaurant', allRestIds)
+        .gte('fecha', startIso);
+
+      (facturas || []).forEach((f: any) => {
+        const idModule = moduleIdByRest[f.id_restaurant];
+        if (idModule && statsByModule[idModule]) {
+          statsByModule[idModule].ingresos += Number(f.total || 0);
+        }
+      });
+
+      // Ocupación: mesas ocupadas vs total
+      const { data: mesas } = await db
+        .from('mesa_restaurante')
+        .select('id_restaurant, estado')
+        .in('id_restaurant', allRestIds);
+
+      const mesasTotalesByRest: Record<string, number> = {};
+      const mesasOcupadasByRest: Record<string, number> = {};
+      (mesas || []).forEach((m: any) => {
+        mesasTotalesByRest[m.id_restaurant] = (mesasTotalesByRest[m.id_restaurant] || 0) + 1;
+        if (m.estado === 'ocupada') {
+          mesasOcupadasByRest[m.id_restaurant] = (mesasOcupadasByRest[m.id_restaurant] || 0) + 1;
+        }
+      });
+
+      restaurantes.forEach((r: any) => {
+        const idModule = moduleIdByRest[r.id_restaurant];
+        if (idModule && statsByModule[idModule]) {
+          const total = mesasTotalesByRest[r.id_restaurant] || 0;
+          const ocupadas = mesasOcupadasByRest[r.id_restaurant] || 0;
+          statsByModule[idModule].ocupacion = total > 0 ? Math.round((ocupadas / total) * 100) : 0;
+        }
+      });
+
+      // Tareas: pedidos pendientes
+      const { data: pedidos } = await db
+        .from('pedido_restaurante')
+        .select('id_restaurant, estado_pedido')
+        .in('id_restaurant', allRestIds)
+        .in('estado_pedido', ['pendiente', 'preparando']);
+
+      (pedidos || []).forEach((p: any) => {
+        const idModule = moduleIdByRest[p.id_restaurant];
+        if (idModule && statsByModule[idModule]) {
+          statsByModule[idModule].tareas += 1;
+        }
+      });
     }
 
     let globalIngresos = 0, globalOcupacion = 0;
@@ -626,6 +697,8 @@ router.get('/dashboard-summary', async (req, res) => {
          ocPercent = stats.ocupacion; // Ya viene como % (hab_ocupadas / total_habs * 100)
       } else if (mod.type === 'gym') {
          ocPercent = stats.ocupacion > 0 ? Math.min(100, Math.round((stats.ocupacion / 50) * 100)) : 0; // max ~50 activos
+      } else if (mod.type === 'restaurant') {
+        ocPercent = stats.ocupacion; // ya viene como % de mesas ocupadas
       }
 
       globalIngresos  += stats.ingresos;

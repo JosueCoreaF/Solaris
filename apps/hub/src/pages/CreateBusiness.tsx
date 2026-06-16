@@ -233,14 +233,23 @@ export const CreateBusiness = () => {
     </motion.div>
   );
 
-  const renderStep3 = () => (
+  const renderStep3 = () => {
+    const moduleMeta: Record<string, { icon: any; color: string; label: string; placeholder: string }> = {
+      hotel:      { icon: Building2, color: 'text-indigo-600', label: 'Hotel / Alojamiento', placeholder: 'Ej. Hotel Gran Vista' },
+      gym:        { icon: Dumbbell,  color: 'text-blue-600',   label: 'Gimnasio',            placeholder: 'Ej. FitHub Centro' },
+      restaurant: { icon: Utensils,  color: 'text-orange-600', label: 'Restaurante / Bar',   placeholder: 'Ej. La Mesa Bistró' },
+    };
+    const meta = moduleMeta[formData.tipo_modulo] ?? moduleMeta.hotel;
+    const ModIcon = meta.icon;
+
+    return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="max-w-xl mx-auto space-y-6">
       <button onClick={() => setStep(1)} className="flex items-center text-sm font-medium text-slate-500 hover:text-slate-900 mb-2 transition-colors">
         <ArrowLeft size={16} className="mr-1" /> Volver a módulos
       </button>
 
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2"><Building2 className="text-indigo-600" /> Información del Establecimiento</h2>
+        <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2"><ModIcon className={meta.color} /> Información del {meta.label}</h2>
         <p className="text-slate-500 mt-1">Ingresa los detalles principales de tu negocio. Podrás editarlos después.</p>
         
         {error && error !== 'limit_reached' && error !== 'subscription_required' && (
@@ -254,7 +263,7 @@ export const CreateBusiness = () => {
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label className="block text-sm font-semibold text-slate-700 mb-1">Nombre Comercial</label>
-          <input required type="text" value={formData.nombre_hotel} onChange={(e) => setFormData({...formData, nombre_hotel: e.target.value})} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all outline-none" placeholder="Ej. Hotel Gran Vista" />
+          <input required type="text" value={formData.nombre_hotel} onChange={(e) => setFormData({...formData, nombre_hotel: e.target.value})} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all outline-none" placeholder={meta.placeholder} />
         </div>
         
         <div className="grid grid-cols-2 gap-5">
@@ -290,8 +299,8 @@ export const CreateBusiness = () => {
           </label>
         </div>
 
-        <button 
-          type="submit" 
+        <button
+          type="submit"
           disabled={loading}
           className="w-full mt-6 py-3 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
         >
@@ -299,7 +308,8 @@ export const CreateBusiness = () => {
         </button>
       </form>
     </motion.div>
-  );
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans relative">
