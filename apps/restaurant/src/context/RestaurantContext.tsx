@@ -175,9 +175,13 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // ── 5. Inicializar cuando el usuario cambia ───────────────────────────────
   useEffect(() => {
-    fetchModules();
-    setActiveModule(null);
-    setRestaurant(null);
+    if (!user) {
+      localStorage.removeItem('active_restaurant_id');
+      setActiveModule(null);
+      setRestaurant(null);
+    } else {
+      fetchModules();
+    }
   }, [user]);
 
   // ── Refetch completo (útil tras crear/editar datos) ───────────────────────
@@ -187,6 +191,7 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const selectModule = useCallback((mod: BusinessModule) => {
     setActiveModule(mod);
+    localStorage.setItem('active_restaurant_id', mod.id_module);
   }, []);
 
   const needsSelector = !modulesLoading && modules.length > 1 && !activeModule;

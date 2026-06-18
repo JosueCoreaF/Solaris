@@ -4,7 +4,6 @@ import { Check, Star, Zap, Building2, ChevronLeft, Loader2, CreditCard, Info, X,
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
 import { supabase } from '../services/supabaseClient';
-import { DashboardLayout } from '../components/DashboardLayout';
 
 // Los planes dinámicos se cargarán desde la DB
 
@@ -109,8 +108,7 @@ export const UpgradePlan = () => {
   const remaining = Math.max(0, maxLimit - currentCount);
 
   return (
-    <DashboardLayout>
-      <div className="min-h-screen bg-slate-50 font-sans pb-20">
+    <div className="min-h-screen bg-slate-50 font-sans pb-20">
         {/* Header */}
         <div className="bg-slate-900 text-white pt-12 pb-24 px-6 text-center relative overflow-hidden rounded-b-[3rem] mx-4 mt-4 shadow-xl">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-indigo-600/30 blur-[120px] rounded-full pointer-events-none" />
@@ -503,6 +501,5 @@ export const UpgradePlan = () => {
         )}
       </AnimatePresence>
       </div>
-    </DashboardLayout>
   );
 };

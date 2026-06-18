@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { DashboardLayout } from '../components/DashboardLayout';
 import apiClient from '../services/api';
 import {
   Key,
@@ -147,7 +146,7 @@ export const McpTokens: React.FC = () => {
   }, null, 2);
 
   return (
-    <DashboardLayout>
+    <>
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-8 py-5 flex items-center justify-between sticky top-0 z-10 shadow-sm">
         <div>
@@ -591,7 +590,7 @@ export const McpTokens: React.FC = () => {
         </div>
 
       </div>
-    </DashboardLayout>
+    </>
   );
 };
 

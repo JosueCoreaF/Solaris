@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, CalendarCheck, CreditCard, ChevronRight, RefreshCw, Loader2, AlertCircle, Dumbbell, UtensilsCrossed, Hotel } from 'lucide-react';
-import { DashboardLayout, useDashboard } from '../components/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
+import { useDashboard } from '../components/DashboardLayout';
 
 const NotificationsContent = () => {
   const { notifications: ctxNotifs } = useDashboard();
@@ -163,9 +163,5 @@ const NotificationsContent = () => {
 };
 
 export default function Notifications() {
-  return (
-    <DashboardLayout>
-      <NotificationsContent />
-    </DashboardLayout>
-  );
+  return <NotificationsContent />;
 }

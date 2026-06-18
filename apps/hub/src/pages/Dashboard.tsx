@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { DashboardLayout, useDashboard } from '../components/DashboardLayout';
+import { useDashboard } from '../components/DashboardLayout';
 import {
   Wallet,
   Building2,
@@ -403,10 +403,4 @@ const DashboardContent = () => {
   );
 };
 
-export const Dashboard = () => {
-  return (
-    <DashboardLayout>
-      <DashboardContent />
-    </DashboardLayout>
-  );
-};
+export const Dashboard = DashboardContent;

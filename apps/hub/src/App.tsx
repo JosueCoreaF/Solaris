@@ -6,6 +6,7 @@ import { CreateBusiness } from './pages/CreateBusiness';
 import { SetupOwner } from './pages/SetupOwner';
 import { Onboarding } from './pages/Onboarding';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { DashboardLayout } from './components/DashboardLayout';
 import apiClient from './services/api';
 import './index.css';
 
@@ -24,29 +25,45 @@ import AdminAudit from './pages/admin/AdminAudit';
 import AdminBilling from './pages/admin/AdminBilling';
 import { AdminGuard } from './pages/admin/AdminGuard';
 
+const ProtectedLayout = () => {
+  const { session } = useAuth();
+  if (!session) return <Navigate to="/login" replace />;
+  return <DashboardLayout />;
+};
+
 const AppRoutes = () => {
   const { session } = useAuth();
 
   return (
     <Routes>
+      {/* Públicas */}
       <Route path="/landing/hotel" element={<HotelLanding />} />
       <Route path="/landing/gym" element={<GymLanding />} />
       <Route path="/landing/restaurant" element={<RestaurantLanding />} />
       <Route path="/login" element={session ? <Navigate to="/dashboard" replace /> : <Login />} />
-      <Route path="/dashboard" element={session ? <Dashboard /> : <Navigate to="/login" replace />} />
+
+      {/* Flujos sin layout de hub */}
       <Route path="/setup-owner" element={session ? <SetupOwner /> : <Navigate to="/login" replace />} />
       <Route path="/onboarding" element={session ? <Onboarding /> : <Navigate to="/login" replace />} />
       <Route path="/create-business" element={session ? <CreateBusiness /> : <Navigate to="/login" replace />} />
-      <Route path="/support" element={session ? <Support /> : <Navigate to="/login" replace />} />
-      <Route path="/billing" element={session ? <Billing /> : <Navigate to="/login" replace />} />
-      <Route path="/upgrade" element={session ? <UpgradePlan /> : <Navigate to="/login" replace />} />
-      <Route path="/notifications" element={session ? <Notifications /> : <Navigate to="/login" replace />} />
-      <Route path="/chat" element={session ? <ChatHub /> : <Navigate to="/login" replace />} />
-      <Route path="/mcp" element={session ? <McpTokens /> : <Navigate to="/login" replace />} />
+
+      {/* Admin */}
       <Route path="/admin" element={session ? <AdminGuard><AdminDashboard /></AdminGuard> : <Navigate to="/login" replace />} />
       <Route path="/admin/owners" element={session ? <AdminGuard><AdminOwners /></AdminGuard> : <Navigate to="/login" replace />} />
       <Route path="/admin/billing" element={session ? <AdminGuard><AdminBilling /></AdminGuard> : <Navigate to="/login" replace />} />
       <Route path="/admin/audit" element={session ? <AdminGuard><AdminAudit /></AdminGuard> : <Navigate to="/login" replace />} />
+
+      {/* Layout compartido — DashboardLayout se monta UNA sola vez */}
+      <Route element={<ProtectedLayout />}>
+        <Route path="/dashboard"     element={<Dashboard />} />
+        <Route path="/support"       element={<Support />} />
+        <Route path="/billing"       element={<Billing />} />
+        <Route path="/upgrade"       element={<UpgradePlan />} />
+        <Route path="/notifications" element={<Notifications />} />
+        <Route path="/chat"          element={<ChatHub />} />
+        <Route path="/mcp"           element={<McpTokens />} />
+      </Route>
+
       <Route path="*" element={<Navigate to={session ? "/dashboard" : "/login"} replace />} />
     </Routes>
   );

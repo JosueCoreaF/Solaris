@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabaseClient';
 import apiClient from '../services/api';
@@ -54,7 +54,7 @@ const DashboardContext = createContext<DashboardContextType>({
 
 export const useDashboard = () => useContext(DashboardContext);
 
-export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const DashboardLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { session } = useAuth();
@@ -214,7 +214,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
               <p className="px-4 text-[11px] font-semibold text-slate-500 uppercase tracking-widest mb-1">Administración</p>
               <nav className="space-y-0.5">
                 {[
-                  { label: 'Portal de Reservas', icon: <Globe size={17} />, path: '__portal__', match: [], portalKey: (() => { const m = modules.find((m: any) => m.type === 'hotel'); return m?.slug || m?.hotel_id || null; })() },
+                  { label: 'Portal de Reservas', icon: <Globe size={17} />, path: '__portal__', match: [], portalKey: null },
                   { label: 'Facturación y Planes', icon: <CreditCard size={17} />, path: '/billing', match: ['/billing', '/upgrade'] },
                   { label: 'Notificaciones', icon: <Bell size={17} />, path: '/notifications', match: ['/notifications'], badge: urgentNotifCount },
                   { label: 'Chat Operativo', icon: <MessageSquare size={17} />, path: '/chat', match: ['/chat'] },
@@ -275,7 +275,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto">
-          {children}
+          <Outlet />
         </main>
       </div>
     </DashboardContext.Provider>

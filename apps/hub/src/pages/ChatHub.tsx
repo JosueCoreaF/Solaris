@@ -8,7 +8,6 @@ import { Sparkles, Send, Database, Zap, BarChart3, Building2,
 } from 'lucide-react';
 import apiClient from '../services/api';
 import { supabase } from '../services/supabaseClient';
-import { DashboardLayout } from '../components/DashboardLayout';
 
 // ── URLs de módulos (para navegar a la gestión operativa) ──────────────────────
 const MODULE_URLS: Record<string, string> = {
@@ -662,8 +661,7 @@ export default function ChatHub() {
   const toolCount = Object.keys(TOOL_LABELS).length;
 
   return (
-    <DashboardLayout>
-      <div className="flex flex-col h-[calc(100vh-1px)] bg-slate-50 text-slate-850 font-sans overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-1px)] bg-slate-50 text-slate-850 font-sans overflow-hidden">
         
         {/* ── Page Header ── */}
         <header className="bg-white border-b border-slate-200 px-8 py-5 flex items-center justify-between sticky top-0 z-10 shadow-sm shrink-0">
@@ -1191,6 +1189,5 @@ export default function ChatHub() {
           )}
         </AnimatePresence>
       </div>
-    </DashboardLayout>
   );
 }

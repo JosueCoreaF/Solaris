@@ -4,7 +4,6 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CreditCard, Zap, CheckCircle, ShieldAlert, Loader2, ArrowRight, Wallet, Bitcoin, Smartphone, X, RefreshCw, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { DashboardLayout } from '../components/DashboardLayout';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
@@ -106,11 +105,9 @@ export default function Billing() {
 
   if (loading) {
     return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center h-full min-h-[60vh]">
-          <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
-        </div>
-      </DashboardLayout>
+      <div className="flex items-center justify-center h-full min-h-[60vh]">
+        <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
+      </div>
     );
   }
 
@@ -145,8 +142,7 @@ export default function Billing() {
   };
 
   return (
-    <DashboardLayout>
-      <div className="max-w-5xl mx-auto py-12 px-6">
+    <div className="max-w-5xl mx-auto py-12 px-6">
       <div className="mb-10">
         <h1 className="text-3xl font-extrabold text-slate-900 flex items-center gap-3">
           <CreditCard className="w-8 h-8 text-indigo-500" />
@@ -503,6 +499,5 @@ export default function Billing() {
         )}
       </AnimatePresence>
       </div>
-    </DashboardLayout>
   );
 }

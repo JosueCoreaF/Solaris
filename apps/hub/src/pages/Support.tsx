@@ -3,7 +3,6 @@ import { supabase } from '../services/supabaseClient';
 import axios from 'axios';
 import { motion } from 'framer-motion';
 import { MessageSquare, Plus, Loader2 } from 'lucide-react';
-import { DashboardLayout } from '../components/DashboardLayout';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
@@ -51,8 +50,7 @@ export default function Support() {
   };
 
   return (
-    <DashboardLayout>
-      <div className="max-w-6xl mx-auto py-12 px-6">
+    <div className="max-w-6xl mx-auto py-12 px-6">
         <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900 flex items-center gap-3">
@@ -142,6 +140,5 @@ export default function Support() {
         </div>
       )}
       </div>
-    </DashboardLayout>
   );
 }
