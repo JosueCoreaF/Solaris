@@ -103,10 +103,10 @@ export const Sidebar: React.FC = () => {
     if (isLocal) return envHubUrl || 'http://localhost:5174';
     if (!envHubUrl || envHubUrl.includes('localhost')) {
       const hostname = window.location.hostname;
-      if (hostname.endsWith('.solarys.uk')) return 'https://hub.solarys.uk';
+      if (hostname.endsWith('.solarys.uk')) return 'https://panel.solarys.uk';
       const parts = hostname.split('.');
       if (parts.length > 2) return `${window.location.protocol}//hub.${parts.slice(1).join('.')}`;
-      return 'https://hub.solarys.uk';
+      return 'https://panel.solarys.uk';
     }
     return envHubUrl;
   };

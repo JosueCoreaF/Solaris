@@ -199,28 +199,28 @@ export default function HomePage() {
                     <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-black text-[10px]">M</span>
                     <div>
                       <strong className="text-stone-800 text-sm block">Mars (Módulo Hotel)</strong>
-                      <span className="text-stone-500 text-xs leading-relaxed block">Crea huéspedes, genera o cancela reservas multihotel, gestiona bloqueos de habitaciones y calcula tarifas con desglose de impuestos locales (ISV, Tasa Turística).</span>
+                      <span className="text-stone-500 text-xs leading-relaxed block">Gestiona múltiples hoteles desde un solo chat: crea huéspedes, genera o cancela reservas, administra bloqueos y disponibilidad de habitaciones, y calcula tarifas con desglose de ISV y Tasa Turística.</span>
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-black text-[10px]">A</span>
                     <div>
                       <strong className="text-stone-800 text-sm block">Apolo (Módulo Gym)</strong>
-                      <span className="text-stone-500 text-xs leading-relaxed block">Registra nuevos miembros, inscribe deportistas a planes vigentes calculando la fecha de vencimiento y el costo total, y registra pagos de cuotas.</span>
+                      <span className="text-stone-500 text-xs leading-relaxed block">Registra miembros, inscribe a planes calculando vencimiento y costo total, procesa pagos de cuotas y activa solicitudes de membresía recibidas desde el portal público.</span>
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="flex-shrink-0 w-5 h-5 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center font-black text-[10px]">R</span>
                     <div>
                       <strong className="text-stone-800 text-sm block">ChefAI (Módulo Restaurante)</strong>
-                      <span className="text-stone-500 text-xs leading-relaxed block">Gestiona comandas, reserva mesas según disponibilidad, consulta el inventario de ingredientes, registra gastos y genera reportes de ventas directamente desde el chat.</span>
+                      <span className="text-stone-500 text-xs leading-relaxed block">Opera el restaurante completo desde el chat: crea y gestiona comandas, reserva mesas por disponibilidad horaria, controla inventario con alertas de reposición, registra gastos y genera reportes de ventas.</span>
                     </div>
                   </li>
                 </ul>
               </div>
               <div className="bg-stone-50 border border-stone-100/50 rounded-2xl p-4 text-xs font-mono text-stone-500 leading-relaxed">
                 <span className="font-bold text-stone-700 block mb-1">💡 Ventaja Clave:</span>
-                Tu equipo opera hotel, gimnasio y restaurante desde una sola interfaz de chat en lenguaje natural — sin formularios, sin capacitación extensa.
+                Tres módulos completos — hotel, gimnasio y restaurante — operables desde una sola interfaz de chat. Sin formularios, sin menús, sin capacitación extensa.
               </div>
             </div>
 
@@ -236,28 +236,28 @@ export default function HomePage() {
                 </p>
                 <div className="space-y-4 mb-8">
                   <div className="border-l-2 border-indigo-500/35 pl-4">
-                    <strong className="text-stone-800 text-sm block mb-1">Conectividad Externa Estandarizada</strong>
+                    <strong className="text-stone-800 text-sm block mb-1">Soporte Multi-Módulo Nativo</strong>
                     <p className="text-stone-500 text-xs leading-relaxed">
-                      Permite que modelos de lenguaje externos u otras aplicaciones de inteligencia artificial autorizadas consulten métricas, estados y catálogos directamente, de forma rápida y segura.
+                      Un solo servidor expone herramientas específicas para hotel, gimnasio y restaurante. Cada copiloto accede únicamente a los datos del módulo que opera, con aislamiento por propietario.
                     </p>
                   </div>
                   <div className="border-l-2 border-indigo-500/35 pl-4">
-                    <strong className="text-stone-800 text-sm block mb-1">Control Analítico de Tokens</strong>
+                    <strong className="text-stone-800 text-sm block mb-1">Control de Tokens por Negocio</strong>
                     <p className="text-stone-500 text-xs leading-relaxed">
-                      Registra y audita el consumo exacto de tokens de inteligencia artificial de cada propietario y negocio, facilitando el cobro o la asignación de cuotas de uso de IA de manera transparente.
+                      Registra y audita el consumo exacto de tokens de IA por propietario y por módulo. Permite asignar cuotas de uso y generar cobros transparentes según el consumo real.
                     </p>
                   </div>
                   <div className="border-l-2 border-indigo-500/35 pl-4">
-                    <strong className="text-stone-800 text-sm block mb-1">Flexibilidad y Extensibilidad</strong>
+                    <strong className="text-stone-800 text-sm block mb-1">Compatible con Cualquier Agente AI</strong>
                     <p className="text-stone-500 text-xs leading-relaxed">
-                      Facilita a desarrolladores conectar Solaris con agentes inteligentes autónomos para realizar tareas complejas de mercadotecnia o auditoría en segundo plano.
+                      Conecta Solaris con Claude, GPT u otros modelos externos autorizados. Ideal para agentes autónomos de auditoría, reportes automáticos o flujos de automatización empresarial.
                     </p>
                   </div>
                 </div>
               </div>
               <div className="bg-stone-50 border border-stone-100/50 rounded-2xl p-4 text-xs font-mono text-stone-500 leading-relaxed">
                 <span className="font-bold text-stone-700 block mb-1">⚙️ Ventaja Tecnológica:</span>
-                Los datos operativos se convierten en una API semántica universal. Tu negocio se vuelve completamente listo para el futuro de la automatización por agentes de IA.
+                Tus datos operativos se convierten en una API semántica segura. Solaris es el primer sistema de gestión hostelera con servidor MCP nativo multi-módulo en la región.
               </div>
             </div>
           </div>

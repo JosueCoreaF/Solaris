@@ -52,7 +52,7 @@ export const Perfil: React.FC = () => {
     const env = import.meta.env.VITE_HUB_URL;
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     if (isLocal) return env || 'http://localhost:5174';
-    return 'https://hub.solarys.uk';
+    return 'https://panel.solarys.uk';
   })();
 
   return (

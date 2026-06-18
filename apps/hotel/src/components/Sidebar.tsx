@@ -225,7 +225,7 @@ export const Sidebar: React.FC = () => {
     if (!envHubUrl || envHubUrl.includes('localhost') || envHubUrl.includes('127.0.0.1')) {
       const hostname = window.location.hostname;
       if (hostname.endsWith('.solarys.uk')) {
-        return 'https://hub.solarys.uk';
+        return 'https://panel.solarys.uk';
       }
       if (hostname.includes('-gym')) {
         return `${window.location.protocol}//${hostname.replace('-gym', '-hub')}`;
@@ -237,7 +237,7 @@ export const Sidebar: React.FC = () => {
       if (parts.length > 2) {
         return `${window.location.protocol}//hub.${parts.slice(1).join('.')}`;
       }
-      return 'https://hub.solarys.uk';
+      return 'https://panel.solarys.uk';
     }
     return envHubUrl;
   };
