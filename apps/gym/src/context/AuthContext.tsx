@@ -162,10 +162,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearGymContextCache();
     localStorage.removeItem('active_gym_id');
     sessionStorage.removeItem('solaris_support_mode');
+    sessionStorage.removeItem('sb-solaris-gym-session');
     setRole('INVITADO');
     setAccountBlocked(null);
     setSupportMode(false);
-    await supabase.auth.signOut();
+    setSession(null);
+    setUser(null);
+    window.location.href = '/login';
   };
 
   return (

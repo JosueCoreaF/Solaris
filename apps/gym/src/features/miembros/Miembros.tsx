@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Edit2, Trash2, X, Users, UserCheck, UserX, UserMinus, Eye, Mail, Phone, MapPin, Cake, ShieldAlert, FileText, CalendarDays } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, X, Users, UserCheck, UserX, UserMinus, Eye, Mail, Phone, MapPin, Cake, ShieldAlert, FileText, CalendarDays, Globe, CheckCircle2, ChevronDown } from 'lucide-react';
 import { fetchMiembros, crearMiembro, actualizarMiembro, eliminarMiembro, type Miembro } from '../../api/miembrosService';
+import { fetchPlanes, crearInscripcion, type PlanMembresia } from '../../api/membresiaService';
+import { useSync } from '../../context/SyncContext';
 import { useToast } from '../../components/Toast';
 
 const EMPTY: Partial<Miembro> = {
@@ -27,7 +29,9 @@ const iniciales = (nombre: string): string =>
 
 export const Miembros: React.FC = () => {
   const { addToast } = useToast();
+  const { gimnasio } = useSync();
   const [miembros, setMiembros] = useState<Miembro[]>([]);
+  const [planes, setPlanes] = useState<PlanMembresia[]>([]);
   const [loading, setLoading] = useState(true);
   const [busqueda, setBusqueda] = useState('');
   const [modal, setModal] = useState(false);
@@ -36,9 +40,20 @@ export const Miembros: React.FC = () => {
   const [form, setForm] = useState<Partial<Miembro>>(EMPTY);
   const [guardando, setGuardando] = useState(false);
 
+  // Estado para activar solicitudes del portal
+  const [modalActivar, setModalActivar] = useState(false);
+  const [solicitudActiva, setSolicitudActiva] = useState<Miembro | null>(null);
+  const [planActivar, setPlanActivar] = useState('');
+  const [fechaActivar, setFechaActivar] = useState(new Date().toISOString().split('T')[0]);
+  const [activando, setActivando] = useState(false);
+
   const load = async () => {
     setLoading(true);
-    try { setMiembros(await fetchMiembros()); } catch { addToast('Error cargando miembros', 'error'); } finally { setLoading(false); }
+    try {
+      const [mb, pl] = await Promise.all([fetchMiembros(), fetchPlanes()]);
+      setMiembros(mb);
+      setPlanes(pl);
+    } catch { addToast('Error cargando miembros', 'error'); } finally { setLoading(false); }
   };
 
   useEffect(() => { load(); }, []);
@@ -83,6 +98,53 @@ export const Miembros: React.FC = () => {
     (m.documento_identidad ?? '').includes(busqueda)
   );
 
+  const solicitudesPortal = miembros.filter(
+    m => m.estado === 'inactivo' && m.observaciones?.startsWith('Plan solicitado:')
+  );
+
+  const abrirActivar = (m: Miembro) => {
+    setSolicitudActiva(m);
+    // Pre-seleccionar el plan mencionado en observaciones si existe
+    const match = m.observaciones?.match(/Plan solicitado: (.+?) \(/);
+    const planMatch = planes.find(p => match && p.nombre === match[1]);
+    setPlanActivar(planMatch?.id_plan ?? planes[0]?.id_plan ?? '');
+    setFechaActivar(new Date().toISOString().split('T')[0]);
+    setModalActivar(true);
+  };
+
+  const activarSolicitud = async () => {
+    if (!solicitudActiva || !planActivar || !gimnasio) return;
+    const plan = planes.find(p => p.id_plan === planActivar);
+    if (!plan) return;
+    setActivando(true);
+    try {
+      const fechaFin = new Date(new Date(fechaActivar).getTime() + plan.duracion_dias * 86400000)
+        .toISOString().split('T')[0];
+      await Promise.all([
+        actualizarMiembro(solicitudActiva.id_miembro, { estado: 'activo', observaciones: solicitudActiva.observaciones }),
+        crearInscripcion({
+          id_miembro: solicitudActiva.id_miembro,
+          id_plan: plan.id_plan,
+          id_gimnasio: gimnasio.id_gimnasio,
+          fecha_inicio: fechaActivar,
+          fecha_fin: fechaFin,
+          total: plan.precio,
+          notas: `Inscripción generada desde solicitud del portal público`,
+        }),
+      ]);
+      setMiembros(prev => prev.map(m =>
+        m.id_miembro === solicitudActiva.id_miembro ? { ...m, estado: 'activo' } : m
+      ));
+      addToast(`${solicitudActiva.nombre_completo} activado e inscrito correctamente`, 'success');
+      setModalActivar(false);
+      setSolicitudActiva(null);
+    } catch (e: any) {
+      addToast(e.message || 'Error al activar', 'error');
+    } finally {
+      setActivando(false);
+    }
+  };
+
   return (
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -94,6 +156,41 @@ export const Miembros: React.FC = () => {
           <Plus size={16} /> Nuevo Miembro
         </button>
       </div>
+
+      {/* ── Solicitudes del Portal ─────────────────────────────────────── */}
+      {solicitudesPortal.length > 0 && (
+        <div style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 6, padding: '14px 16px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <Globe size={15} style={{ color: 'var(--warning)' }} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--warning)', textTransform: 'uppercase', letterSpacing: '.1em' }}>
+              Solicitudes del Portal — {solicitudesPortal.length} pendiente{solicitudesPortal.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {solicitudesPortal.map(s => (
+              <div key={s.id_miembro} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card-bg)', border: '1px solid var(--shell-border)', borderRadius: 4, padding: '10px 14px' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, color: 'var(--text-h)', fontSize: 13, marginBottom: 2 }}>{s.nombre_completo}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>{s.correo}{s.telefono ? ` · ${s.telefono}` : ''}</div>
+                  {s.observaciones && (
+                    <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 3 }}>{s.observaciones}</div>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                  {new Date(s.created_at).toLocaleDateString('es-HN')}
+                </div>
+                <button
+                  className="btn-primary"
+                  style={{ fontSize: 12, padding: '5px 12px', whiteSpace: 'nowrap' }}
+                  onClick={() => abrirActivar(s)}
+                >
+                  <CheckCircle2 size={13} /> Activar e Inscribir
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14, marginBottom: 24 }}>
         {[
@@ -241,6 +338,66 @@ export const Miembros: React.FC = () => {
             <div className="modal-footer">
               <button className="btn-secondary" onClick={() => setPerfil(null)}>Cerrar</button>
               <button className="btn-primary" onClick={() => { abrir(perfil); setPerfil(null); }}>Editar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Activar e Inscribir ─────────────────────────────────── */}
+      {modalActivar && solicitudActiva && (
+        <div className="modal-overlay" onClick={() => setModalActivar(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-h)', margin: 0 }}>Activar e Inscribir</h3>
+              <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--muted)' }} onClick={() => setModalActivar(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div style={{ background: 'var(--accent-bg)', border: '1px solid var(--accent-border)', borderRadius: 4, padding: '10px 12px', marginBottom: 16 }}>
+                <div style={{ fontWeight: 700, color: 'var(--text-h)', fontSize: 14 }}>{solicitudActiva.nombre_completo}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{solicitudActiva.correo}</div>
+                {solicitudActiva.observaciones && (
+                  <div style={{ fontSize: 12, color: 'var(--warning)', marginTop: 4 }}>{solicitudActiva.observaciones}</div>
+                )}
+              </div>
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Plan de membresía *</label>
+                  <div style={{ position: 'relative' }}>
+                    <select className="form-select" value={planActivar} onChange={e => setPlanActivar(e.target.value)}>
+                      <option value="">— Seleccionar plan —</option>
+                      {planes.map(p => (
+                        <option key={p.id_plan} value={p.id_plan}>
+                          {p.nombre} · {p.duracion_dias} días · L {p.precio.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--muted)' }} />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Fecha de inicio *</label>
+                  <input className="form-input" type="date" value={fechaActivar} onChange={e => setFechaActivar(e.target.value)} />
+                </div>
+                {planActivar && (() => {
+                  const p = planes.find(pl => pl.id_plan === planActivar);
+                  if (!p) return null;
+                  const fin = new Date(new Date(fechaActivar).getTime() + p.duracion_dias * 86400000).toLocaleDateString('es-HN');
+                  return (
+                    <div style={{ fontSize: 12, color: 'var(--muted)', background: 'var(--shell-bg)', borderRadius: 4, padding: '8px 12px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Vence: <strong style={{ color: 'var(--text-h)' }}>{fin}</strong></span>
+                      <span>Total: <strong style={{ color: 'var(--accent)' }}>L {p.precio.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</strong></span>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setModalActivar(false)}>Cancelar</button>
+              <button className="btn-primary" onClick={activarSolicitud} disabled={activando || !planActivar}>
+                {activando ? 'Procesando...' : 'Activar e Inscribir'}
+              </button>
             </div>
           </div>
         </div>

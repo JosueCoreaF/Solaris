@@ -3,6 +3,58 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { fetchReservas, fetchHabitaciones, fetchHuespedes, updateReserva, cancelReserva, createReserva, createHuesped, toggleBloqueo, fetchBloques, fetchHoteles, splitReserva } from '../api/bookingsService';
 import { obtenerConfigHotelera } from '../api/configService';
+import { supabase } from '../api/supabase';
+
+function renderInline(text: string, key?: number): React.ReactNode {
+  const regex = /(\*\*([^*\n]+)\*\*|\*([^*\n]+)\*|`([^`\n]+)`)/g;
+  const parts: React.ReactNode[] = [];
+  let last = 0; let m: RegExpExecArray | null; let i = 0;
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) parts.push(<span key={i++}>{text.slice(last, m.index)}</span>);
+    if (m[2]) parts.push(<strong key={i++} style={{ fontWeight: 700, color: 'var(--text-h)' }}>{m[2]}</strong>);
+    else if (m[3]) parts.push(<em key={i++} style={{ fontStyle: 'italic', opacity: .85 }}>{m[3]}</em>);
+    else if (m[4]) parts.push(<code key={i++} style={{ fontFamily: 'monospace', fontSize: 11, background: 'var(--accent-bg)', color: 'var(--accent)', padding: '1px 5px', borderRadius: 4, border: '1px solid var(--accent-border)' }}>{m[4]}</code>);
+    last = regex.lastIndex;
+  }
+  if (last < text.length) parts.push(<span key={i++}>{text.slice(last)}</span>);
+  return <React.Fragment key={key}>{parts}</React.Fragment>;
+}
+
+const MdContent: React.FC<{ text: string }> = ({ text }) => {
+  const lines = text.split('\n');
+  const nodes: React.ReactNode[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.startsWith('#### ')) {
+      nodes.push(<div key={i} style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-h)', textTransform: 'uppercase', letterSpacing: '.07em', marginTop: 8, marginBottom: 3, opacity: .85 }}>{renderInline(line.slice(5))}</div>);
+    } else if (line.startsWith('### ')) {
+      nodes.push(<div key={i} style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-h)', textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 10, marginBottom: 4 }}>{renderInline(line.slice(4))}</div>);
+    } else if (line.startsWith('## ')) {
+      nodes.push(<div key={i} style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-h)', marginTop: 12, marginBottom: 5, paddingBottom: 4, borderBottom: '1px solid var(--shell-border)' }}>{renderInline(line.slice(3))}</div>);
+    } else if (line.startsWith('# ')) {
+      nodes.push(<div key={i} style={{ fontSize: 14, fontWeight: 800, color: 'var(--accent)', marginTop: 12, marginBottom: 6 }}>{renderInline(line.slice(2))}</div>);
+    } else if (/^[-*] /.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*] /.test(lines[i])) { items.push(lines[i].replace(/^[-*] /, '')); i++; }
+      nodes.push(<ul key={`ul${i}`} style={{ margin: '4px 0', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 3 }}>{items.map((it, j) => (<li key={j} style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-h)', listStyleType: 'none', paddingLeft: 4, position: 'relative' }}><span style={{ position: 'absolute', left: -12, color: 'var(--accent)', fontWeight: 700 }}>·</span>{renderInline(it)}</li>))}</ul>);
+      continue;
+    } else if (/^\d+\. /.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+\. /.test(lines[i])) { items.push(lines[i].replace(/^\d+\. /, '')); i++; }
+      nodes.push(<ol key={`ol${i}`} style={{ margin: '4px 0', paddingLeft: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>{items.map((it, j) => (<li key={j} style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-h)', listStyleType: 'none', display: 'flex', gap: 8, alignItems: 'flex-start' }}><span style={{ minWidth: 18, height: 18, borderRadius: '50%', background: 'var(--accent-bg)', color: 'var(--accent)', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{j + 1}</span><span>{renderInline(it)}</span></li>))}</ol>);
+      continue;
+    } else if (line === '---') {
+      nodes.push(<hr key={i} style={{ border: 'none', borderTop: '1px solid var(--shell-border)', margin: '8px 0' }} />);
+    } else if (line.trim() === '') {
+      nodes.push(<div key={i} style={{ height: 6 }} />);
+    } else {
+      nodes.push(<div key={i} style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-h)' }}>{renderInline(line)}</div>);
+    }
+    i++;
+  }
+  return <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{nodes}</div>;
+};
 
 interface Message {
   role: 'user' | 'model';
@@ -30,9 +82,10 @@ Tu propósito es asistir a recepcionistas, administradores y personal de hotel e
    - Cancelación gratuita: Hasta 48 horas antes de la llegada.
    - Cama extra: Sujeta a disponibilidad con cargo adicional de HNL 350.
 3. **Cálculos Financieros**:
-   - Impuesto ISV: Usa la tasa real del contexto de la base de datos (por defecto es 15%).
-   - Impuesto de Turismo: Usa la tasa real del contexto de la base de datos (por defecto es 4%).
-   - Conversión de Moneda: Utiliza el tipo de cambio base real especificado en la sección 'CONFIGURACIÓN HOTELERA Y FINANCIERA ACTIVA' de tu contexto de la base de datos. Si no se especifica en el contexto, usa el tipo de cambio referencial de 1 USD = 24.50 HNL.
+   - **Tarifas de habitaciones**: Las tarifas por noche de cada habitación están disponibles en la sección 'CATÁLOGO COMPLETO DE HABITACIONES REGISTRADAS' de tu contexto (campo "Tarifa: X HNL"). Cuando el usuario pregunte por tarifas de tipos de habitación (sencilla, doble, triple, suite, etc.), busca en ese catálogo las habitaciones de ese tipo y presenta su tarifa. Si una habitación muestra "⚠ sin configurar", significa que aún no tiene tarifa asignada en el sistema. NUNCA digas que no puedes buscar las tarifas — siempre están en tu contexto.
+   - **Pagos y métodos de pago**: Los pagos registrados están disponibles en la sección 'PAGOS REGISTRADOS EN RESERVAS DEL PERÍODO'. Puedes consultar qué método de pago se usó (efectivo, tarjeta, transferencia, depósito), el monto, la referencia y la fecha de cada pago de una reserva. NUNCA digas que no puedes buscar pagos — si están en el período, están en tu contexto.
+   - **Cálculo de impuestos**: Las tarifas de habitación YA INCLUYEN ambos impuestos. Usa SIEMPRE la fórmula que aparece en la sección 'CONFIGURACIÓN HOTELERA Y FINANCIERA ACTIVA' de tu contexto bajo "FÓRMULA DE IMPUESTOS". Esa sección contiene el factor impositivo real (ISV% + Turismo%) configurado en la base de datos. NUNCA uses tasas hardcodeadas — usa las del contexto. Cuando el usuario pida calcular impuestos de una tarifa, aplica esa fórmula con los valores reales y presenta: Subtotal, ISV, Turismo y Total.
+   - **Conversión de Moneda**: Utiliza el tipo de cambio base real especificado en la sección 'CONFIGURACIÓN HOTELERA Y FINANCIERA ACTIVA' de tu contexto de la base de datos. Si no se especifica en el contexto, usa el tipo de cambio referencial de 1 USD = 24.50 HNL.
 4. **Creación y Gestión de Reservas Multihotel**: Tienes la capacidad total de crear nuevas reservas para cualquier hotel de la cadena (ej. Hotel Verona o Hotel la Costa), registrar nuevos huéspedes en el directorio, o realizar modificaciones o cancelaciones a reservas existentes directamente en la base de datos de Supabase si el usuario te lo solicita explícitamente.
 5. **Gestión de Disponibilidad y Bloqueos**: Tienes la capacidad de bloquear o habilitar (desbloquear) habitaciones para fechas específicas en la base de datos a petición del usuario. Si te solicitan bloquear o habilitar una habitación para una fecha o rango de fechas, debes usar la función 'toggleRoomBlock'.
 
@@ -58,6 +111,7 @@ REGLAS DE NEGOCIO Y MULTI-SEDE / CADENA:
     a) **NUNCA asumas ni inventes tarifas** para reservas por horas. Si el usuario pide crear una reserva por horas (tipo_reserva: 'hora'), y no te ha dicho la tarifa a cobrar, detente y PREGÚNTALE explícitamente cuál será el precio total o por hora antes de usar 'createReservation'.
     b) Presta extrema atención a las horas (ej. 14:00) en el listado de reservas de tu contexto. Si intentas asignar una habitación y ves que en ese mismo día ya existe otra reserva cuyas horas se cruzan o solapan con las horas solicitadas, **no la uses**. Elige OTRA habitación del mismo tipo que esté completamente libre en ese bloque de horas para evitar fallos en la base de datos.
 13. **Manejo de Errores de Base de Datos**: Si envías una acción de reserva y la base de datos te responde con un ERROR (ej. "La habitación ya está ocupada"), no te detengas. Dile al usuario de forma natural que esa habitación falló en la verificación final y pregúntale si desea que la reserves en OTRA habitación que hayas validado que está libre.
+14. **Confirmación antes de actuar**: Antes de crear una reserva o registrar un nuevo huésped, resume los datos clave (nombre del huésped, hotel, habitación, fechas, precio total) y solicita confirmación explícita. Omite este paso solo si el usuario ya proporcionó y confirmó todos los detalles en el mismo mensaje.
 `;
 
 const SUGGESTIONS = [
@@ -120,6 +174,8 @@ export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [dbSummary, setDbSummary] = useState<string>('');
+  const [dbLoading, setDbLoading] = useState<boolean>(true);
+  const dbSummaryRef = useRef<string>('');
   const [rateLimitCountdown, setRateLimitCountdown] = useState<number | null>(null);
   const [consecutiveRateLimits, setConsecutiveRateLimits] = useState<number>(0);
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
@@ -203,7 +259,7 @@ export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
 
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -288,7 +344,8 @@ export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
 - **Modificar o cancelar reservas** directamente desde el chat en tiempo real.
 - Analizar el estado de ocupación y reservas reales del hotel.
 - Redactar respuestas y correos profesionales a huéspedes.
-- Explicar cálculos de impuestos (15% ISV, 4% Turismo).
+- Explicar cálculos de impuestos (ISV + Turismo) usando las tasas configuradas en la base de datos.
+- Consultar pagos y métodos de pago registrados en reservas.
 - Crear listas de control operativas o reportes de turnos.
 - Resolver dudas sobre políticas del hotel.`,
           timestamp: getFormattedTime()
@@ -304,94 +361,93 @@ export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
     }
   }, [messages]);
 
-  // Load database summary immediately on mount and on open/clear
+  // Load database summary via single optimized RPC call
   const loadLiveSummary = async () => {
     try {
-      const [rooms, guests, hotelConfig, hotelsList] = await Promise.all([
-        fetchHabitaciones().catch(() => []),
-        fetchHuespedes().catch(() => []),
-        obtenerConfigHotelera().catch(() => null),
-        fetchHoteles().catch(() => [])
-      ]);
+      const hotelId = localStorage.getItem('active_hotel_id');
+      if (!hotelId) return;
 
       const today = new Date();
-      const desde = new Date(today.getTime() - 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // -15 days
-      const hasta = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // +45 days (larger window for foresight)
-      const [bookings, blocks] = await Promise.all([
-        fetchReservas(desde, hasta).catch(() => []),
-        fetchBloques(desde, hasta).catch(() => [])
-      ]);
+      const desde = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const hasta = new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-      // Calculate mathematically occupied rooms today (overlapping stay dates)
-      const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const activeTodayBookings = bookings.filter(b => {
-        if (b.estado === 'cancelada' || b.estado === 'no_show') return false;
-        const ci = new Date(b.check_in.split('T')[0] + 'T00:00:00');
-        const co = new Date(b.check_out.split('T')[0] + 'T00:00:00');
-        return startOfToday >= ci && startOfToday < co;
+      const { data, error } = await supabase.rpc('get_hotel_ai_context', {
+        p_hotel_id: hotelId,
+        p_desde: desde,
+        p_hasta: hasta,
       });
+      if (error) throw error;
 
-      const occupiedToday = activeTodayBookings.length;
-      const pctOcupacion = rooms.length > 0 ? Math.round((occupiedToday / rooms.length) * 100) : 0;
-
-      const checkInActivos = bookings.filter(b => b.estado === 'check_in').length;
-      const pendingBookings = bookings.filter(b => b.estado === 'pendiente' || b.estado === 'confirmada' || b.estado === 'reservada').length;
-      const completedBookings = bookings.filter(b => b.estado === 'check_out').length;
-
-      // Build rich, detailed directory lists for full conversational capability
-      const hotelsDetail = hotelsList.map(h =>
-        `- Hotel: "${h.nombre_hotel}" (ID: ${h.id_hotel}, Ciudad: ${h.ciudad || 'No registrada'}, Dirección: ${h.direccion || 'No registrada'}, Teléfono: ${h.telefono || 'No registrado'})`
-      ).join('\n');
-
-      const roomsDetail = rooms.map(r =>
-        `- Habitación ${r.nombre_habitacion} en [Hotel: ${r.hotel || 'Hotel Verona'}] (ID: ${r.id_habitacion}, Hotel ID: ${r.id_hotel}, Tipo: ${r.tipo || 'Estándar'}, Tarifa: ${r.tarifa_noche || r.tarifaNumerica || r.costo || 0} HNL, Capacidad: ${r.capacidad || 2} pers, Estado: ${r.estado || 'disponible'})`
-      ).join('\n');
-
-      const guestsDetail = guests.slice(0, 150).map(g =>
-        `- Huésped: ${g.nombre_completo} (ID: ${g.id_huesped}, Correo: ${g.correo || 'No registrado'}, Teléfono: ${g.telefono || 'No registrado'}, Ciudad: ${g.ciudad || 'No registrada'})`
-      ).join('\n');
-
-      const bookingsDetail = bookings.map(b => {
-        const guestName = guests.find(g => g.id_huesped === b.id_huesped)?.nombre_completo || 'Huésped Desconocido';
-        const roomName = rooms.find(r => r.id_habitacion === b.id_habitacion)?.nombre_habitacion || 'Habitación Desconocida';
-        const hotelName = hotelsList.find(h => h.id_hotel === b.id_hotel)?.nombre_hotel || 'Hotel Verona';
-        const isCortesia = b.es_cortesia ? ' (Cortesía)' : '';
-        const isCredito = b.id_empresa ? ' (Crédito)' : '';
-        const ams = [];
-        if (b.cama_extra) ams.push('camaExtra');
-        if (b.limpieza_diaria) ams.push('limpiezaDiaria');
-        if (b.neverita) ams.push('neverita');
-        if (b.plancha) ams.push('plancha');
-        const amsStr = ams.length > 0 ? `, Comodidades: [${ams.join(', ')}]` : '';
-        const ci = b.check_in.replace('T', ' ').substring(0, 16);
-        const co = b.check_out.replace('T', ' ').substring(0, 16);
-        return `- Reserva ${b.id_reserva_hotel} (Tipo: ${b.tipo_reserva}): Huésped: "${guestName}", Hotel: "${hotelName}", Habitación: "${roomName}", Check-in: ${ci}, Check-out: ${co}, Estado: ${b.estado}, Pago: ${b.estado_pago || 'reservada'}${isCortesia}${isCredito}, Huéspedes: [${b.adultos} adultos, ${b.ninos} niños]${amsStr}, Total: ${b.total_reserva} HNL`;
-      }).join('\n');
-
-      const blocksDetail = blocks.map(b => {
-        const roomName = rooms.find(r => r.id_habitacion === b.id_habitacion)?.nombre_habitacion || 'Habitación Desconocida';
-        const hotelName = rooms.find(r => r.id_habitacion === b.id_habitacion)?.hotel || 'Hotel Verona';
-        const start = b.fecha_inicio.split('T')[0];
-        const end = b.fecha_fin.split('T')[0];
-        return `- Bloqueo: Habitación: "${roomName}" en [Hotel: ${hotelName}] (ID: ${b.id_habitacion}), Fecha Inicio: ${start}, Fecha Fin: ${end}${b.motivo ? `, Motivo: ${b.motivo}` : ''}`;
-      }).join('\n');
+      const ctx = data as any;
+      const hoteles: any[]  = ctx.hoteles_cadena ?? [];
+      const config: any     = ctx.config ?? {};
+      const rooms: any[]    = ctx.habitaciones ?? [];
+      const guests: any[]   = ctx.huespedes ?? [];
+      const bookings: any[] = ctx.reservas ?? [];
+      const blocks: any[]   = ctx.bloqueos ?? [];
+      const kpis: any       = ctx.kpis_hoy ?? {};
 
       const systemTimeHN = today.toLocaleString('es-HN', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        timeZoneName: 'short'
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short',
       });
 
-      const exchangeRate = hotelConfig?.tipo_cambio_base ? parseFloat(hotelConfig.tipo_cambio_base).toFixed(2) : '24.50';
-      const mainCurrency = hotelConfig?.moneda_principal || 'HNL';
-      const altCurrency = hotelConfig?.moneda_alterna || 'USD';
-      const isvRate = hotelConfig?.tasa_isv !== undefined ? hotelConfig.tasa_isv : '15.00';
-      const discountSenior = hotelConfig?.descuento_tercera_edad || '7.00';
+      const exchangeRate = config.tipo_cambio_base ? parseFloat(config.tipo_cambio_base).toFixed(2) : '24.50';
+      const pctOcupacion = kpis.total_habitaciones > 0
+        ? Math.round(((kpis.ocupadas_hoy ?? 0) / kpis.total_habitaciones) * 100) : 0;
+
+      // Tasas de impuesto — pueden venir como porcentaje (15) o decimal (0.15)
+      const rawISV      = config.porcentaje_impuesto ?? config.tasa_isv ?? 15;
+      const rawTurismo  = config.tasa_turistica ?? 4;
+      const isvRate     = rawISV > 1 ? rawISV / 100 : rawISV;
+      const turismoRate = rawTurismo > 1 ? rawTurismo / 100 : rawTurismo;
+      const taxFactor   = parseFloat((1 + isvRate + turismoRate).toFixed(4));
+      const isvPct      = (isvRate * 100).toFixed(2).replace(/\.00$/, '');
+      const turismoPct  = (turismoRate * 100).toFixed(2).replace(/\.00$/, '');
+
+      const hotelsDetail = hoteles.map((h: any) =>
+        `- Hotel: "${h.nombre_hotel}" (ID: ${h.id_hotel}, Ciudad: ${h.ciudad || 'N/A'}, Dirección: ${h.direccion || 'N/A'}, Tel: ${h.telefono || 'N/A'})`
+      ).join('\n');
+
+      const roomsDetail = rooms.map((r: any) => {
+        const tarifa = r.tarifa_noche > 0 ? `${r.tarifa_noche} HNL` : '⚠ sin configurar';
+        return `- Habitación ${r.nombre_habitacion} en [Hotel: ${r.hotel || 'Desconocido'}] (ID: ${r.id_habitacion}, Tipo: ${r.tipo || 'Estándar'}, Tarifa: ${tarifa}, Capacidad: ${r.capacidad || 2} pers, Estado: ${r.estado || 'disponible'})`;
+      }).join('\n');
+
+      const guestsDetail = guests.slice(0, 150).map((g: any) =>
+        `- Huésped: ${g.nombre_completo} (ID: ${g.id_huesped}, Correo: ${g.correo || 'N/A'}, Tel: ${g.telefono || 'N/A'}, Ciudad: ${g.ciudad || 'N/A'})`
+      ).join('\n');
+
+      const bookingsDetail = bookings.map((b: any) => {
+        const isCortesia = b.es_cortesia ? ' (Cortesía)' : '';
+        const ci = (b.check_in || '').replace('T', ' ').substring(0, 16);
+        const co = (b.check_out || '').replace('T', ' ').substring(0, 16);
+        return `- Reserva ${b.id_reserva_hotel} (Tipo: ${b.tipo_reserva || 'noche'}): Huésped: "${b.huesped}", Hotel: "${b.hotel}", Habitación: "${b.habitacion}", Check-in: ${ci}, Check-out: ${co}, Estado: ${b.estado}, Pago: ${b.estado_pago || 'reservada'}${isCortesia}, Huéspedes: [${b.adultos} adultos, ${b.ninos} niños], Total: ${b.total_reserva} ${b.moneda}`;
+      }).join('\n');
+
+      const blocksDetail = blocks.map((b: any) =>
+        `- Bloqueo: Habitación: "${b.habitacion}" (ID: ${b.id_habitacion}), Fecha Inicio: ${b.fecha_inicio}, Fecha Fin: ${b.fecha_fin}${b.motivo ? `, Motivo: ${b.motivo}` : ''}`
+      ).join('\n');
+
+      // Pagos registrados para las reservas del período
+      let pagosDetail = '';
+      const bookingIds = bookings.map((b: any) => b.id_reserva_hotel).filter(Boolean);
+      if (bookingIds.length > 0) {
+        const { data: pagosData } = await supabase
+          .from('pagos_hotel')
+          .select('id_pago_hotel, id_reserva_hotel, monto_en_moneda_reserva, metodo_pago, referencia, moneda, estado, fecha_pago, notas')
+          .in('id_reserva_hotel', bookingIds)
+          .neq('estado', 'anulado')
+          .order('fecha_pago', { ascending: false });
+        if (pagosData && pagosData.length > 0) {
+          pagosDetail = pagosData.map((p: any) => {
+            const fecha = new Date(p.fecha_pago).toLocaleDateString('es-HN');
+            const ref = p.referencia ? `, Ref: ${p.referencia}` : '';
+            const notas = p.notas ? `, Notas: ${p.notas}` : '';
+            return `- Pago ID ${p.id_pago_hotel}: Reserva ${p.id_reserva_hotel} | ${p.monto_en_moneda_reserva} ${p.moneda} | Método: ${p.metodo_pago}${ref} | Fecha: ${fecha} | Estado: ${p.estado}${notas}`;
+          }).join('\n');
+        }
+      }
 
       const summary = `
 INFORMACIÓN DETALLADA DE LA BASE DE DATOS SUPABASE DEL GRUPO HOTELERO CONSOLIDADO
@@ -401,21 +457,29 @@ CADENA DE HOTELES REGISTRADOS:
 ${hotelsDetail || 'No hay hoteles registrados.'}
 
 CONFIGURACIÓN HOTELERA Y FINANCIERA ACTIVA:
-- **Moneda Principal del Hotel**: ${mainCurrency}
-- **Moneda Alterna**: ${altCurrency}
+- **Moneda Principal del Hotel**: ${config.moneda || 'HNL'}
+- **Moneda Alterna**: ${config.moneda_alterna || 'USD'}
 - **Tipo de Cambio de Referencia**: 1 USD = ${exchangeRate} HNL (Configurado en base de datos)
-- **Tasa de Impuesto Hospedaje (Tasa Turística)**: 4%
-- **Tasa de Impuesto General (ISV)**: ${isvRate}%
-- **Descuento de Tercera Edad (Ley)**: ${discountSenior}% (A partir de los ${hotelConfig?.edad_tercera_edad || 60} años)
-- **Ciudad Base**: ${hotelConfig?.ciudad_base || 'San Pedro Sula'}
+- **Tasa ISV**: ${isvPct}%
+- **Tasa Turística**: ${turismoPct}%
+- **Factor impositivo total**: ${taxFactor} (ISV ${isvPct}% + Turismo ${turismoPct}% = ${(isvRate + turismoRate) * 100}% combinado)
+- **FÓRMULA DE IMPUESTOS (LAS TARIFAS DE HABITACIÓN YA INCLUYEN AMBOS IMPUESTOS)**:
+  Subtotal = Precio Total ÷ ${taxFactor}
+  ISV (${isvPct}%) = Subtotal × ${isvRate}
+  Turismo (${turismoPct}%) = Subtotal × ${turismoRate}
+  Total = Subtotal + ISV + Turismo = Precio original
+- **Descuento de Tercera Edad (Ley)**: ${config.descuento_tercera_edad || 7}% (A partir de los ${config.edad_tercera_edad || 60} años)
+- **Ciudad Base**: ${config.ciudad_base || 'Sin definir'}
 
 ESTADÍSTICAS GENERALES DE OCUPACIÓN Y RESERVAS HOY:
-- **Habitaciones Totales Registradas**: ${rooms.length} habitaciones.
+- **Habitaciones Totales Registradas**: ${kpis.total_habitaciones ?? rooms.length} habitaciones.
 - **Huéspedes Totales Registrados**: ${guests.length} clientes.
-- **Habitaciones Ocupadas Hoy**: ${occupiedToday} habitaciones (Ocupación: ${pctOcupacion}%).
-- **Huéspedes Físicamente Hospedados Hoy (Check-in Activo)**: ${checkInActivos} habitaciones.
-- **Reservas Programadas Pendientes/Confirmadas**: ${pendingBookings} reservas.
-- **Salidas Recientes (Check-out)**: ${completedBookings} habitaciones liberadas.
+- **Habitaciones Ocupadas Hoy**: ${kpis.ocupadas_hoy ?? 0} habitaciones (Ocupación: ${pctOcupacion}%).
+- **Huéspedes Físicamente Hospedados Hoy (Check-in Activo)**: ${kpis.checkin_activos ?? 0} habitaciones.
+- **Llegadas Hoy**: ${kpis.llegadas_hoy ?? 0} reservas.
+- **Salidas Hoy**: ${kpis.salidas_hoy ?? 0} habitaciones liberadas.
+- **Reservas Pendientes/Confirmadas**: ${kpis.pendientes_confirmadas ?? 0} reservas.
+- **Ingresos del Mes**: ${Number(kpis.ingresos_mes ?? 0).toFixed(2)} HNL.
 
 CATÁLOGO COMPLETO DE HABITACIONES REGISTRADAS:
 ${roomsDetail || 'No hay habitaciones registradas.'}
@@ -423,26 +487,29 @@ ${roomsDetail || 'No hay habitaciones registradas.'}
 DIRECTORIO DE HUÉSPEDES REGISTRADOS (Máx. 150):
 ${guestsDetail || 'No hay huéspedes registrados.'}
 
-LISTADO DETALLADO DE RESERVAS REGISTRADAS (HISTORIAL RECIENTE Y PRÓXIMOS 45 DÍAS):
+LISTADO DETALLADO DE RESERVAS REGISTRADAS (ÚLTIMOS 30 DÍAS Y PRÓXIMOS 90 DÍAS):
 ${bookingsDetail || 'No hay reservas registradas en este período.'}
 
-LISTADO DETALLADO DE BLOQUEOS Y NO DISPONIBILIDADES (PRÓXIMOS 45 DÍAS):
+LISTADO DETALLADO DE BLOQUEOS Y NO DISPONIBILIDADES (PRÓXIMOS 90 DÍAS):
 ${blocksDetail || 'No hay bloqueos de habitación registrados en este período.'}
+
+PAGOS REGISTRADOS EN RESERVAS DEL PERÍODO (ÚLTIMOS 30 DÍAS Y PRÓXIMOS 90 DÍAS):
+${pagosDetail || 'No hay pagos registrados en este período.'}
 `;
+      dbSummaryRef.current = summary;
       setDbSummary(summary);
+      setDbLoading(false);
     } catch (err) {
-      console.error('Error al cargar datos en tiempo real de la base de datos:', err);
+      console.error('[Mars AI] Error al cargar contexto via RPC:', err);
+      setDbLoading(false);
     }
   };
 
   useEffect(() => {
+    if (!isOpen) return;
     loadLiveSummary();
-  }, []);
-
-  useEffect(() => {
-    if (isOpen) {
-      loadLiveSummary();
-    }
+    const interval = setInterval(loadLiveSummary, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [isOpen]);
 
   // Scroll to bottom on new messages
@@ -471,7 +538,7 @@ ${blocksDetail || 'No hay bloqueos de habitación registrados en este período.'
       const dynamicSystemPrompt = `${SYSTEM_PROMPT}
 
 CONTEXTO EN TIEMPO REAL DEL HOTEL VERONA (BASE DE DATOS SUPABASE):
-${dbSummary || 'Cargando datos reales del hotel...'}
+${dbSummaryRef.current || dbSummary || 'Cargando datos reales del hotel...'}
 `;
 
       // Filter out the welcome message (since it's a model message and Gemini requires history to start with a user message)
@@ -479,6 +546,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
       if (apiMessages.length > 0 && apiMessages[0].role === 'model') {
         apiMessages.shift();
       }
+      if (apiMessages.length > 20) apiMessages = apiMessages.slice(-20);
 
       // Safeguard for empty history
       if (apiMessages.length === 0) {
@@ -612,14 +680,36 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
       // Reset consecutive rate-limiting hits count on successful response
       setConsecutiveRateLimits(0);
 
-      const data = await response.json();
-      const candidate = data?.candidates?.[0];
-      const parts = candidate?.content?.parts || [];
+      // ── Streaming ─────────────────────────────────────────────────────────
+      setMessages(prev => [...prev, { role: 'model', text: '', timestamp: getFormattedTime() }]);
+      let accText = '';
+      let finalCandidate: any = null;
+      {
+        const reader = response.body!.getReader();
+        const dec = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          for (const line of dec.decode(value, { stream: true }).split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const chunk = JSON.parse(line.slice(6));
+              const cand = chunk?.candidates?.[0];
+              if (!cand) continue;
+              finalCandidate = cand;
+              for (const part of (cand?.content?.parts ?? [])) {
+                if (part.text) { accText += part.text; setMessages(prev => { const c = [...prev]; c[c.length - 1] = { ...c[c.length - 1], text: accText }; return c; }); }
+              }
+            } catch {}
+          }
+        }
+      }
+
+      const parts = finalCandidate?.content?.parts ?? [];
       const functionCallParts = parts.filter((p: any) => p.functionCall);
 
       if (functionCallParts.length > 0) {
-        // Push a status message to show the user that action is running
-        setMessages(prev => [...prev, { role: 'model', text: `*Procesando ${functionCallParts.length} acciones automáticas en la base de datos...*`, timestamp: getFormattedTime() }]);
+        setMessages(prev => { const c = [...prev]; c.pop(); return [...c, { role: 'model', text: `*Procesando ${functionCallParts.length} acciones automáticas en la base de datos...*`, timestamp: getFormattedTime() }]; });
 
         try {
           // Execute function calls sequentially to avoid race conditions (e.g. two reservations on same room)
@@ -725,38 +815,26 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
             }
           });
 
-          let finalReply = '';
-          if (!followUpResponse.ok) {
-            console.warn(`Error en seguimiento de acción AI: ${followUpResponse.status}. Usando fallback local.`);
-            finalReply = `**Acciones completadas con éxito en la base de datos.**\n\nEl asistente ha procesado correctamente las siguientes tareas directamente en el sistema:\n\n` +
-              results.map(r => {
-                if (r.name === 'toggleRoomBlock') {
-                  return `- **Gestión de Disponibilidad:** ${r.resultText}`;
-                } else if (r.name === 'createReservation') {
-                  return `- **Creación de Reserva:** ${r.resultText}`;
-                } else if (r.name === 'updateReservation') {
-                  return `- **Modificación de Reserva:** ${r.resultText}`;
-                } else if (r.name === 'cancelReservation') {
-                  return `- **Cancelación de Reserva:** ${r.resultText}`;
-                } else if (r.name === 'createGuest') {
-                  return `- **Registro de Huésped:** ${r.resultText}`;
-                } else if (r.name === 'splitReservation') {
-                  return `- **División de Estancia:** ${r.resultText}`;
-                }
-                return `- **Acción:** ${r.resultText}`;
-              }).join('\n') +
-              `\n\n*(Nota: Las acciones se completaron correctamente en el sistema, pero la respuesta conversacional final se generó vía fallback debido a un límite temporal de tasa/cuota API 429)*`;
-          } else {
-            const followUpData = await followUpResponse.json();
-            finalReply = followUpData?.candidates?.[0]?.content?.parts?.[0]?.text || 'Acciones completadas con éxito en la base de datos.';
+          setMessages(prev => { const c = [...prev]; c.pop(); return [...c, { role: 'model', text: '', timestamp: getFormattedTime() }]; });
+          let followUpText = '';
+          {
+            const reader = followUpResponse.body!.getReader();
+            const dec = new TextDecoder();
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              for (const line of dec.decode(value, { stream: true }).split('\n')) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                  const chunk = JSON.parse(line.slice(6));
+                  for (const part of (chunk?.candidates?.[0]?.content?.parts ?? [])) {
+                    if (part.text) { followUpText += part.text; setMessages(prev => { const c = [...prev]; c[c.length - 1] = { ...c[c.length - 1], text: followUpText }; return c; }); }
+                  }
+                } catch {}
+              }
+            }
           }
-
-          // Remove the loader message and push the final reply
-          setMessages(prev => {
-            const copy = [...prev];
-            copy.pop(); // Remove loader
-            return [...copy, { role: 'model', text: finalReply, timestamp: getFormattedTime() }];
-          });
+          if (!followUpText) setMessages(prev => { const c = [...prev]; c[c.length - 1] = { ...c[c.length - 1], text: 'Acciones completadas con éxito en la base de datos.' }; return c; });
 
           // Reload the live statistics in the AI assistant sidebar
           loadLiveSummary();
@@ -771,8 +849,8 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
         return;
       }
 
-      const modelReply = candidate?.content?.parts?.[0]?.text || 'No obtuve una respuesta válida de la inteligencia artificial.';
-      setMessages(prev => [...prev, { role: 'model', text: modelReply, timestamp: getFormattedTime() }]);
+      playChimeSound();
+      if (!accText) setMessages(prev => { const c = [...prev]; c[c.length - 1] = { ...c[c.length - 1], text: 'No obtuve una respuesta válida de la inteligencia artificial.' }; return c; });
     } catch (error: any) {
       console.error('Error con Gemini AI:', error);
       const errMsg = error.message || '';
@@ -828,51 +906,6 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
       sessionStorage.setItem('verona_ai_history', JSON.stringify(initial));
       loadLiveSummary();
     }
-  };
-
-  // Safe html rendering for markdown (simple custom inline parser to avoid raw html vulnerabilities)
-  const renderMessageContent = (text: string) => {
-    return text.split('\n').map((paragraph, index) => {
-      // Detect and replace bullet points
-      let cleanText = paragraph;
-      const isBullet = paragraph.trim().startsWith('- ') || paragraph.trim().startsWith('* ');
-      if (isBullet) {
-        cleanText = cleanText.replace(/^[\s*-]+/, '');
-      }
-
-      // Replace bold tags (**text**)
-      const boldRegex = /\*\*(.*?)\*\*/g;
-      const parts = [];
-      let lastIndex = 0;
-      let match;
-
-      while ((match = boldRegex.exec(cleanText)) !== null) {
-        if (match.index > lastIndex) {
-          parts.push(cleanText.substring(lastIndex, match.index));
-        }
-        parts.push(<strong key={match.index}>{match[1]}</strong>);
-        lastIndex = boldRegex.lastIndex;
-      }
-      if (lastIndex < cleanText.length) {
-        parts.push(cleanText.substring(lastIndex));
-      }
-
-      const content = parts.length > 0 ? parts : cleanText;
-
-      if (isBullet) {
-        return (
-          <li key={index} style={{ marginLeft: '16px', marginBottom: '4px', listStyleType: 'disc' }}>
-            {content}
-          </li>
-        );
-      }
-
-      return (
-        <p key={index} style={{ marginBottom: '8px', lineHeight: '1.45' }}>
-          {content}
-        </p>
-      );
-    });
   };
 
   return (
@@ -1213,7 +1246,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
                   {msg.role === 'model' ? 'AI' : (user?.email?.[0]?.toUpperCase() || 'P')}
                 </div>
                 <div className={`verona-ai-bubble ${msg.role}`}>
-                  {renderMessageContent(msg.text)}
+                  {msg.role === 'model' ? <MdContent text={msg.text} /> : <span style={{ whiteSpace: 'pre-line' }}>{msg.text}</span>}
                   {msg.timestamp && (
                     <div className={`verona-ai-timestamp ${msg.role}`}>
                       {msg.timestamp}
@@ -1245,7 +1278,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
                 key={idx}
                 className="verona-ai-chip"
                 onClick={() => handleSend(sug.prompt)}
-                disabled={loading || rateLimitCountdown !== null || isVerifying}
+                disabled={loading || dbLoading || rateLimitCountdown !== null || isVerifying}
               >
                 {sug.label}
               </button>
@@ -1265,19 +1298,21 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={
-                isVerifying
-                  ? "Verificando disponibilidad..."
-                  : rateLimitCountdown !== null
-                    ? `Espera ${rateLimitCountdown}s para consultar...`
-                    : "Pregunta a Mars AI..."
+                dbLoading
+                  ? "Cargando datos del hotel..."
+                  : isVerifying
+                    ? "Verificando disponibilidad..."
+                    : rateLimitCountdown !== null
+                      ? `Espera ${rateLimitCountdown}s para consultar...`
+                      : "Pregunta a Mars AI..."
               }
-              disabled={loading || rateLimitCountdown !== null || isVerifying}
-              style={(rateLimitCountdown !== null || isVerifying) ? { backgroundColor: 'var(--shell-bg)', cursor: 'not-allowed' } : undefined}
+              disabled={loading || dbLoading || rateLimitCountdown !== null || isVerifying}
+              style={(dbLoading || rateLimitCountdown !== null || isVerifying) ? { backgroundColor: 'var(--shell-bg)', cursor: 'not-allowed' } : undefined}
             />
             <button
               type="submit"
               className="verona-ai-send-btn"
-              disabled={!input.trim() || loading || rateLimitCountdown !== null || isVerifying}
+              disabled={!input.trim() || loading || dbLoading || rateLimitCountdown !== null || isVerifying}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="22" y1="2" x2="11" y2="13" />
@@ -1320,7 +1355,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
                       {msg.role === 'model' ? 'AI' : (user?.email?.[0]?.toUpperCase() || 'P')}
                     </div>
                     <div className={`verona-ai-bubble ${msg.role}`}>
-                      {renderMessageContent(msg.text)}
+                      {msg.role === 'model' ? <MdContent text={msg.text} /> : <span style={{ whiteSpace: 'pre-line' }}>{msg.text}</span>}
                       {msg.timestamp && (
                         <div className={`verona-ai-timestamp ${msg.role}`}>
                           {msg.timestamp}
@@ -1352,7 +1387,7 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
                     key={idx}
                     className="verona-ai-chip"
                     onClick={() => handleSend(sug.prompt)}
-                    disabled={loading || rateLimitCountdown !== null || isVerifying}
+                    disabled={loading || dbLoading || rateLimitCountdown !== null || isVerifying}
                   >
                     {sug.label}
                   </button>
@@ -1372,19 +1407,21 @@ ${dbSummary || 'Cargando datos reales del hotel...'}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder={
-                    isVerifying
-                      ? "Verificando disponibilidad..."
-                      : rateLimitCountdown !== null
-                        ? `Espera ${rateLimitCountdown}s para consultar...`
-                        : "Pregunta a Mars AI..."
+                    dbLoading
+                      ? "Cargando datos del hotel..."
+                      : isVerifying
+                        ? "Verificando disponibilidad..."
+                        : rateLimitCountdown !== null
+                          ? `Espera ${rateLimitCountdown}s para consultar...`
+                          : "Pregunta a Mars AI..."
                   }
-                  disabled={loading || rateLimitCountdown !== null || isVerifying}
-                  style={(rateLimitCountdown !== null || isVerifying) ? { backgroundColor: 'var(--shell-bg)', cursor: 'not-allowed' } : undefined}
+                  disabled={loading || dbLoading || rateLimitCountdown !== null || isVerifying}
+                  style={(dbLoading || rateLimitCountdown !== null || isVerifying) ? { backgroundColor: 'var(--shell-bg)', cursor: 'not-allowed' } : undefined}
                 />
                 <button
                   type="submit"
                   className="verona-ai-send-btn"
-                  disabled={!input.trim() || loading || rateLimitCountdown !== null || isVerifying}
+                  disabled={!input.trim() || loading || dbLoading || rateLimitCountdown !== null || isVerifying}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13" />

@@ -133,7 +133,9 @@ router.get('/owners/:id', async (req, res) => {
         suscripciones_owner ( id_plan, tipo_modulo, estado, trial_end, created_at, negocios_extra, current_period_end, cancel_at_period_end ),
         business_modules (
           id_module, tipo_modulo, is_active, created_at,
-          hoteles ( id_hotel, nombre_hotel, ciudad, estado )
+          hoteles ( id_hotel, nombre_hotel, ciudad, estado ),
+          gimnasios ( id_gimnasio, nombre_gimnasio, ciudad, estado ),
+          restaurant ( id_restaurant, nombre_restaurante, ciudad, activo )
         )
       `)
       .eq('id_owner', req.params.id)
@@ -1017,6 +1019,120 @@ router.get('/audit', async (req, res) => {
 
     if (error) throw error;
     return res.json({ data: data ?? [], total: count ?? 0, limit, offset });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PATCH /hub/admin/gimnasios/:id_gimnasio ─────────────────────────────────
+// Activa o desactiva un gimnasio individual.
+// Valores permitidos por check constraint: 'activo', 'inactivo', 'mantenimiento'
+// También sincroniza business_modules.is_active para reflejar el estado en el hub.
+
+router.patch('/gimnasios/:id_gimnasio', async (req, res) => {
+  try {
+    const { id_gimnasio } = req.params;
+    const { estado } = req.body as { estado?: string };
+
+    if (!estado || !['activo', 'inactivo', 'mantenimiento'].includes(estado)) {
+      return res.status(400).json({ error: 'estado debe ser activo, inactivo o mantenimiento' });
+    }
+
+    const { data, error } = await db()
+      .from('gimnasios')
+      .update({ estado })
+      .eq('id_gimnasio', id_gimnasio)
+      .select('id_gimnasio, nombre_gimnasio, estado, id_module')
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'Gimnasio no encontrado' });
+
+    // Sincronizar is_active del módulo con el estado del gimnasio
+    if ((data as any).id_module) {
+      const isActive = estado === 'activo';
+      await db()
+        .from('business_modules')
+        .update({ is_active: isActive })
+        .eq('id_module', (data as any).id_module);
+    }
+
+    return res.json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PATCH /hub/admin/hoteles/:id_hotel/toggle ───────────────────────────────
+// Activa o desactiva un hotel individual (campo `estado`).
+// Valores permitidos por check constraint: 'activo', 'inactivo', 'mantenimiento'
+
+router.patch('/hoteles/:id_hotel/toggle', async (req, res) => {
+  try {
+    const { id_hotel } = req.params;
+    const { estado } = req.body as { estado?: string };
+
+    if (!estado || !['activo', 'inactivo', 'mantenimiento'].includes(estado)) {
+      return res.status(400).json({ error: 'estado debe ser activo, inactivo o mantenimiento' });
+    }
+
+    const { data, error } = await db()
+      .from('hoteles')
+      .update({ estado })
+      .eq('id_hotel', id_hotel)
+      .select('id_hotel, nombre_hotel, estado, id_module')
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'Hotel no encontrado' });
+
+    // Sincronizar is_active del módulo con el estado del hotel
+    if ((data as any).id_module) {
+      const isActive = estado === 'activo';
+      await db()
+        .from('business_modules')
+        .update({ is_active: isActive })
+        .eq('id_module', (data as any).id_module);
+    }
+
+    return res.json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PATCH /hub/admin/restaurantes/:id_restaurant ────────────────────────────
+// Activa o desactiva un restaurante individual (campo `activo` boolean).
+// También sincroniza business_modules.is_active para reflejar el estado en el hub.
+
+router.patch('/restaurantes/:id_restaurant', async (req, res) => {
+  try {
+    const { id_restaurant } = req.params;
+    const { activo } = req.body as { activo?: boolean };
+
+    if (typeof activo !== 'boolean') {
+      return res.status(400).json({ error: 'activo debe ser un boolean' });
+    }
+
+    const { data, error } = await db()
+      .from('restaurant')
+      .update({ activo })
+      .eq('id_restaurant', id_restaurant)
+      .select('id_restaurant, nombre_restaurante, activo, id_module')
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'Restaurante no encontrado' });
+
+    // Sincronizar is_active del módulo con el estado del restaurante
+    if ((data as any).id_module) {
+      await db()
+        .from('business_modules')
+        .update({ is_active: activo })
+        .eq('id_module', (data as any).id_module);
+    }
+
+    return res.json(data);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

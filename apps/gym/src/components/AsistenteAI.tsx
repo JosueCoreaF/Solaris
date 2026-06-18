@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../api/supabase';
+import { getGymContext } from '../api/gymContext';
 import { fetchMiembros, crearMiembro } from '../api/miembrosService';
 import type { Miembro } from '../api/miembrosService';
 import { fetchPlanes, fetchInscripciones, crearInscripcion } from '../api/membresiaService';
@@ -11,6 +13,57 @@ import { registrarPago } from '../api/pagosService';
 import type { PagoGym } from '../api/pagosService';
 import { fetchDashboardKPIs } from '../api/dashboardService';
 import type { DashboardKPIs } from '../api/dashboardService';
+
+function renderInline(text: string, key?: number): React.ReactNode {
+  const regex = /(\*\*([^*\n]+)\*\*|\*([^*\n]+)\*|`([^`\n]+)`)/g;
+  const parts: React.ReactNode[] = [];
+  let last = 0; let m: RegExpExecArray | null; let i = 0;
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) parts.push(<span key={i++}>{text.slice(last, m.index)}</span>);
+    if (m[2]) parts.push(<strong key={i++} style={{ fontWeight: 700, color: 'var(--text-h)' }}>{m[2]}</strong>);
+    else if (m[3]) parts.push(<em key={i++} style={{ fontStyle: 'italic', opacity: .85 }}>{m[3]}</em>);
+    else if (m[4]) parts.push(<code key={i++} style={{ fontFamily: 'monospace', fontSize: 11, background: 'var(--accent-bg)', color: 'var(--accent)', padding: '1px 5px', borderRadius: 4, border: '1px solid var(--accent-border)' }}>{m[4]}</code>);
+    last = regex.lastIndex;
+  }
+  if (last < text.length) parts.push(<span key={i++}>{text.slice(last)}</span>);
+  return <React.Fragment key={key}>{parts}</React.Fragment>;
+}
+
+const MdContent: React.FC<{ text: string }> = ({ text }) => {
+  const lines = text.split('\n');
+  const nodes: React.ReactNode[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.startsWith('#### ')) {
+      nodes.push(<div key={i} style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-h)', textTransform: 'uppercase', letterSpacing: '.07em', marginTop: 8, marginBottom: 3, opacity: .85 }}>{renderInline(line.slice(5))}</div>);
+    } else if (line.startsWith('### ')) {
+      nodes.push(<div key={i} style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-h)', textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 10, marginBottom: 4 }}>{renderInline(line.slice(4))}</div>);
+    } else if (line.startsWith('## ')) {
+      nodes.push(<div key={i} style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-h)', marginTop: 12, marginBottom: 5, paddingBottom: 4, borderBottom: '1px solid var(--shell-border)' }}>{renderInline(line.slice(3))}</div>);
+    } else if (line.startsWith('# ')) {
+      nodes.push(<div key={i} style={{ fontSize: 14, fontWeight: 800, color: 'var(--accent)', marginTop: 12, marginBottom: 6 }}>{renderInline(line.slice(2))}</div>);
+    } else if (/^[-*] /.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*] /.test(lines[i])) { items.push(lines[i].replace(/^[-*] /, '')); i++; }
+      nodes.push(<ul key={`ul${i}`} style={{ margin: '4px 0', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 3 }}>{items.map((it, j) => (<li key={j} style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-h)', listStyleType: 'none', paddingLeft: 4, position: 'relative' }}><span style={{ position: 'absolute', left: -12, color: 'var(--accent)', fontWeight: 700 }}>·</span>{renderInline(it)}</li>))}</ul>);
+      continue;
+    } else if (/^\d+\. /.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+\. /.test(lines[i])) { items.push(lines[i].replace(/^\d+\. /, '')); i++; }
+      nodes.push(<ol key={`ol${i}`} style={{ margin: '4px 0', paddingLeft: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>{items.map((it, j) => (<li key={j} style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-h)', listStyleType: 'none', display: 'flex', gap: 8, alignItems: 'flex-start' }}><span style={{ minWidth: 18, height: 18, borderRadius: '50%', background: 'var(--accent-bg)', color: 'var(--accent)', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{j + 1}</span><span>{renderInline(it)}</span></li>))}</ol>);
+      continue;
+    } else if (line === '---') {
+      nodes.push(<hr key={i} style={{ border: 'none', borderTop: '1px solid var(--shell-border)', margin: '8px 0' }} />);
+    } else if (line.trim() === '') {
+      nodes.push(<div key={i} style={{ height: 6 }} />);
+    } else {
+      nodes.push(<div key={i} style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-h)' }}>{renderInline(line)}</div>);
+    }
+    i++;
+  }
+  return <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{nodes}</div>;
+};
 
 interface Message {
   role: 'user' | 'model';
@@ -50,6 +103,8 @@ REGLAS DE NEGOCIO Y OPERACIÓN:
 5. **REGLA DE ORO DE ACCIONES Y FALLOS**: Si el usuario te pide registrar un miembro, inscribir a alguien a un plan, registrar un pago o crear una clase, **debes generar obligatoriamente la llamada de función correspondiente** (ej: 'createMember', 'createInscription', 'registerPayment', 'createClass'). **NUNCA** le digas al usuario que realizaste la acción si no has emitido la llamada a la herramienta.
 6. **Inscripciones Inteligentes**: Para crear una inscripción (utilizando 'createInscription'), primero busca el miembro en el directorio. Si no existe, avísale al usuario que debes registrarlo primero o pídele los datos de miembro. Calcula de forma precisa la fecha de fin sumando la duración del plan a la fecha de inicio (formato YYYY-MM-DD). La fecha de inicio por defecto debe ser la fecha actual del sistema si el usuario no especifica otra.
 7. **Manejo de Pagos**: Cuando el usuario pida registrar un pago para una inscripción, debes requerir el ID de la inscripción (puedes buscarlo en el historial de inscripciones del miembro) y el monto. Llama a 'registerPayment'.
+8. **Confirmación antes de actuar**: Antes de registrar un miembro nuevo, crear una inscripción, registrar un pago o programar una clase, resume brevemente los datos relevantes (nombre, plan, fechas, monto) y solicita confirmación explícita al usuario. Omite este paso solo si el usuario ya confirmó todos los detalles en el mismo mensaje.
+9. **Manejo de Errores**: Si la base de datos retorna un ERROR al ejecutar una acción (ej. correo duplicado, ID inexistente, fechas inválidas), no declares que la operación fue exitosa. Informa al usuario del error de forma clara con la razón disponible y sugiere una solución concreta.
 
 EXPLICACIÓN DE LAS HERRAMIENTAS:
 - 'createMember': Registra un miembro con su nombre, correo, teléfono, etc.
@@ -117,6 +172,7 @@ export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [dbSummary, setDbSummary] = useState<string>('');
+  const dbSummaryRef = useRef<string>('');
   const [rateLimitCountdown, setRateLimitCountdown] = useState<number | null>(null);
   const [consecutiveRateLimits, setConsecutiveRateLimits] = useState<number>(0);
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
@@ -189,7 +245,7 @@ export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
 
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -280,87 +336,83 @@ export const AsistenteAI: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
 
   const loadLiveSummary = async () => {
     try {
-      const [kpis, members, planes, inscriptions, classes, trainers] = await Promise.all([
-        fetchDashboardKPIs().catch(() => null),
-        fetchMiembros().catch(() => []),
-        fetchPlanes().catch(() => []),
-        fetchInscripciones().catch(() => []),
-        fetchClases().catch(() => []),
-        fetchEntrenadores().catch(() => [])
-      ]);
+      const gymCtx = await getGymContext();
+      if (!gymCtx) return;
+
+      const { data, error } = await supabase.rpc('get_gym_ai_context', {
+        p_gimnasio_id: gymCtx.gimnasioId,
+      });
+      if (error) throw error;
+
+      const ctx = data as any;
+      const kpis: any         = ctx.kpis ?? {};
+      const planes: any[]     = ctx.planes ?? [];
+      const entrenadores: any[] = ctx.entrenadores ?? [];
+      const clases: any[]     = ctx.clases ?? [];
+      const miembros: any[]   = ctx.miembros ?? [];
+      const inscripciones: any[] = ctx.inscripciones_recientes ?? [];
+      const gimnasio: any     = ctx.gimnasio ?? {};
 
       const today = new Date();
       const systemTimeHN = today.toLocaleString('es-HN', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        timeZoneName: 'short'
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short',
       });
 
-      const membersDetail = (members || []).slice(0, 100).map((m: Miembro) =>
-        `- Miembro: ${m.nombre_completo} (ID: ${m.id_miembro}, Correo: ${m.correo || 'N/A'}, Teléfono: ${m.telefono || 'N/A'}, Estado: ${m.estado})`
-      ).join('\n');
-
-      const planesDetail = (planes || []).map((p: PlanMembresia) =>
+      const planesDetail = planes.map((p: any) =>
         `- Plan: "${p.nombre}" (ID: ${p.id_plan}, Precio: ${p.precio} HNL, Duración: ${p.duracion_dias} días, Acceso Clases: ${p.acceso_clases ? 'Sí' : 'No'}, Acceso Gym: ${p.acceso_gym ? 'Sí' : 'No'})`
       ).join('\n');
 
-      const inscriptionsDetail = (inscriptions || []).slice(0, 50).map((i: InscripcionGym) => {
-        const memberName = i.miembros?.nombre_completo || 'Desconocido';
-        const planName = i.planes_membresia?.nombre || 'N/A';
-        return `- Inscripción ID: ${i.id_inscripcion}, Miembro: ${memberName} (ID miembro: ${i.id_miembro}), Plan: "${planName}" (ID plan: ${i.id_plan}), Inicio: ${i.fecha_inicio}, Fin: ${i.fecha_fin}, Estado: ${i.estado}, Pago: ${i.estado_pago}, Total: ${i.total} HNL`;
-      }).join('\n');
+      const entrenadoresDetail = entrenadores.map((e: any) =>
+        `- Entrenador: ${e.nombre_completo} (ID: ${e.id_entrenador}, Especialidad: ${e.especialidad || 'N/A'})`
+      ).join('\n');
 
-      const classesDetail = (classes || []).map((c: ClaseGym) => {
-        const trainerName = c.entrenadores?.nombre_completo || 'Sin entrenador';
-        return `- Clase: "${c.nombre_clase}" (ID: ${c.id_clase}), Entrenador: ${trainerName} (ID: ${c.id_entrenador || 'N/A'}), Día: ${c.dia_semana}, Hora: ${c.hora_inicio} a ${c.hora_fin}, Capacidad: ${c.capacidad_maxima}, Activa: ${c.activa ? 'Sí' : 'No'}`;
-      }).join('\n');
+      const clasesDetail = clases.map((c: any) =>
+        `- Clase: "${c.nombre_clase}" (ID: ${c.id_clase}), Entrenador: ${c.entrenador || 'Sin entrenador'}, Día: ${c.dia_semana}, Hora: ${c.hora_inicio} a ${c.hora_fin}, Capacidad: ${c.capacidad_maxima}`
+      ).join('\n');
 
-      const trainersDetail = (trainers || []).map((t: Entrenador) =>
-        `- Entrenador: ${t.nombre_completo} (ID: ${t.id_entrenador}, Especialidad: ${t.especialidad || 'N/A'}, Estado: ${t.estado})`
+      const miembrosDetail = miembros.slice(0, 50).map((m: any) =>
+        `- Miembro: ${m.nombre_completo} (ID: ${m.id_miembro}, Correo: ${m.correo || 'N/A'}, Tel: ${m.telefono || 'N/A'}, Estado: ${m.estado})`
+      ).join('\n');
+
+      const inscripcionesDetail = inscripciones.map((i: any) =>
+        `- Inscripción ID: ${i.id_inscripcion}, Miembro: ${i.miembro} (ID: ${i.id_miembro}), Plan: "${i.plan}" (ID: ${i.id_plan}), Inicio: ${i.fecha_inicio}, Fin: ${i.fecha_fin}, Estado: ${i.estado}, Pago: ${i.estado_pago}, Total: ${i.total} HNL`
       ).join('\n');
 
       const summary = `
-INFORMACIÓN DETALLADA DE LA BASE DE DATOS SUPABASE DEL GIMNASIO (SOLARIS GYM):
+INFORMACIÓN DETALLADA DE LA BASE DE DATOS SUPABASE DEL GIMNASIO (${gimnasio.nombre_gimnasio || 'SOLARIS GYM'}):
 (Fecha y hora actual de referencia del sistema: ${systemTimeHN}):
 
 KPIs DEL DASHBOARD ACTUAL:
-- **Total Miembros**: ${kpis?.totalMiembros ?? 0}
-- **Miembros Activos**: ${kpis?.miembrosActivos ?? 0}
-- **Inscripciones Activas**: ${kpis?.inscripcionesActivas ?? 0}
-- **Inscripciones que Vencen este Mes**: ${kpis?.vencenEsteMes ?? 0}
-- **Ingresos de este Mes**: ${kpis?.ingresosMes ?? 0} HNL
-- **Clases Programadas Hoy**: ${kpis?.clasesHoy ?? 0}
-- **Nuevos Miembros esta Semana**: ${kpis?.nuevosEstaSemana ?? 0}
+- **Total Miembros**: ${kpis.total_miembros ?? 0}
+- **Miembros Activos**: ${kpis.miembros_activos ?? 0}
+- **Inscripciones Activas**: ${kpis.inscripciones_activas ?? 0}
+- **Inscripciones que Vencen este Mes**: ${kpis.vencen_este_mes ?? 0}
+- **Ingresos de este Mes**: ${Number(kpis.ingresos_mes ?? 0).toFixed(2)} HNL
+- **Clases Programadas Hoy**: ${kpis.clases_hoy ?? 0}
+- **Nuevos Miembros esta Semana**: ${kpis.nuevos_esta_semana ?? 0}
 
 PLANES DE MEMBRESÍA VIGENTES:
 ${planesDetail || 'No hay planes registrados.'}
 
 ENTRENADORES REGISTRADOS:
-${trainersDetail || 'No hay entrenadores registrados.'}
+${entrenadoresDetail || 'No hay entrenadores registrados.'}
 
 CLASES PROGRAMADAS EN EL GIMNASIO:
-${classesDetail || 'No hay clases programadas.'}
+${clasesDetail || 'No hay clases programadas.'}
 
 DIRECTORIO DE MIEMBROS RECIENTES:
-${membersDetail || 'No hay miembros registrados.'}
+${miembrosDetail || 'No hay miembros registrados.'}
 
-INSCIPCIONES RECIENTES Y ACTIVAS (Máx 50):
-${inscriptionsDetail || 'No hay inscripciones registradas.'}
+INSCRIPCIONES RECIENTES Y ACTIVAS (Máx 50):
+${inscripcionesDetail || 'No hay inscripciones registradas.'}
 `;
+      dbSummaryRef.current = summary;
       setDbSummary(summary);
     } catch (err) {
-      console.error('Error al cargar datos reales de Solaris Gym:', err);
+      console.error('[Apolo AI] Error al cargar contexto via RPC:', err);
     }
   };
-
-  useEffect(() => {
-    loadLiveSummary();
-  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -494,13 +546,36 @@ ${dbSummary || 'Cargando datos reales del gimnasio...'}
 
       setConsecutiveRateLimits(0);
 
-      const data = await response.json();
-      const candidate = data?.candidates?.[0];
-      const parts = candidate?.content?.parts || [];
+      // ── Streaming ─────────────────────────────────────────────────────────
+      setMessages(prev => [...prev, { role: 'model', text: '', timestamp: getFormattedTime() }]);
+      let accText = '';
+      let finalCandidate: any = null;
+      {
+        const reader = response.body!.getReader();
+        const dec = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          for (const line of dec.decode(value, { stream: true }).split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const chunk = JSON.parse(line.slice(6));
+              const cand = chunk?.candidates?.[0];
+              if (!cand) continue;
+              finalCandidate = cand;
+              for (const part of (cand?.content?.parts ?? [])) {
+                if (part.text) { accText += part.text; setMessages(prev => { const c = [...prev]; c[c.length - 1] = { ...c[c.length - 1], text: accText }; return c; }); }
+              }
+            } catch {}
+          }
+        }
+      }
+
+      const parts = finalCandidate?.content?.parts ?? [];
       const functionCallParts = parts.filter((p: any) => p.functionCall);
 
       if (functionCallParts.length > 0) {
-        setMessages(prev => [...prev, { role: 'model', text: `*Procesando ${functionCallParts.length} acciones en la base de datos...*`, timestamp: getFormattedTime() }]);
+        setMessages(prev => { const c = [...prev]; c.pop(); return [...c, { role: 'model', text: `*Procesando ${functionCallParts.length} acciones en la base de datos...*`, timestamp: getFormattedTime() }]; });
 
         try {
           const results: { name: string; resultText: string }[] = [];
@@ -598,24 +673,28 @@ ${dbSummary || 'Cargando datos reales del gimnasio...'}
             }
           });
 
-          let finalReply = '';
-          if (!followUpResponse.ok) {
-            console.warn(`Error en seguimiento de Apolo AI. Usando fallback local.`);
-            finalReply = `**Acciones completadas con éxito en el sistema.**\n\nEl asistente ha procesado correctamente las siguientes tareas:\n\n` +
-              results.map(r => `- **${r.name === 'createMember' ? 'Miembro' : r.name === 'createInscription' ? 'Inscripción' : r.name === 'registerPayment' ? 'Pago' : 'Clase'}:** ${r.resultText}`).join('\n');
-          } else {
-            const followUpData = await followUpResponse.json();
-            finalReply = followUpData?.candidates?.[0]?.content?.parts?.[0]?.text || 'Acciones completadas con éxito en la base de datos.';
+          setMessages(prev => { const c = [...prev]; c.pop(); return [...c, { role: 'model', text: '', timestamp: getFormattedTime() }]; });
+          let followUpText = '';
+          {
+            const reader = followUpResponse.body!.getReader();
+            const dec = new TextDecoder();
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              for (const line of dec.decode(value, { stream: true }).split('\n')) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                  const chunk = JSON.parse(line.slice(6));
+                  for (const part of (chunk?.candidates?.[0]?.content?.parts ?? [])) {
+                    if (part.text) { followUpText += part.text; setMessages(prev => { const c = [...prev]; c[c.length - 1] = { ...c[c.length - 1], text: followUpText }; return c; }); }
+                  }
+                } catch {}
+              }
+            }
           }
+          if (!followUpText) setMessages(prev => { const c = [...prev]; c[c.length - 1] = { ...c[c.length - 1], text: 'Acciones completadas con éxito en la base de datos.' }; return c; });
 
           playChimeSound();
-
-          setMessages(prev => {
-            const copy = [...prev];
-            copy.pop(); // remove progress indicator
-            return [...copy, { role: 'model', text: finalReply, timestamp: getFormattedTime() }];
-          });
-
           loadLiveSummary();
         } catch (err: any) {
           console.error('Error al ejecutar herramientas en base de datos:', err);
@@ -628,8 +707,8 @@ ${dbSummary || 'Cargando datos reales del gimnasio...'}
         return;
       }
 
-      const modelReply = candidate?.content?.parts?.[0]?.text || 'No obtuve una respuesta válida de la inteligencia artificial.';
-      setMessages(prev => [...prev, { role: 'model', text: modelReply, timestamp: getFormattedTime() }]);
+      playChimeSound();
+      if (!accText) setMessages(prev => { const c = [...prev]; c[c.length - 1] = { ...c[c.length - 1], text: 'No obtuve una respuesta válida de la inteligencia artificial.' }; return c; });
     } catch (error: any) {
       console.error('Error con Gemini AI:', error);
       const errMsg = error.message || '';
@@ -739,9 +818,7 @@ ${dbSummary || 'Cargando datos reales del gimnasio...'}
                     : 'polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%)'
                 }}
               >
-                <div className="whitespace-pre-line break-words markdown-content">
-                  {msg.text}
-                </div>
+                {msg.role === 'model' ? <MdContent text={msg.text} /> : <span style={{ whiteSpace: 'pre-line' }}>{msg.text}</span>}
               </div>
               {msg.timestamp && (
                 <span className="text-[10px] text-[var(--muted)] font-mono mt-1 px-1">{msg.timestamp}</span>

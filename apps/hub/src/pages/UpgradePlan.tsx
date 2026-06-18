@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, Star, Zap, Building2, ChevronLeft, Loader2, CreditCard, Info, X, Minus } from 'lucide-react';
+import { Check, Star, Zap, Building2, ChevronLeft, Loader2, CreditCard, Info, X, Minus, Dumbbell, Utensils } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
 import { supabase } from '../services/supabaseClient';
@@ -16,8 +16,9 @@ const FEATURE_LABELS: Record<string, string> = {
   ai_asistente: 'Asistente IA',
   auditoria: 'Auditoría cruzada',
   multimoneda: 'Multi-moneda',
-  reportes: 'Reportes',
+  reportes: 'Reportes y análisis',
   exportador_datos: 'Exportador de datos',
+  proveedores: 'Gestión de proveedores',
 };
 
 export const UpgradePlan = () => {
@@ -178,7 +179,7 @@ export const UpgradePlan = () => {
 
               <div className="flex justify-between items-start mb-6">
                 <div className={`p-3 rounded-2xl bg-indigo-50 text-indigo-600`}>
-                  {currentModule === 'hotel' ? <Building2 className="w-6 h-6" /> : <Star className="w-6 h-6" />}
+                  {currentModule === 'hotel' ? <Building2 className="w-6 h-6" /> : currentModule === 'gym' ? <Dumbbell className="w-6 h-6" /> : <Utensils className="w-6 h-6" />}
                 </div>
                 <h3 className="text-2xl font-bold text-slate-900">{plan.nombre}</h3>
               </div>

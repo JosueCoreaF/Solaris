@@ -1,13 +1,33 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ShoppingBag, Coffee, DollarSign, UtensilsCrossed,
   CalendarCheck, TrendingUp, TrendingDown, Users,
+  Plus, CreditCard, Receipt,
 } from 'lucide-react';
 import { useRestaurant } from '../context/RestaurantContext';
+import { useAuth } from '../context/AuthContext';
+import type { UserRole } from '../context/AuthContext';
 import { supabase } from '../api/supabase';
 import type { PedidoRestaurante } from '../types';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+const hora = () => {
+  const h = new Date().getHours();
+  if (h < 12) return 'Buenos días';
+  if (h < 19) return 'Buenas tardes';
+  return 'Buenas noches';
+};
+
+const GREETINGS: Partial<Record<UserRole, string>> = {
+  PROPIETARIO: 'Panel del Propietario',
+  ADMIN:       'Panel de Administración',
+  GERENTE:     'Panel de Gerencia',
+  CAJERO:      'Panel de Caja',
+  MESERO:      'Panel de Servicio',
+  COCINA:      'Panel de Cocina',
+};
+
 const fmtCurrency = (n: number) =>
   new Intl.NumberFormat('es-HN', { style: 'currency', currency: 'HNL', maximumFractionDigits: 0 }).format(n);
 
@@ -113,6 +133,8 @@ interface TrendingPlatillo {
 
 export const Dashboard: React.FC = () => {
   const { restaurant } = useRestaurant();
+  const { role } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState<Stats>({
     pedidosHoy: 0, mesasOcupadas: 0, mesasTotal: 1, ingresosHoy: 0,
     ingresosAyer: 0, platillosActivos: 0, reservasHoy: 0, clientesTotal: 0, pedidosPendientes: 0,
@@ -312,14 +334,15 @@ export const Dashboard: React.FC = () => {
   ];
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    <div>
       {/* Header */}
       <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <div className="page-title">{restaurant?.nombre_restaurante ?? 'Dashboard'}</div>
-          <div className="page-subtitle">
-            {new Date().toLocaleDateString('es-HN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
-          </div>
+          <span className="page-kicker">
+            {hora()} · {new Date().toLocaleDateString('es-HN', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </span>
+          <div className="page-title">{GREETINGS[role] ?? restaurant?.nombre_restaurante ?? 'Dashboard'}</div>
+          <div className="page-subtitle">{restaurant?.nombre_restaurante}</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{
@@ -345,6 +368,55 @@ export const Dashboard: React.FC = () => {
         </div>
       ) : (
         <>
+          {/* ── Acciones Rápidas ──────────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
+            {[
+              {
+                label: 'Nueva Orden',
+                icon: <Plus size={18} />,
+                color: '#f97316',
+                bg: 'rgba(249,115,22,0.12)',
+                border: 'rgba(249,115,22,0.30)',
+                path: '/pedidos',
+              },
+              {
+                label: 'Cobrar Mesa',
+                icon: <CreditCard size={18} />,
+                color: '#22c55e',
+                bg: 'rgba(34,197,94,0.10)',
+                border: 'rgba(34,197,94,0.25)',
+                path: '/facturas',
+              },
+              {
+                label: 'Registrar Gasto',
+                icon: <Receipt size={18} />,
+                color: '#8b5cf6',
+                bg: 'rgba(139,92,246,0.10)',
+                border: 'rgba(139,92,246,0.25)',
+                path: '/gastos',
+              },
+            ].map(a => (
+              <button
+                key={a.label}
+                onClick={() => navigate(a.path)}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  gap: 8, padding: '14px 8px', borderRadius: 14,
+                  background: a.bg, border: `1px solid ${a.border}`,
+                  cursor: 'pointer', transition: 'all 0.15s ease', color: a.color,
+                  fontFamily: 'var(--body)', fontWeight: 700, fontSize: 12,
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLElement).style.boxShadow = `0 8px 20px ${a.color}25`; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = ''; (e.currentTarget as HTMLElement).style.boxShadow = ''; }}
+              >
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: `${a.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {a.icon}
+                </div>
+                {a.label}
+              </button>
+            ))}
+          </div>
+
           {/* ── KPI Cards ─────────────────────────────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14, marginBottom: 24 }}>
             {kpis.map((k, i) => (

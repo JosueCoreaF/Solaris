@@ -238,7 +238,7 @@ export const Proveedores: React.FC = () => {
             loading={loading}
             emptyMessage="Sin proveedores registrados."
             columns={[
-              { key: 'nombre_proveedor', header: 'Nombre', render: p => <span className="font-medium text-white">{p.nombre_proveedor}</span> },
+              { key: 'nombre_proveedor', header: 'Nombre', render: p => <span className="font-medium text-slate-900 dark:text-white">{p.nombre_proveedor}</span> },
               { key: 'contacto', header: 'Contacto', render: p => p.contacto ?? <span className="text-slate-600">—</span> },
               { key: 'telefono', header: 'Teléfono', render: p => p.telefono ?? <span className="text-slate-600">—</span> },
               { key: 'correo', header: 'Correo', render: p => p.correo ?? <span className="text-slate-600">—</span> },
@@ -369,7 +369,7 @@ export const Proveedores: React.FC = () => {
             </div>
           </div>
           <div className="text-sm text-slate-400">
-            Total: <span className="text-white font-semibold">{fmtCurrency(formCompra.subtotal + formCompra.isv)}</span>
+            Total: <span className="text-slate-900 dark:text-white font-semibold">{fmtCurrency(formCompra.subtotal + formCompra.isv)}</span>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">Estado de pago</label>

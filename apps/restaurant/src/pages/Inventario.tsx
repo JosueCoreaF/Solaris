@@ -142,6 +142,9 @@ export const Inventario: React.FC = () => {
     .filter(p => !soloAlertas || p.cantidad <= STOCK_BAJO_THRESHOLD)
     .filter(p => p.nombre_producto.toLowerCase().includes(search.toLowerCase()));
 
+  const inputCls = "w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-orange-500";
+  const labelCls = "block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1";
+
   return (
     <div className="p-6 lg:p-8 space-y-6">
       <div className="flex items-center justify-between">
@@ -150,8 +153,8 @@ export const Inventario: React.FC = () => {
             <Package className="w-5 h-5 text-orange-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">Inventario</h1>
-            <p className="text-slate-400 text-xs">{productos.length} productos · {stockItems.length} con control de stock</p>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Inventario</h1>
+            <p className="text-slate-500 dark:text-slate-400 text-xs">{productos.length} productos · {stockItems.length} con control de stock</p>
           </div>
         </div>
         {vista === 'productos' && (
@@ -168,7 +171,7 @@ export const Inventario: React.FC = () => {
         )}
       </div>
 
-      <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 w-fit">
         {([
           { key: 'productos', label: 'Productos', Icon: Package },
           { key: 'stock', label: 'Stock', Icon: BarChart2 },
@@ -176,7 +179,7 @@ export const Inventario: React.FC = () => {
         ] as const).map(({ key, label, Icon }) => (
           <button key={key} onClick={() => setVista(key)}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              vista === key ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              vista === key ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}>
             <Icon className="w-3.5 h-3.5" /> {label}
           </button>
@@ -200,22 +203,22 @@ export const Inventario: React.FC = () => {
               </motion.div>
             )}
             <div className="relative max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto..."
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-orange-500 transition-colors" />
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-orange-500 transition-colors" />
             </div>
             <Table
               data={filtered} keyExtractor={p => p.id_producto} loading={loading}
               emptyMessage="Sin productos en inventario."
               columns={[
-                { key: 'nombre_producto', header: 'Producto', render: p => <span className="font-medium text-white">{p.nombre_producto}</span> },
-                { key: 'categoria', header: 'Categoría', render: p => p.categoria?.categoria ?? <span className="text-slate-600">—</span> },
+                { key: 'nombre_producto', header: 'Producto', render: p => <span className="font-medium">{p.nombre_producto}</span> },
+                { key: 'categoria', header: 'Categoría', render: p => p.categoria?.categoria ?? <span className="text-slate-400">—</span> },
                 { key: 'precio', header: 'Precio', render: p => <span className="text-orange-400 font-semibold">{fmtCurrency(p.precio)}</span> },
                 {
                   key: 'cantidad', header: 'Cantidad',
                   render: p => (
                     <div className="flex items-center gap-2">
-                      <span className={`font-semibold ${p.cantidad <= STOCK_BAJO_THRESHOLD ? 'text-red-400' : 'text-white'}`}>{p.cantidad}</span>
+                      <span className={`font-semibold ${p.cantidad <= STOCK_BAJO_THRESHOLD ? 'text-red-400' : ''}`}>{p.cantidad}</span>
                       {p.cantidad <= STOCK_BAJO_THRESHOLD && <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />}
                     </div>
                   ),
@@ -224,7 +227,7 @@ export const Inventario: React.FC = () => {
                   key: 'fecha_vencimiento', header: 'Vencimiento',
                   render: p => p.fecha_vencimiento
                     ? new Date(p.fecha_vencimiento + 'T00:00:00').toLocaleDateString('es-HN')
-                    : <span className="text-slate-600">—</span>,
+                    : <span className="text-slate-400">—</span>,
                 },
                 {
                   key: 'estado_stock', header: 'Estado',
@@ -250,58 +253,74 @@ export const Inventario: React.FC = () => {
 
         {vista === 'stock' && (
           <>
-            <p className="text-slate-400 text-sm">Configura el <strong className="text-white">stock mínimo</strong> para recibir alertas y registra el <strong className="text-white">stock actual</strong> por producto.</p>
-            <Table
-              data={productos} keyExtractor={p => p.id_producto} loading={loading}
-              emptyMessage="Sin productos. Crea productos primero en la pestaña Productos."
-              columns={[
-                { key: 'nombre', header: 'Producto', render: p => <span className="font-medium text-white">{p.nombre_producto}</span> },
-                {
-                  key: 'stock_actual', header: 'Stock actual',
-                  render: p => {
-                    const s = stockItems.find((i: any) => String(i.id_producto) === String(p.id_producto)) as any;
-                    return s
-                      ? <span className={`font-semibold ${s.stock_actual <= s.stock_minimo ? 'text-red-400' : 'text-emerald-400'}`}>{s.stock_actual}</span>
-                      : <span className="text-slate-600">—</span>;
-                  },
-                },
-                {
-                  key: 'stock_minimo', header: 'Stock mínimo',
-                  render: p => {
-                    const s = stockItems.find((i: any) => String(i.id_producto) === String(p.id_producto)) as any;
-                    return s ? <span className="text-slate-300">{s.stock_minimo}</span> : <span className="text-slate-600">—</span>;
-                  },
-                },
-                {
-                  key: 'estado', header: 'Estado',
-                  render: p => {
-                    const s = stockItems.find((i: any) => String(i.id_producto) === String(p.id_producto)) as any;
-                    if (!s) return <Badge variant="neutral">Sin control</Badge>;
-                    return s.stock_actual <= 0 ? <Badge variant="danger">Agotado</Badge>
-                      : s.stock_actual <= s.stock_minimo ? <Badge variant="warning">Bajo mínimo</Badge>
-                        : <Badge variant="success">OK</Badge>;
-                  },
-                },
-                {
-                  key: 'acciones', header: 'Acciones',
-                  render: p => (
-                    <button onClick={() => openStockModal(p)}
-                      className="flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 border border-orange-500/30 hover:border-orange-500/60 px-2 py-1 rounded-lg transition-colors">
-                      <BarChart2 className="w-3.5 h-3.5" /> Configurar
-                    </button>
-                  ),
-                },
-              ]}
-            />
+            <p className="text-slate-500 dark:text-slate-400 text-sm">El color de la barra indica la proximidad al stock mínimo configurado. Haz clic en <strong className="text-slate-700 dark:text-white">Configurar</strong> para actualizar los valores.</p>
+            {loading ? (
+              <div className="flex justify-center py-16"><div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" /></div>
+            ) : productos.length === 0 ? (
+              <div className="text-center py-16 text-slate-500 text-sm">Sin productos. Crea productos primero en la pestaña Productos.</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {productos.map(p => {
+                  const s = stockItems.find((i: any) => String(i.id_producto) === String(p.id_producto)) as any;
+                  const actual = s?.stock_actual ?? null;
+                  const minimo = s?.stock_minimo ?? 0;
+                  const pct = actual !== null && minimo > 0 ? Math.min((actual / (minimo * 2)) * 100, 100) : actual !== null ? 100 : 0;
+                  const isAgotado = actual !== null && actual <= 0;
+                  const isBajo = actual !== null && !isAgotado && actual <= minimo;
+                  const barColor = isAgotado ? '#ef4444' : isBajo ? '#f59e0b' : '#22c55e';
+                  const statusLabel = actual === null ? 'Sin control' : isAgotado ? 'Agotado' : isBajo ? 'Bajo mínimo' : 'OK';
+                  const statusCls = actual === null ? 'text-slate-500' : isAgotado ? 'text-red-400' : isBajo ? 'text-amber-400' : 'text-emerald-400';
+
+                  return (
+                    <div key={p.id_producto} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-3 hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-900 dark:text-white text-sm truncate">{p.nombre_producto}</p>
+                          <p className="text-slate-500 text-xs">{p.categoria?.categoria ?? 'Sin categoría'}</p>
+                        </div>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${statusCls} bg-current/10`} style={{ color: barColor }}>
+                          {statusLabel}
+                        </span>
+                      </div>
+
+                      {/* Barra de progreso */}
+                      <div>
+                        <div className="flex justify-between text-xs mb-1.5">
+                          <span className="text-slate-500 dark:text-slate-400">Stock actual: <strong className="text-slate-900 dark:text-white">{actual ?? '—'}</strong></span>
+                          <span className="text-slate-500">Mín: {minimo}</span>
+                        </div>
+                        <div className="h-2 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                          <motion.div
+                            className="h-full rounded-full"
+                            style={{ background: barColor }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ duration: 0.6, ease: 'easeOut' }}
+                          />
+                        </div>
+                        {actual !== null && minimo > 0 && (
+                          <p className="text-xs text-slate-400 mt-1">{Math.round(pct)}% del umbral mínimo×2</p>
+                        )}
+                      </div>
+
+                      <button onClick={() => openStockModal(p)}
+                        className="w-full flex items-center justify-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 border border-orange-500/30 hover:border-orange-500/50 py-1.5 rounded-lg transition-colors">
+                        <BarChart2 className="w-3 h-3" /> Configurar stock
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </>
         )}
 
         {vista === 'recetas' && (
           <>
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">Platillo</label>
+              <label className={labelCls}>Platillo</label>
               <select value={selectedPlatillo} onChange={e => setSelectedPlatillo(e.target.value)}
-                className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500 max-w-xs">
+                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-orange-500 max-w-xs">
                 <option value="">-- Elige un platillo --</option>
                 {platillos.map(p => <option key={p.id_platillo} value={String(p.id_platillo)}>{p.nombre_platillo}</option>)}
               </select>
@@ -314,7 +333,7 @@ export const Inventario: React.FC = () => {
                 columns={[
                   {
                     key: 'ingrediente', header: 'Ingrediente',
-                    render: (r: any) => <span className="font-medium text-white">{r.inventario?.producto?.nombre_producto ?? `Inventario #${r.id_inventario}`}</span>,
+                    render: (r: any) => <span className="font-medium">{r.inventario?.producto?.nombre_producto ?? `Inventario #${r.id_inventario}`}</span>,
                   },
                   {
                     key: 'cantidad', header: 'Cantidad utilizada',
@@ -344,38 +363,38 @@ export const Inventario: React.FC = () => {
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar producto' : 'Nuevo producto'}>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Nombre *</label>
+            <label className={labelCls}>Nombre *</label>
             <input value={form.nombre_producto} onChange={e => setForm(f => ({ ...f, nombre_producto: e.target.value }))}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+              className={inputCls} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Categoría</label>
+            <label className={labelCls}>Categoría</label>
             <select value={form.id_categoria} onChange={e => setForm(f => ({ ...f, id_categoria: e.target.value }))}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500">
+              className={inputCls}>
               <option value="">Sin categoría</option>
               {categorias.map(c => <option key={c.id_categoria} value={c.id_categoria}>{c.categoria}</option>)}
             </select>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Cantidad</label>
+              <label className={labelCls}>Cantidad</label>
               <input type="number" min={0} value={form.cantidad} onChange={e => setForm(f => ({ ...f, cantidad: parseInt(e.target.value) || 0 }))}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+                className={inputCls} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Precio (HNL)</label>
+              <label className={labelCls}>Precio (HNL)</label>
               <input type="number" min={0} step={0.01} value={form.precio} onChange={e => setForm(f => ({ ...f, precio: parseFloat(e.target.value) || 0 }))}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+                className={inputCls} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Vencimiento</label>
+              <label className={labelCls}>Vencimiento</label>
               <input type="date" value={form.fecha_vencimiento} onChange={e => setForm(f => ({ ...f, fecha_vencimiento: e.target.value }))}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500 [color-scheme:dark]" />
+                className={`${inputCls} dark:[color-scheme:dark]`} />
             </div>
           </div>
-          {error && <p className="text-red-400 text-sm">{error}</p>}
+          {error && <p className="text-red-500 text-sm">{error}</p>}
           <div className="flex gap-3 pt-1">
-            <button onClick={() => setModalOpen(false)} className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition-colors">Cancelar</button>
+            <button onClick={() => setModalOpen(false)} className="flex-1 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-medium transition-colors">Cancelar</button>
             <button onClick={handleSave} disabled={saving}
               className="flex-1 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition-colors">
               {saving ? 'Guardando...' : 'Guardar'}
@@ -389,21 +408,21 @@ export const Inventario: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Stock actual</label>
+                <label className={labelCls}>Stock actual</label>
                 <input type="number" min={0} step={0.01} value={stockForm.stock_actual}
                   onChange={e => setStockForm(f => ({ ...f, stock_actual: parseFloat(e.target.value) || 0 }))}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+                  className={inputCls} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Stock mínimo</label>
+                <label className={labelCls}>Stock mínimo</label>
                 <input type="number" min={0} step={0.01} value={stockForm.stock_minimo}
                   onChange={e => setStockForm(f => ({ ...f, stock_minimo: parseFloat(e.target.value) || 0 }))}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+                  className={inputCls} />
               </div>
             </div>
             <p className="text-slate-500 text-xs">Se emitirá alerta cuando el stock actual sea ≤ al mínimo.</p>
             <div className="flex gap-3 pt-1">
-              <button onClick={() => setStockModal(null)} className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition-colors">Cancelar</button>
+              <button onClick={() => setStockModal(null)} className="flex-1 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-medium transition-colors">Cancelar</button>
               <button onClick={handleSaveStock} disabled={savingStock}
                 className="flex-1 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition-colors">
                 {savingStock ? 'Guardando...' : 'Guardar stock'}
@@ -416,9 +435,9 @@ export const Inventario: React.FC = () => {
       <Modal open={recetaModal} onClose={() => setRecetaModal(false)} title="Agregar ingrediente" size="sm">
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Ingrediente (registro de stock) *</label>
+            <label className={labelCls}>Ingrediente (registro de stock) *</label>
             <select value={recetaForm.id_inventario} onChange={e => setRecetaForm(f => ({ ...f, id_inventario: e.target.value }))}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500">
+              className={inputCls}>
               <option value="">Seleccionar...</option>
               {stockItems.map((s: any) => (
                 <option key={s.id_inventario} value={String(s.id_inventario)}>
@@ -431,14 +450,14 @@ export const Inventario: React.FC = () => {
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Cantidad utilizada *</label>
+            <label className={labelCls}>Cantidad utilizada *</label>
             <input type="number" min={0.01} step={0.01} value={recetaForm.cantidad_utilizada}
               onChange={e => setRecetaForm(f => ({ ...f, cantidad_utilizada: parseFloat(e.target.value) || 0 }))}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+              className={inputCls} />
           </div>
-          {errorReceta && <p className="text-red-400 text-sm">{errorReceta}</p>}
+          {errorReceta && <p className="text-red-500 text-sm">{errorReceta}</p>}
           <div className="flex gap-3 pt-1">
-            <button onClick={() => setRecetaModal(false)} className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition-colors">Cancelar</button>
+            <button onClick={() => setRecetaModal(false)} className="flex-1 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-medium transition-colors">Cancelar</button>
             <button onClick={handleAddReceta} disabled={savingReceta}
               className="flex-1 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition-colors">
               {savingReceta ? 'Guardando...' : 'Agregar'}

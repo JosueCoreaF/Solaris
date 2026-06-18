@@ -4,11 +4,28 @@ import { fetchDashboardKPIs, fetchDashboardTrends, fetchRecentActivity, type Das
 import { fetchClases, type ClaseGym } from '../api/clasesService';
 import { fetchAsistenciaPorFecha } from '../api/asistenciaService';
 import { useSync } from '../context/SyncContext';
+import { useRole } from '../hooks/useRole';
+import type { UserRole } from '../hooks/useRole';
 import { MemberGrowthChart, WeeklyRevenueChart } from './dashboard/TrendsCharts';
 import { ClassesToday } from './dashboard/ClassesToday';
 import { ActivityFeed } from './dashboard/ActivityFeed';
 
 const DIAS_SEMANA = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+
+const hora = () => {
+  const h = new Date().getHours();
+  if (h < 12) return 'Buenos días';
+  if (h < 19) return 'Buenas tardes';
+  return 'Buenas noches';
+};
+
+const GREETINGS: Partial<Record<UserRole, string>> = {
+  PROPIETARIO:   'Panel Ejecutivo',
+  ADMIN:         'Panel de Administración',
+  RECEPCIONISTA: 'Recepción y Ventas',
+  CONTADOR:      'Panel Financiero',
+  MANTENIMIENTO: 'Panel de Operaciones',
+};
 
 const fmt = (n: number) => n.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -29,6 +46,7 @@ const quickLinks = [
 
 export const Dashboard: React.FC = () => {
   const { gimnasio } = useSync();
+  const { role } = useRole();
   const [kpis, setKpis] = useState<DashboardKPIs>({
     totalMiembros: 0, miembrosActivos: 0, inscripcionesActivas: 0,
     vencenEsteMes: 0, ingresosMes: 0, clasesHoy: 0, nuevosEstaSemana: 0,
@@ -70,13 +88,13 @@ export const Dashboard: React.FC = () => {
     <div>
       <div className="page-header" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div>
+          <p className="page-subtitle" style={{ marginBottom: 2 }}>
+            {hora()} · {new Date().toLocaleDateString('es-HN', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </p>
           <h1 className="page-title">
-            {gimnasio ? gimnasio.nombre_gimnasio : 'Panel de Control'}
+            {GREETINGS[role] ?? gimnasio?.nombre_gimnasio ?? 'Panel de Control'}
           </h1>
-          <p className="page-subtitle">// Resumen general del gimnasio</p>
-        </div>
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.1em', textTransform: 'uppercase', textAlign: 'right' }}>
-          {new Date().toLocaleDateString('es-HN', { weekday: 'long', day: '2-digit', month: 'long' })}
+          <p className="page-subtitle">// {gimnasio?.nombre_gimnasio ?? 'Resumen general del gimnasio'}</p>
         </div>
       </div>
 

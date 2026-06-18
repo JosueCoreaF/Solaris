@@ -17,21 +17,21 @@ interface TableProps<T> {
 
 export function Table<T>({ columns, data, keyExtractor, loading, emptyMessage = 'Sin registros' }: TableProps<T>) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-800">
-      <table className="min-w-full divide-y divide-slate-800">
-        <thead className="bg-slate-900/80">
+    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+      <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+        <thead className="bg-slate-50 dark:bg-slate-900/80">
           <tr>
             {columns.map(col => (
               <th
                 key={col.key}
-                className={`px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider ${col.className ?? ''}`}
+                className={`px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ${col.className ?? ''}`}
               >
                 {col.header}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="bg-slate-900 divide-y divide-slate-800/60">
+        <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800/60">
           {loading ? (
             <tr>
               <td colSpan={columns.length} className="px-4 py-10 text-center">
@@ -48,9 +48,9 @@ export function Table<T>({ columns, data, keyExtractor, loading, emptyMessage = 
             </tr>
           ) : (
             data.map(row => (
-              <tr key={keyExtractor(row)} className="hover:bg-slate-800/40 transition-colors">
+              <tr key={keyExtractor(row)} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                 {columns.map(col => (
-                  <td key={col.key} className={`px-4 py-3 text-sm text-slate-300 ${col.className ?? ''}`}>
+                  <td key={col.key} className={`px-4 py-3 text-sm text-slate-700 dark:text-slate-300 ${col.className ?? ''}`}>
                     {col.render ? col.render(row) : (row as any)[col.key]}
                   </td>
                 ))}

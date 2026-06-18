@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, CalendarCheck, CreditCard, ChevronRight, RefreshCw, Loader2, AlertCircle } from 'lucide-react';
+import { Bell, CalendarCheck, CreditCard, ChevronRight, RefreshCw, Loader2, AlertCircle, Dumbbell, UtensilsCrossed, Hotel } from 'lucide-react';
 import { DashboardLayout, useDashboard } from '../components/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
@@ -35,16 +35,28 @@ const NotificationsContent = () => {
   const highAlerts = notifications.filter(n => n.severity === 'high');
   const medAlerts = notifications.filter(n => n.severity === 'medium');
 
-  const typeIcon = (type: string) => {
+  const typeIcon = (type: string, module?: string) => {
+    if (type === 'checkin' && module === 'restaurant') return <UtensilsCrossed className="w-5 h-5" />;
     if (type === 'checkin') return <CalendarCheck className="w-5 h-5" />;
     if (type === 'payment') return <CreditCard className="w-5 h-5" />;
+    if (type === 'gym_request' || type === 'gym_expiry') return <Dumbbell className="w-5 h-5" />;
     return <AlertCircle className="w-5 h-5" />;
   };
 
-  const typeBg = (type: string) => {
+  const typeBg = (type: string, module?: string) => {
+    if (type === 'checkin' && module === 'restaurant') return 'bg-amber-100 text-amber-600';
     if (type === 'checkin') return 'bg-emerald-100 text-emerald-600';
     if (type === 'payment') return 'bg-rose-100 text-rose-600';
+    if (type === 'gym_request') return 'bg-indigo-100 text-indigo-600';
+    if (type === 'gym_expiry') return 'bg-orange-100 text-orange-600';
     return 'bg-slate-100 text-slate-600';
+  };
+
+  const moduleLabel = (module?: string) => {
+    if (module === 'hotel') return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-50 text-sky-600 border border-sky-100"><Hotel className="w-3 h-3" />Hotel</span>;
+    if (module === 'gym')   return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-100"><Dumbbell className="w-3 h-3" />Gym</span>;
+    if (module === 'restaurant') return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100"><UtensilsCrossed className="w-3 h-3" />Restaurante</span>;
+    return null;
   };
 
   const severityBadge = (sev: string) => {
@@ -120,15 +132,16 @@ const NotificationsContent = () => {
                   transition={{ delay: i * 0.04 }}
                   className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow"
                 >
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${typeBg(notif.type)}`}>
-                    {typeIcon(notif.type)}
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${typeBg(notif.type, notif.module)}`}>
+                    {typeIcon(notif.type, notif.module)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                       <p className="font-bold text-slate-900 text-sm">{notif.title}</p>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${severityBadge(notif.severity)}`}>
                         {notif.severity === 'high' ? 'Urgente' : notif.severity === 'medium' ? 'Próximo' : 'Info'}
                       </span>
+                      {moduleLabel(notif.module)}
                     </div>
                     <p className="text-slate-500 text-sm truncate">{notif.description}</p>
                     <p className="text-xs text-slate-400 mt-1">{new Date(notif.created_at).toLocaleString('es-HN')}</p>

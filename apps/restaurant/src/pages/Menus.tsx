@@ -149,7 +149,7 @@ export const Menus: React.FC = () => {
           loading={loading}
           emptyMessage="Sin menús creados."
           columns={[
-            { key: 'nombre_menu', header: 'Nombre', render: m => <span className="font-medium text-white">{m.nombre_menu}</span> },
+            { key: 'nombre_menu', header: 'Nombre', render: m => <span className="font-medium text-slate-900 dark:text-white">{m.nombre_menu}</span> },
             { key: 'descripcion', header: 'Descripción', render: m => m.descripcion ?? <span className="text-slate-600">—</span> },
             {
               key: 'platillos', header: 'Platillos',

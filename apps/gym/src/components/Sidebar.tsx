@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Sun, Moon, LogOut, RefreshCw, ArrowLeft } from 'lucide-react';
+import { Sun, Moon, LogOut, RefreshCw, ArrowLeft, CircleUserRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useRole } from '../hooks/useRole';
+import type { UserRole } from '../hooks/useRole';
 import { useSync } from '../context/SyncContext';
 import { useTheme } from '../context/ThemeContext';
 import SolarisLogo from './SolarisLogo';
@@ -26,25 +27,35 @@ const PLAN_BADGES: Record<string, { label: string; color: string; bg: string; bo
   gym_pro: { label: 'Pro', color: 'var(--accent)', bg: 'rgba(200, 255, 61, 0.1)', border: 'var(--accent-border)' },
 };
 
-const sections = [
-  {
-    title: 'Principal',
-    items: [
-      { to: '/', label: 'Dashboard', icon: IconDashboard },
-      { to: '/miembros', label: 'Miembros', icon: IconUsers },
-      { to: '/inscripciones', label: 'Membresías', icon: IconCard },
-      { to: '/clases', label: 'Clases', icon: IconCalendar },
-      { to: '/pagos', label: 'Pagos', icon: IconDollar },
-    ],
-  },
-  {
-    title: 'Administración',
-    items: [
-      { to: '/reportes', label: 'Reportes', icon: IconChart },
-      { to: '/config', label: 'Configuración', icon: IconSettings },
-    ],
-  },
-];
+type GymNavItem = { to: string; label: string; icon: any; roles?: UserRole[]; feature?: string };
+type GymNavSection = { title: string; items: GymNavItem[] };
+
+const getSections = (role: UserRole, featureFlags: string[]): GymNavSection[] => {
+  const all: GymNavSection[] = [
+    {
+      title: 'Principal',
+      items: [
+        { to: '/',               label: 'Dashboard',    icon: IconDashboard,  roles: ['PROPIETARIO','ADMIN','RECEPCIONISTA','CONTADOR','MANTENIMIENTO'] },
+        { to: '/miembros',       label: 'Miembros',     icon: IconUsers,      roles: ['PROPIETARIO','ADMIN','RECEPCIONISTA','CONTADOR'] },
+        { to: '/inscripciones',  label: 'Membresías',   icon: IconCard,       roles: ['PROPIETARIO','ADMIN','RECEPCIONISTA','CONTADOR'] },
+        { to: '/clases',         label: 'Clases',       icon: IconCalendar,   roles: ['PROPIETARIO','ADMIN','RECEPCIONISTA','MANTENIMIENTO'] },
+        { to: '/pagos',          label: 'Pagos',        icon: IconDollar,     roles: ['PROPIETARIO','ADMIN','RECEPCIONISTA','CONTADOR'] },
+      ],
+    },
+    {
+      title: 'Administración',
+      items: [
+        { to: '/reportes',  label: 'Reportes',      icon: IconChart,                           roles: ['PROPIETARIO','ADMIN','CONTADOR'], feature: 'reportes' },
+        { to: '/config',    label: 'Configuración', icon: IconSettings,                        roles: ['PROPIETARIO','ADMIN'] },
+        { to: '/perfil',    label: 'Mi Perfil',     icon: () => <CircleUserRound size={16} /> },
+      ],
+    },
+  ];
+  return all.map(sec => ({
+    ...sec,
+    items: sec.items.filter(item => !item.roles || item.roles.includes(role)),
+  })).filter(sec => sec.items.length > 0);
+};
 
 const getGymInitials = (nombre?: string) => {
   if (!nombre) return 'GYM';
@@ -112,6 +123,7 @@ export const Sidebar: React.FC = () => {
   };
 
   const planInfo = gimnasio?.plan?.id_plan ? PLAN_BADGES[gimnasio.plan.id_plan] : null;
+  const featureFlags: string[] = (gimnasio?.plan?.feature_flags as string[]) ?? [];
 
   return (
     <aside className="sidebar">
@@ -198,7 +210,7 @@ export const Sidebar: React.FC = () => {
             </span>
             {gimnasio?.plan?.id_plan === 'gym_starter' && (
               <a
-                href={`${hubUrl}/upgrade`}
+                href={`${hubUrl}/upgrade?module=gym`}
                 style={{ fontSize: 10, fontWeight: 700, color: planInfo.color, textDecoration: 'none' }}
               >
                 Mejorar →
@@ -209,21 +221,24 @@ export const Sidebar: React.FC = () => {
       )}
 
       <nav className="menu">
-        {sections.map((section, idx) => (
+        {getSections(role, featureFlags).map((section, idx) => (
           <div key={section.title} className="sidebar-group" style={{ marginTop: idx === 0 ? 0 : 16 }}>
             <div className="sidebar-group-title">{section.title}</div>
             <div className="sidebar-group-items">
-              {section.items.map(item => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.to === '/'}
-                  className={({ isActive }) => isActive ? 'menu-item active' : 'menu-item'}
-                >
-                  <span className="menu-icon"><item.icon /></span>
-                  <span className="menu-label">{item.label}</span>
-                </NavLink>
-              ))}
+              {section.items
+                .filter(item => !item.feature || featureFlags.includes(item.feature))
+                .map(item => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.to === '/'}
+                    className={({ isActive }) => isActive ? 'menu-item active' : 'menu-item'}
+                  >
+                    <span className="menu-icon"><item.icon /></span>
+                    <span className="menu-label">{item.label}</span>
+                  </NavLink>
+                ))
+              }
             </div>
           </div>
         ))}

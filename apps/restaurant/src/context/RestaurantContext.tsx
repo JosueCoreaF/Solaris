@@ -5,11 +5,23 @@ import { supabase } from '../api/supabase';
 import { useAuth } from './AuthContext';
 import type { Restaurant, BusinessModule } from '../types';
 
+const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+
+export interface PlanInfo {
+  id_plan: string | null;
+  nombre: string | null;
+  estado: string | null;
+  feature_flags: string[];
+}
+
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 interface RestaurantContextValue {
   // Restaurante activo
   restaurant: Restaurant | null;
   restaurantLoading: boolean;
+
+  // Plan de suscripción del restaurante activo
+  plan: PlanInfo | null;
 
   // Lista de módulos disponibles (para el selector)
   modules: BusinessModule[];
@@ -39,6 +51,7 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [restaurantLoading, setRestaurantLoading] = useState(true);
+  const [plan, setPlan] = useState<PlanInfo | null>(null);
 
   // ── 1. Cargar módulos de restaurante disponibles para el usuario ──────────
   const fetchModules = useCallback(async () => {
@@ -48,62 +61,87 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return;
     }
     setModulesLoading(true);
+    try {
+      // Flujo owner: business_modules filtrado por RLS (owner_id = auth.uid())
+      const { data: ownerModules, error: ownerErr } = await supabase
+        .from('business_modules')
+        .select('*')
+        .eq('tipo_modulo', 'restaurant')
+        .eq('estado', 'activo');
 
-    // Intentar flujo de owner: business_modules con tipo_modulo = 'restaurant'
-    // RLS filtra automáticamente por owner_id = auth.uid()
-    const { data: ownerModules, error: ownerErr } = await supabase
-      .from('business_modules')
-      .select('*')
-      .eq('tipo_modulo', 'restaurant')
-      .eq('estado', 'activo');
-
-    if (!ownerErr && ownerModules && ownerModules.length > 0) {
-      setModules(ownerModules);
-      setModulesLoading(false);
-      return;
-    }
-
-    // Flujo de staff: usuarios_roles → obtener id_module → cruzar con business_modules
-    const { data: roles } = await supabase
-      .from('usuarios_roles')
-      .select('*')
-      .eq('user_id', user.id);
-
-    if (roles && roles.length > 0) {
-      const idModules = roles.map((r: any) => r.id_module).filter(Boolean);
-      if (idModules.length > 0) {
-        const { data: staffModules } = await supabase
-          .from('business_modules')
-          .select('*')
-          .in('id_module', idModules)
-          .eq('tipo_modulo', 'restaurant')
-          .eq('estado', 'activo');
-
-        setModules(staffModules ?? []);
-        setModulesLoading(false);
+      if (!ownerErr && ownerModules && ownerModules.length > 0) {
+        setModules(ownerModules);
         return;
       }
-    }
 
-    setModules([]);
-    setModulesLoading(false);
+      // Flujo staff: usuarios_roles → id_module → business_modules
+      const { data: roles } = await supabase
+        .from('usuarios_roles')
+        .select('*')
+        .eq('user_id', user.id);
+
+      if (roles && roles.length > 0) {
+        const idModules = roles.map((r: any) => r.id_module).filter(Boolean);
+        if (idModules.length > 0) {
+          const { data: staffModules } = await supabase
+            .from('business_modules')
+            .select('*')
+            .in('id_module', idModules)
+            .eq('tipo_modulo', 'restaurant')
+            .eq('estado', 'activo');
+
+          setModules(staffModules ?? []);
+          return;
+        }
+      }
+
+      setModules([]);
+    } catch {
+      setModules([]);
+    } finally {
+      setModulesLoading(false);
+    }
   }, [user]);
 
-  // ── 2. Cargar datos del restaurante usando id_module ─────────────────────
+  // ── 2. Cargar datos del restaurante + plan usando sync-context API ────────
   const fetchRestaurant = useCallback(async (mod: BusinessModule) => {
     setRestaurantLoading(true);
-    const { data } = await supabase
-      .from('restaurant')
-      .select('*')
-      .eq('id_module', mod.id_module)
-      .maybeSingle();
-    setRestaurant(data ?? null);
-    setRestaurantLoading(false);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (token) {
+        const res = await fetch(`${API}/restaurant/sync-context?business_id=${mod.id_module}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const { plan: planData, ...restData } = json.data ?? {};
+          setRestaurant(restData ?? null);
+          setPlan(planData ?? null);
+          return;
+        }
+      }
+      // Fallback directo a Supabase
+      const { data } = await supabase
+        .from('restaurant')
+        .select('*')
+        .eq('id_module', mod.id_module)
+        .maybeSingle();
+      setRestaurant(data ?? null);
+      setPlan(null);
+    } catch {
+      setRestaurant(null);
+      setPlan(null);
+    } finally {
+      setRestaurantLoading(false);
+    }
   }, []);
 
   // ── 3. Auto-selección cuando hay un solo módulo ───────────────────────────
   useEffect(() => {
     if (modulesLoading) return;
+
+    if (modules.length === 0) return;
 
     if (modules.length === 1) {
       setActiveModule(modules[0]);
@@ -114,6 +152,14 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (activeModule) {
       const still = modules.find(m => m.id_module === activeModule.id_module);
       if (!still) setActiveModule(null);
+      return;
+    }
+
+    // Intentar recuperar el módulo desde localStorage (cuando se entra desde el hub)
+    const saved = localStorage.getItem('active_restaurant_id');
+    if (saved) {
+      const found = modules.find(m => m.id_module === saved);
+      if (found) { setActiveModule(found); return; }
     }
   }, [modules, modulesLoading]);
 
@@ -149,6 +195,7 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     <RestaurantContext.Provider value={{
       restaurant,
       restaurantLoading,
+      plan,
       modules,
       modulesLoading,
       activeModule,

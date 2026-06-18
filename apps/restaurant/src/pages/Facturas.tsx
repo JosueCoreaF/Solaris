@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Receipt, Trash2, Eye, X, Search } from 'lucide-react';
+import { Plus, Receipt, Trash2, Eye, X, Search, TrendingUp } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { Table } from '../components/Table';
 import { Badge } from '../components/Badge';
@@ -11,6 +11,7 @@ import { getProductos } from '../api/inventario';
 import type { FacturaRestaurante, DetalleFactura, Platillo, ProductoInventario } from '../types';
 
 type MetodoPago = 'efectivo' | 'tarjeta' | 'transferencia';
+type DateFilter = 'hoy' | 'semana' | 'mes' | 'todos';
 
 interface LineaForm {
   tipo_item: 'platillo' | 'producto';
@@ -21,6 +22,36 @@ interface LineaForm {
 
 const emptyLinea = (): LineaForm => ({ tipo_item: 'platillo', id_ref: '', cantidad: 1, precio_unitario: 0 });
 
+const fmtCurrency = (n: number) =>
+  new Intl.NumberFormat('es-HN', { style: 'currency', currency: 'HNL' }).format(n);
+
+const metodoPagoIcon: Record<string, string> = {
+  efectivo: '💵',
+  tarjeta: '💳',
+  transferencia: '🏦',
+};
+
+function isInRange(fechaStr: string | undefined, filter: DateFilter): boolean {
+  if (filter === 'todos') return true;
+  if (!fechaStr) return false;
+  const fecha = new Date(fechaStr.replace(' ', 'T'));
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (filter === 'hoy') {
+    return fecha >= startOfDay;
+  }
+  if (filter === 'semana') {
+    const startOfWeek = new Date(startOfDay);
+    startOfWeek.setDate(startOfDay.getDate() - startOfDay.getDay());
+    return fecha >= startOfWeek;
+  }
+  if (filter === 'mes') {
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    return fecha >= startOfMonth;
+  }
+  return true;
+}
+
 export const Facturas: React.FC = () => {
   const { restaurant } = useRestaurant();
   const [facturas, setFacturas] = useState<FacturaRestaurante[]>([]);
@@ -28,6 +59,7 @@ export const Facturas: React.FC = () => {
   const [productos, setProductos] = useState<ProductoInventario[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [dateFilter, setDateFilter] = useState<DateFilter>('hoy');
 
   const [modalOpen, setModalOpen] = useState(false);
   const [viewFactura, setViewFactura] = useState<FacturaRestaurante | null>(null);
@@ -86,9 +118,6 @@ export const Facturas: React.FC = () => {
   const isvCalc = subtotalCalc * (isv / 100);
   const totalCalc = subtotalCalc + isvCalc;
 
-  const fmtCurrency = (n: number) =>
-    new Intl.NumberFormat('es-HN', { style: 'currency', currency: 'HNL' }).format(n);
-
   const handleSave = async () => {
     if (!restaurant) return;
     if (lineas.some(l => !l.id_ref)) { setError('Selecciona el ítem para cada línea.'); return; }
@@ -122,20 +151,37 @@ export const Facturas: React.FC = () => {
     await load();
   };
 
-  const filtered = facturas.filter(f =>
-    (f.metodo_pago ?? '').toLowerCase().includes(search.toLowerCase()),
+  const filtered = useMemo(() =>
+    facturas
+      .filter(f => isInRange(f.fecha, dateFilter))
+      .filter(f => (f.metodo_pago ?? '').toLowerCase().includes(search.toLowerCase())),
+    [facturas, dateFilter, search],
   );
+
+  const periodStats = useMemo(() => ({
+    total: filtered.reduce((s, f) => s + f.total, 0),
+    count: filtered.length,
+    efectivo: filtered.filter(f => f.metodo_pago === 'efectivo').reduce((s, f) => s + f.total, 0),
+    tarjeta: filtered.filter(f => f.metodo_pago === 'tarjeta').reduce((s, f) => s + f.total, 0),
+  }), [filtered]);
+
+  const dateLabels: Record<DateFilter, string> = { hoy: 'Hoy', semana: 'Esta semana', mes: 'Este mes', todos: 'Todos' };
+
+  const inputCls = "w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-orange-500";
+  const inputSmCls = "w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1.5 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-orange-500";
+  const labelCls = "block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1";
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-orange-500/10 border border-orange-500/20 rounded-xl flex items-center justify-center">
             <Receipt className="w-5 h-5 text-orange-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">Facturas</h1>
-            <p className="text-slate-400 text-xs">{facturas.length} facturas emitidas</p>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Facturas</h1>
+            <p className="text-slate-500 dark:text-slate-400 text-xs">{facturas.length} facturas totales</p>
           </div>
         </div>
         <button
@@ -146,36 +192,76 @@ export const Facturas: React.FC = () => {
         </button>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar por método de pago..."
-          className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-orange-500 transition-colors"
-        />
+      {/* Filtros de fecha */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1">
+          {(['hoy', 'semana', 'mes', 'todos'] as DateFilter[]).map(f => (
+            <button
+              key={f}
+              onClick={() => setDateFilter(f)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                dateFilter === f ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {dateLabels[f]}
+            </button>
+          ))}
+        </div>
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar por método de pago..."
+            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-orange-500 transition-colors"
+          />
+        </div>
       </div>
 
+      {/* Resumen del período */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: `Ingresos (${dateLabels[dateFilter]})`, value: fmtCurrency(periodStats.total), icon: <TrendingUp className="w-4 h-4" />, color: '#f97316' },
+          { label: 'Facturas emitidas', value: periodStats.count, icon: <Receipt className="w-4 h-4" />, color: '#3b82f6' },
+          { label: 'En efectivo', value: fmtCurrency(periodStats.efectivo), icon: <>💵</>, color: '#22c55e' },
+          { label: 'Con tarjeta', value: fmtCurrency(periodStats.tarjeta), icon: <>💳</>, color: '#8b5cf6' },
+        ].map(stat => (
+          <div key={stat.label} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <span style={{ color: stat.color }}>{stat.icon}</span>
+              <span className="text-slate-500 text-xs">{stat.label}</span>
+            </div>
+            <p className="text-slate-900 dark:text-white font-bold text-lg font-mono">{stat.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Tabla */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
         <Table
           data={filtered}
           keyExtractor={f => f.id_factura}
           loading={loading}
-          emptyMessage="Sin facturas emitidas."
+          emptyMessage={`Sin facturas para ${dateLabels[dateFilter].toLowerCase()}.`}
           columns={[
             {
               key: 'fecha', header: 'Fecha',
               render: f => f.fecha
-                ? new Date(f.fecha.replace(' ', 'T')).toLocaleDateString('es-HN')
-                : <span className="text-slate-600">—</span>,
+                ? new Date(f.fecha.replace(' ', 'T')).toLocaleDateString('es-HN', { day: '2-digit', month: 'short', year: 'numeric' })
+                : <span className="text-slate-400">—</span>,
             },
             {
               key: 'metodo_pago', header: 'Método de pago',
-              render: f => <Badge variant="neutral">{f.metodo_pago.charAt(0).toUpperCase() + f.metodo_pago.slice(1)}</Badge>,
+              render: f => (
+                <div className="flex items-center gap-1.5">
+                  <span>{metodoPagoIcon[f.metodo_pago] ?? '—'}</span>
+                  <Badge variant="neutral">{f.metodo_pago.charAt(0).toUpperCase() + f.metodo_pago.slice(1)}</Badge>
+                </div>
+              ),
             },
-            { key: 'subtotal', header: 'Subtotal', render: f => fmtCurrency(f.subtotal) },
-            { key: 'isv', header: 'ISV', render: f => <span className="text-slate-400">{fmtCurrency(f.isv)}</span> },
-            { key: 'total', header: 'Total', render: f => <span className="font-semibold text-orange-400">{fmtCurrency(f.total)}</span> },
+            { key: 'subtotal', header: 'Subtotal', render: f => <span className="font-mono">{fmtCurrency(f.subtotal)}</span> },
+            { key: 'isv', header: 'ISV', render: f => <span className="font-mono text-slate-400">{fmtCurrency(f.isv)}</span> },
+            { key: 'total', header: 'Total', render: f => <span className="font-mono font-semibold text-orange-400">{fmtCurrency(f.total)}</span> },
             {
               key: 'acciones', header: 'Acciones',
               render: f => (
@@ -198,31 +284,27 @@ export const Facturas: React.FC = () => {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Fecha</label>
+              <label className={labelCls}>Fecha</label>
               <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500 [color-scheme:dark]" />
+                className={`${inputCls} dark:[color-scheme:dark]`} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Método de pago</label>
-              <select value={metodoPago} onChange={e => setMetodoPago(e.target.value as MetodoPago)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500">
-                <option value="efectivo">Efectivo</option>
-                <option value="tarjeta">Tarjeta</option>
-                <option value="transferencia">Transferencia</option>
+              <label className={labelCls}>Método de pago</label>
+              <select value={metodoPago} onChange={e => setMetodoPago(e.target.value as MetodoPago)} className={inputCls}>
+                <option value="efectivo">💵 Efectivo</option>
+                <option value="tarjeta">💳 Tarjeta</option>
+                <option value="transferencia">🏦 Transferencia</option>
               </select>
             </div>
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">ISV (%)</label>
+            <label className={labelCls}>ISV (%)</label>
             <input type="number" min={0} max={100} value={isv} onChange={e => setIsv(parseFloat(e.target.value) || 0)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+              className={inputCls} />
           </div>
-
-          {/* Líneas */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-slate-300">Ítems</span>
+              <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Ítems</span>
               <button onClick={addLinea} className="text-xs text-orange-400 hover:text-orange-300 flex items-center gap-1">
                 <Plus className="w-3 h-3" /> Agregar línea
               </button>
@@ -232,14 +314,13 @@ export const Facturas: React.FC = () => {
                 <div key={idx} className="flex gap-2 items-end">
                   <div className="flex-shrink-0 w-28">
                     <select value={ln.tipo_item} onChange={e => updateLinea(idx, { tipo_item: e.target.value as any, id_ref: '', precio_unitario: 0 })}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500">
+                      className={inputSmCls}>
                       <option value="platillo">Platillo</option>
                       <option value="producto">Producto</option>
                     </select>
                   </div>
                   <div className="flex-1">
-                    <select value={ln.id_ref} onChange={e => updateLinea(idx, { id_ref: e.target.value })}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500">
+                    <select value={ln.id_ref} onChange={e => updateLinea(idx, { id_ref: e.target.value })} className={inputSmCls}>
                       <option value="">Seleccionar...</option>
                       {(ln.tipo_item === 'platillo' ? platillos : productos).map((p: any) => (
                         <option key={p.id_platillo ?? p.id_producto} value={p.id_platillo ?? p.id_producto}>
@@ -248,21 +329,15 @@ export const Facturas: React.FC = () => {
                       ))}
                     </select>
                   </div>
-                  <div className="w-16">
+                  <div className="w-14">
                     <input type="number" min={1} value={ln.cantidad} onChange={e => updateLinea(idx, { cantidad: parseInt(e.target.value) || 1 })}
-                      placeholder="Cant."
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500" />
+                      className={`${inputSmCls} text-center`} />
                   </div>
-                  <div className="w-24">
-                    <input type="number" min={0} step={0.01} value={ln.precio_unitario} onChange={e => updateLinea(idx, { precio_unitario: parseFloat(e.target.value) || 0 })}
-                      placeholder="Precio"
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500" />
-                  </div>
-                  <div className="w-24 text-right text-xs text-slate-400 py-1.5">
+                  <div className="w-20 text-right text-xs text-slate-500 py-1.5 font-mono">
                     {fmtCurrency(ln.cantidad * ln.precio_unitario)}
                   </div>
                   {lineas.length > 1 && (
-                    <button onClick={() => removeLinea(idx)} className="p-1 text-slate-600 hover:text-red-400 transition-colors">
+                    <button onClick={() => removeLinea(idx)} className="p-1 text-slate-400 hover:text-red-400 transition-colors">
                       <X className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -270,18 +345,16 @@ export const Facturas: React.FC = () => {
               ))}
             </div>
           </div>
-
-          {/* Totales */}
-          <div className="bg-slate-800/50 rounded-xl p-3 space-y-1 text-sm">
-            <div className="flex justify-between text-slate-400"><span>Subtotal</span><span>{fmtCurrency(subtotalCalc)}</span></div>
-            <div className="flex justify-between text-slate-400"><span>ISV ({isv}%)</span><span>{fmtCurrency(isvCalc)}</span></div>
-            <div className="flex justify-between text-white font-semibold border-t border-slate-700 pt-1 mt-1"><span>Total</span><span className="text-orange-400">{fmtCurrency(totalCalc)}</span></div>
+          <div className="bg-slate-100 dark:bg-slate-800/50 rounded-xl p-3 space-y-1 text-sm">
+            <div className="flex justify-between text-slate-500 dark:text-slate-400"><span>Subtotal</span><span className="font-mono">{fmtCurrency(subtotalCalc)}</span></div>
+            <div className="flex justify-between text-slate-500 dark:text-slate-400"><span>ISV ({isv}%)</span><span className="font-mono">{fmtCurrency(isvCalc)}</span></div>
+            <div className="flex justify-between text-slate-900 dark:text-white font-semibold border-t border-slate-200 dark:border-slate-700 pt-1 mt-1">
+              <span>Total</span><span className="text-orange-400 font-mono">{fmtCurrency(totalCalc)}</span>
+            </div>
           </div>
-
-          {error && <p className="text-red-400 text-sm">{error}</p>}
-
+          {error && <p className="text-red-500 text-sm">{error}</p>}
           <div className="flex gap-3 pt-1">
-            <button onClick={() => setModalOpen(false)} className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition-colors">
+            <button onClick={() => setModalOpen(false)} className="flex-1 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-medium transition-colors">
               Cancelar
             </button>
             <button onClick={handleSave} disabled={saving}
@@ -294,44 +367,43 @@ export const Facturas: React.FC = () => {
 
       {/* Modal ver detalle */}
       {viewFactura && (
-        <Modal open={!!viewFactura} onClose={() => setViewFactura(null)} title={`Factura #${viewFactura.id_factura}`} size="sm">
+        <Modal open={!!viewFactura} onClose={() => setViewFactura(null)} title={`Factura #${viewFactura.id_factura.slice(0, 8)}…`} size="sm">
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <span className="text-slate-400 block">Fecha</span>
-                <span className="text-white font-medium">
+                <span className="text-slate-500 block text-xs mb-0.5">Fecha</span>
+                <span className="text-slate-900 dark:text-white font-medium">
                   {viewFactura.fecha ? new Date(viewFactura.fecha.replace(' ', 'T')).toLocaleDateString('es-HN') : '—'}
                 </span>
               </div>
               <div>
-                <span className="text-slate-400 block">Método de pago</span>
-                <span className="text-white font-medium capitalize">{viewFactura.metodo_pago}</span>
+                <span className="text-slate-500 block text-xs mb-0.5">Método de pago</span>
+                <span className="text-slate-900 dark:text-white font-medium">{metodoPagoIcon[viewFactura.metodo_pago]} {viewFactura.metodo_pago}</span>
               </div>
             </div>
-
             {(viewFactura.detalle_factura ?? []).length > 0 && (
               <div>
-                <p className="text-sm font-medium text-slate-300 mb-2">Detalle</p>
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Detalle</p>
                 <div className="space-y-1">
                   {viewFactura.detalle_factura!.map(d => (
-                    <div key={d.id_detalle_factura} className="flex justify-between text-sm bg-slate-800/50 rounded-lg px-3 py-2">
-                      <span className="text-slate-300">
+                    <div key={d.id_detalle_factura} className="flex justify-between text-sm bg-slate-100 dark:bg-slate-800/50 rounded-lg px-3 py-2">
+                      <span className="text-slate-700 dark:text-slate-300">
                         {d.platillo?.nombre_platillo ?? d.producto?.nombre_producto ?? '—'} × {d.cantidad}
                       </span>
-                      <span className="text-orange-400 font-medium">{fmtCurrency(d.subtotal)}</span>
+                      <span className="text-orange-400 font-medium font-mono">{fmtCurrency(d.subtotal)}</span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-
-            <div className="bg-slate-800/50 rounded-xl p-3 space-y-1 text-sm">
-              <div className="flex justify-between text-slate-400"><span>Subtotal</span><span>{fmtCurrency(viewFactura.subtotal)}</span></div>
-              <div className="flex justify-between text-slate-400"><span>ISV</span><span>{fmtCurrency(viewFactura.isv)}</span></div>
-              <div className="flex justify-between text-white font-semibold border-t border-slate-700 pt-1 mt-1"><span>Total</span><span className="text-orange-400">{fmtCurrency(viewFactura.total)}</span></div>
+            <div className="bg-slate-100 dark:bg-slate-800/50 rounded-xl p-3 space-y-1 text-sm">
+              <div className="flex justify-between text-slate-500 dark:text-slate-400"><span>Subtotal</span><span className="font-mono">{fmtCurrency(viewFactura.subtotal)}</span></div>
+              <div className="flex justify-between text-slate-500 dark:text-slate-400"><span>ISV</span><span className="font-mono">{fmtCurrency(viewFactura.isv)}</span></div>
+              <div className="flex justify-between text-slate-900 dark:text-white font-semibold border-t border-slate-200 dark:border-slate-700 pt-1 mt-1">
+                <span>Total</span><span className="text-orange-400 font-mono">{fmtCurrency(viewFactura.total)}</span>
+              </div>
             </div>
-
-            <button onClick={() => setViewFactura(null)} className="w-full px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition-colors">
+            <button onClick={() => setViewFactura(null)} className="w-full px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-medium transition-colors">
               Cerrar
             </button>
           </div>

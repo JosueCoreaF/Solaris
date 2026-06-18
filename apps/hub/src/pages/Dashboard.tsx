@@ -271,11 +271,16 @@ const DashboardContent = () => {
                   <motion.div
                     variants={itemVariants}
                     key={mod.id}
-                    className="bg-white border border-slate-200 rounded-3xl p-6 hover:border-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10 transition-all group flex flex-col"
+                    className={`bg-white border rounded-3xl p-6 transition-all group flex flex-col ${
+                      mod.is_active
+                        ? 'border-slate-200 hover:border-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10'
+                        : 'border-rose-100 opacity-70'
+                    }`}
                   >
                     <div className="flex justify-between items-start mb-4">
                       <div className={`p-4 rounded-2xl ${
-                        mod.type === 'hotel' ? 'bg-emerald-50 text-emerald-600'
+                        !mod.is_active ? 'bg-slate-100 text-slate-400'
+                        : mod.type === 'hotel' ? 'bg-emerald-50 text-emerald-600'
                         : mod.type === 'gym' ? 'bg-blue-50 text-blue-600'
                         : 'bg-orange-50 text-orange-600'
                       }`}>
@@ -288,11 +293,11 @@ const DashboardContent = () => {
                       <span className={`px-3 py-1 rounded-full text-xs font-bold ${
                         mod.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
                       }`}>
-                        {mod.is_active ? 'Activo' : 'Inactivo'}
+                        {mod.is_active ? 'Activo' : 'Suspendido'}
                       </span>
                     </div>
 
-                    <h4 className="text-lg font-bold text-slate-900 mb-1 group-hover:text-indigo-600 transition-colors">
+                    <h4 className={`text-lg font-bold mb-1 transition-colors ${mod.is_active ? 'text-slate-900 group-hover:text-indigo-600' : 'text-slate-500'}`}>
                       {mod.name}
                     </h4>
                     <p className="text-sm text-slate-500 capitalize mb-4">{mod.type}</p>
@@ -317,20 +322,25 @@ const DashboardContent = () => {
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => {
-                        const baseUrl = getModuleUrl(mod.type);
-                        const hotelParam = mod.hotel_id ? `&hotel_id=${encodeURIComponent(mod.hotel_id)}` : '';
-                        if (session) {
-                          window.location.href = `${baseUrl}/?access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}&business_id=${encodeURIComponent(mod.reference_id)}${hotelParam}`;
-                        } else {
-                          window.location.href = `${baseUrl}/?business_id=${encodeURIComponent(mod.reference_id)}${hotelParam}`;
-                        }
-                      }}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-colors shadow-sm"
-                    >
-                      Entrar al Panel <ArrowRight size={16} />
-                    </button>
+                    {mod.is_active ? (
+                      <button
+                        onClick={() => {
+                          const baseUrl = getModuleUrl(mod.type);
+                          const hotelParam = mod.hotel_id ? `&hotel_id=${encodeURIComponent(mod.hotel_id)}` : '';
+                          const url = session
+                            ? `${baseUrl}/?access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}&business_id=${encodeURIComponent(mod.reference_id)}${hotelParam}`
+                            : `${baseUrl}/?business_id=${encodeURIComponent(mod.reference_id)}${hotelParam}`;
+                          window.open(url, '_blank', 'noopener,noreferrer');
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-xl transition-colors shadow-sm"
+                      >
+                        Entrar al Panel <ArrowRight size={16} />
+                      </button>
+                    ) : (
+                      <div className="w-full flex items-center justify-center gap-2 py-2.5 bg-rose-50 border border-rose-200 text-rose-500 text-sm font-medium rounded-xl cursor-not-allowed select-none">
+                        Módulo suspendido — contacta soporte
+                      </div>
+                    )}
                   </motion.div>
                 ))}
 

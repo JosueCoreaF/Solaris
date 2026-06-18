@@ -32,7 +32,7 @@ if (isSupportSession) {
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: isSupportSession ? window.sessionStorage : window.localStorage,
-    storageKey: supportStorageKey,
+    storageKey: isSupportSession ? supportStorageKey : 'sb-solaris-hotel-session',
     autoRefreshToken: true,
     persistSession: true,
   },

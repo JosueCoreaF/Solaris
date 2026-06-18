@@ -121,7 +121,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
       params.set('access_token', session.access_token);
       params.set('refresh_token', session.refresh_token);
     }
-    window.location.href = `${base}/?${params.toString()}`;
+    window.open(`${base}/?${params.toString()}`, '_blank', 'noopener,noreferrer');
   };
 
   const urgentNotifCount = notifications.filter(n => n.severity === 'high').length;

@@ -6,22 +6,28 @@ const verticals = [
   {
     icon: Hotel,
     title: 'Hoteles',
-    desc: 'Gestiona reservas, habitaciones y huéspedes. Reservas directas sin comisiones.',
-    href: '/landing/hotel',
+    desc: 'Busca disponibilidad y reserva tu habitación directamente, sin comisiones.',
+    clientHref: '/buscar',
+    clientLabel: 'Buscar hotel',
+    businessHref: '/landing/hotel',
     color: 'from-sky-700 to-blue-600',
   },
   {
     icon: Dumbbell,
     title: 'Gimnasios',
-    desc: 'Membresías, clases y control de acceso centralizados para tu gimnasio.',
-    href: '/landing/gym',
+    desc: 'Explora planes, horarios de clases y solicita tu membresía en línea.',
+    clientHref: '/landing/gym',
+    clientLabel: 'Ver gimnasios',
+    businessHref: '/landing/gym',
     color: 'from-emerald-700 to-indigo-600',
   },
   {
     icon: UtensilsCrossed,
     title: 'Restaurantes',
-    desc: 'Reservas de mesas, menús dinámicos y promociones que aumentan el ticket medio.',
-    href: '/landing/restaurant',
+    desc: 'Reserva tu mesa, revisa el menú y elige el horario que más te convenga.',
+    clientHref: '/landing/restaurant',
+    clientLabel: 'Ver restaurantes',
+    businessHref: '/landing/restaurant',
     color: 'from-amber-600 to-rose-500',
   },
 ];
@@ -142,23 +148,25 @@ export default function HomePage() {
         {/* Cards de verticales */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-5xl mx-auto">
           {verticals.map((v, i) => (
-            <motion.a
+            <motion.div
               key={v.title}
-              href={`${hubBase}${v.href}`}
               initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
               transition={{ delay: 0.1 * i, duration: 0.5 }}
               whileHover={{ y: -6 }}
-              className="bg-white border border-stone-100 rounded-3xl p-8 text-left shadow-sm hover:shadow-md transition-shadow group"
+              className="bg-white border border-stone-100 rounded-3xl p-8 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
             >
               <div className={`w-14 h-14 rounded-2xl bg-gradient-to-r ${v.color} flex items-center justify-center mb-6 shadow-md`}>
                 <v.icon size={24} className="text-white" />
               </div>
               <h3 className="text-xl font-black text-stone-900 mb-2">{v.title}</h3>
-              <p className="text-sm text-stone-500 leading-relaxed mb-4">{v.desc}</p>
-              <span className="inline-flex items-center gap-1 text-sm font-bold text-stone-900 group-hover:gap-2 transition-all">
-                Conoce más <ChevronRight size={16} />
-              </span>
-            </motion.a>
+              <p className="text-sm text-stone-500 leading-relaxed mb-6 flex-1">{v.desc}</p>
+              <a href={v.clientHref} className="inline-flex items-center gap-1 text-sm font-bold text-stone-900 hover:gap-2 transition-all mb-2">
+                {v.clientLabel} <ChevronRight size={16} />
+              </a>
+              <a href={`${hubBase}${v.businessHref}`} className="text-xs text-stone-400 hover:text-stone-600 transition-colors">
+                Para tu negocio →
+              </a>
+            </motion.div>
           ))}
         </div>
 
@@ -172,7 +180,7 @@ export default function HomePage() {
             Ecosistema Inteligente & Conectividad MCP
           </h2>
           <p className="text-stone-500 text-sm sm:text-base leading-relaxed mb-10 max-w-2xl font-medium">
-            Llevamos la automatización comercial al siguiente nivel. Descubre cómo nuestros nuevos asistentes virtuales y el servidor de protocolo de contexto abierto transforman tu gestión diaria.
+            Llevamos la automatización comercial al siguiente nivel. Portales de reserva directa para clientes, copilotos de IA nativos para cada módulo y un servidor MCP que expone tus datos a cualquier agente externo autorizado.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -184,7 +192,7 @@ export default function HomePage() {
                 </div>
                 <h3 className="text-xl font-black text-stone-900 mb-3">Copilotos Conversacionales de IA</h3>
                 <p className="text-sm text-stone-500 leading-relaxed mb-6 font-medium">
-                  Nuestros chatbots están integrados nativamente con la base de datos de tu negocio en tiempo real. Son capaces de ejecutar tareas directamente desde la interfaz de chat en lenguaje natural:
+                  Tres copilotos especializados, uno por módulo, integrados nativamente con tu base de datos en tiempo real. Ejecutan operaciones completas desde el chat, sin abrir formularios:
                 </p>
                 <ul className="space-y-3.5 mb-8">
                   <li className="flex items-start gap-3">
@@ -201,18 +209,18 @@ export default function HomePage() {
                       <span className="text-stone-500 text-xs leading-relaxed block">Registra nuevos miembros, inscribe deportistas a planes vigentes calculando la fecha de vencimiento y el costo total, y registra pagos de cuotas.</span>
                     </div>
                   </li>
-                  <li className="flex items-start gap-3 opacity-75">
+                  <li className="flex items-start gap-3">
                     <span className="flex-shrink-0 w-5 h-5 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center font-black text-[10px]">R</span>
                     <div>
-                      <strong className="text-stone-800 text-sm block">ChefAI (Módulo Restaurante - Próximamente)</strong>
-                      <span className="text-stone-500 text-xs leading-relaxed block">Elaborará comandas inteligentes, reservará mesas según disponibilidad horaria, administrará el stock de ingredientes y emitirá alertas de reposición.</span>
+                      <strong className="text-stone-800 text-sm block">ChefAI (Módulo Restaurante)</strong>
+                      <span className="text-stone-500 text-xs leading-relaxed block">Gestiona comandas, reserva mesas según disponibilidad, consulta el inventario de ingredientes, registra gastos y genera reportes de ventas directamente desde el chat.</span>
                     </div>
                   </li>
                 </ul>
               </div>
               <div className="bg-stone-50 border border-stone-100/50 rounded-2xl p-4 text-xs font-mono text-stone-500 leading-relaxed">
                 <span className="font-bold text-stone-700 block mb-1">💡 Ventaja Clave:</span>
-                Tus recepcionistas y entrenadores pueden operar todo el sistema mediante una conversación de voz o texto, reduciendo los tiempos de capacitación y de carga de datos a cero.
+                Tu equipo opera hotel, gimnasio y restaurante desde una sola interfaz de chat en lenguaje natural — sin formularios, sin capacitación extensa.
               </div>
             </div>
 
@@ -224,7 +232,7 @@ export default function HomePage() {
                 </div>
                 <h3 className="text-xl font-black text-stone-900 mb-3">Servidor Solaris MCP</h3>
                 <p className="text-sm text-stone-500 leading-relaxed mb-6 font-medium">
-                  Implementamos el estándar **Model Context Protocol (MCP)** de la industria. Nuestro servidor MCP unifica los datos de Solaris y los expone de forma segura a cualquier entorno AI compatible:
+                  Implementamos el estándar <strong className="text-stone-700">Model Context Protocol (MCP)</strong> de la industria. Nuestro servidor MCP unifica los datos de Solaris y los expone de forma segura a cualquier entorno AI compatible:
                 </p>
                 <div className="space-y-4 mb-8">
                   <div className="border-l-2 border-indigo-500/35 pl-4">
@@ -262,11 +270,11 @@ export default function HomePage() {
           className="mt-12 max-w-2xl mx-auto bg-white border border-stone-200 rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4"
         >
           <div className="text-left">
-            <h3 className="font-black text-stone-900">¿Ya tienes una reserva?</h3>
-            <p className="text-sm text-stone-500">Accede al portal de tu hotel directamente.</p>
+            <h3 className="font-black text-stone-900">¿Eres dueño de un negocio?</h3>
+            <p className="text-sm text-stone-500">Accede al panel de administración de Solaris.</p>
           </div>
-          <a href="/buscar" className="bg-stone-900 hover:bg-stone-800 text-white text-sm font-bold px-5 py-3 rounded-full transition-colors inline-flex items-center gap-2 whitespace-nowrap">
-            Ir al Portal de Reservas <ChevronRight size={16} />
+          <a href={`${hubBase}`} className="bg-stone-900 hover:bg-stone-800 text-white text-sm font-bold px-5 py-3 rounded-full transition-colors inline-flex items-center gap-2 whitespace-nowrap">
+            Ir al Panel <ChevronRight size={16} />
           </a>
         </motion.div>
       </section>

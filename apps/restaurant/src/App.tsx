@@ -1,8 +1,39 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { UtensilsCrossed } from 'lucide-react';
+import { UtensilsCrossed, AlertTriangle } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { RestaurantProvider, useRestaurant } from './context/RestaurantContext';
+
+// ── Error Boundary ────────────────────────────────────────────────────────────
+interface EBState { hasError: boolean; message: string }
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, EBState> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: '' };
+  }
+  static getDerivedStateFromError(error: Error): EBState {
+    return { hasError: true, message: error.message };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--shell-bg)', padding: 24 }}>
+          <div style={{ textAlign: 'center', maxWidth: 420 }}>
+            <div style={{ width: 56, height: 56, borderRadius: 12, background: 'rgba(251,82,82,0.10)', border: '1px solid rgba(251,82,82,0.20)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: 'var(--danger)' }}>
+              <AlertTriangle size={24} />
+            </div>
+            <h2 style={{ fontFamily: 'var(--display)', fontSize: 18, color: 'var(--text-h)', textTransform: 'uppercase', marginBottom: 10 }}>Error inesperado</h2>
+            <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 20 }}>{this.state.message || 'Ocurrió un problema al cargar la aplicación.'}</p>
+            <button onClick={() => window.location.reload()} style={{ padding: '10px 24px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              Recargar
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { MainLayout } from './layouts/MainLayout';
 import { RestaurantSelector } from './components/RestaurantSelector';
 
@@ -20,6 +51,9 @@ import { Proveedores } from './pages/Proveedores';
 import { Facturas }    from './pages/Facturas';
 import { Gastos }      from './pages/Gastos';
 import { Usuarios }    from './pages/Usuarios';
+import { Perfil }     from './pages/Perfil';
+import { Reportes }   from './pages/Reportes';
+
 
 // ── Guards ───────────────────────────────────────────────────────────────────
 
@@ -34,9 +68,32 @@ const Spinner: React.FC<{ label?: string }> = ({ label }) => (
 );
 
 const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { session, loading } = useAuth();
+  const { session, loading, accountBlocked, signOut } = useAuth();
   if (loading) return <Spinner label="Verificando sesión..." />;
   if (!session) return <Navigate to="/login" replace />;
+  if (accountBlocked) {
+    const reasons: Record<string, string> = {
+      ACCOUNT_SUSPENDED: 'Tu cuenta ha sido suspendida. Contacta con soporte.',
+      ACCOUNT_INACTIVE: 'Tu cuenta está inactiva.',
+      MODULE_SUSPENDED: 'Este negocio ha sido suspendido. Contacta con soporte.',
+    };
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--shell-bg)', padding: 24 }}>
+        <div style={{ width: '100%', maxWidth: 420, background: 'var(--shell-panel-strong)', border: '1px solid var(--shell-border)', borderTop: '2px solid var(--danger)', borderRadius: 6, padding: 36, textAlign: 'center', boxShadow: 'var(--shadow)' }}>
+          <div style={{ width: 56, height: 56, borderRadius: 6, margin: '0 auto 20px', background: 'rgba(251,82,82,0.12)', border: '1px solid var(--danger)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <UtensilsCrossed size={26} />
+          </div>
+          <h1 style={{ fontFamily: 'var(--display)', fontSize: 22, color: 'var(--text-h)', textTransform: 'uppercase', letterSpacing: '0.02em', marginBottom: 10 }}>Acceso Bloqueado</h1>
+          <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 24 }}>
+            {reasons[accountBlocked] ?? 'No tienes acceso a este sistema.'}
+          </p>
+          <button onClick={signOut} style={{ padding: '10px 24px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+    );
+  }
   return <>{children}</>;
 };
 
@@ -109,6 +166,8 @@ const AppContent: React.FC = () => (
         <Route path="/facturas"    element={<Facturas />} />
         <Route path="/gastos"      element={<Gastos />} />
         <Route path="/usuarios"    element={<Usuarios />} />
+        <Route path="/perfil"      element={<Perfil />} />
+        <Route path="/reportes"    element={<Reportes />} />
         <Route path="*"            element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
@@ -116,9 +175,11 @@ const AppContent: React.FC = () => (
 );
 
 const App: React.FC = () => (
-  <AuthProvider>
-    <AppContent />
-  </AuthProvider>
+  <ErrorBoundary>
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  </ErrorBoundary>
 );
 
 export default App;

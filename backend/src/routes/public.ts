@@ -2168,4 +2168,381 @@ router.post('/quotes/:id/decision', async (req: Request, res: Response) => {
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// PORTAL PÚBLICO — LISTADOS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/public/restaurantes — lista todos los restaurantes activos
+router.get('/restaurantes', async (_req: Request, res: Response) => {
+  try {
+    const { data, error } = await db()
+      .from('restaurant')
+      .select('id_restaurant, nombre_restaurante, direccion, ciudad, telefono, correo')
+      .eq('activo', true)
+      .order('nombre_restaurante');
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json((data ?? []).map((r: any) => ({
+      id: String(r.id_restaurant),
+      nombre: r.nombre_restaurante,
+      ciudad: r.ciudad ?? null,
+      direccion: r.direccion ?? null,
+      telefono: r.telefono ?? null,
+    })));
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/public/gyms — lista todos los gimnasios activos
+router.get('/gyms', async (_req: Request, res: Response) => {
+  try {
+    const { data, error } = await db()
+      .from('gimnasios')
+      .select('id_gimnasio, nombre_gimnasio, ciudad, direccion, telefono, correo_contacto')
+      .eq('estado', 'activo')
+      .order('nombre_gimnasio');
+    if (error) return res.status(500).json({ error: error.message });
+
+    // Para cada gym, obtener nombre_negocio desde configuracion_gym si existe
+    const enriched = await Promise.all((data ?? []).map(async (g: any) => {
+      const { data: cfg } = await db()
+        .from('configuracion_gym')
+        .select('nombre_negocio')
+        .eq('id_gimnasio', g.id_gimnasio)
+        .maybeSingle();
+      return {
+        id: g.id_gimnasio,
+        nombre: cfg?.nombre_negocio ?? g.nombre_gimnasio,
+        ciudad: g.ciudad ?? null,
+        direccion: g.direccion ?? null,
+        telefono: g.telefono ?? null,
+      };
+    }));
+    return res.json(enriched);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PORTAL PÚBLICO — RESTAURANTE
+// ══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/public/restaurante/:id — datos públicos del restaurante + mesas + platillos
+router.get('/restaurante/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'id requerido' });
+
+    const { data: rest, error: restErr } = await db()
+      .from('restaurant')
+      .select('id_restaurant, nombre_restaurante, direccion, telefono, correo, ciudad, pais, activo')
+      .eq('id_restaurant', id)
+      .eq('activo', true)
+      .maybeSingle();
+
+    if (restErr) return res.status(500).json({ error: restErr.message });
+    if (!rest) return res.status(404).json({ error: 'Restaurante no encontrado.' });
+
+    // Mesas disponibles
+    const { data: mesas } = await db()
+      .from('mesa_restaurante')
+      .select('id_mesa, numero_mesa, capacidad, estado')
+      .eq('id_restaurant', id)
+      .order('numero_mesa');
+
+    // Platillos activos con su categoría
+    const { data: platillos } = await db()
+      .from('platillo')
+      .select('id_platillo, nombre_platillo, descripcion, precio, activo, categoria_platillo(id_categoria_platillo, nombre_categoria)')
+      .eq('id_restaurant', id)
+      .eq('activo', true)
+      .order('nombre_platillo');
+
+    return res.json({
+      id: String(rest.id_restaurant),
+      nombre: rest.nombre_restaurante,
+      direccion: rest.direccion ?? null,
+      telefono: rest.telefono ?? null,
+      correo: rest.correo ?? null,
+      ciudad: rest.ciudad ?? null,
+      mesas: (mesas ?? []).map((m: any) => ({
+        id: String(m.id_mesa),
+        numero: m.numero_mesa,
+        capacidad: m.capacidad,
+        estado: m.estado ?? 'disponible',
+      })),
+      platillos: (platillos ?? []).map((p: any) => ({
+        id: String(p.id_platillo),
+        nombre: p.nombre_platillo,
+        descripcion: p.descripcion,
+        precio: Number(p.precio),
+        categoria: p.categoria_platillo?.nombre_categoria ?? 'General',
+      })),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/public/restaurante/reserva — solicitud de reserva de mesa
+router.post('/restaurante/reserva', async (req: Request, res: Response) => {
+  try {
+    const { id_restaurant, nombre, apellido, correo, telefono, fecha, hora, personas, observaciones } = req.body;
+
+    if (!id_restaurant || !nombre || !apellido || !telefono || !fecha || !hora || !personas) {
+      return res.status(400).json({ error: 'Faltan campos requeridos.' });
+    }
+
+    // Encontrar una mesa disponible con capacidad suficiente
+    const { data: mesa } = await db()
+      .from('mesa_restaurante')
+      .select('id_mesa, numero_mesa, capacidad')
+      .eq('id_restaurant', id_restaurant)
+      .eq('estado', 'disponible')
+      .gte('capacidad', Number(personas))
+      .order('capacidad')
+      .limit(1)
+      .maybeSingle();
+
+    if (!mesa) {
+      return res.status(409).json({ error: 'No hay mesas disponibles con esa capacidad en este momento. Por favor llama al restaurante directamente.' });
+    }
+
+    // Buscar cliente existente o crear uno nuevo
+    let clienteId: number;
+    const { data: existing } = await db()
+      .from('cliente_restaurante')
+      .select('id_cliente')
+      .eq('id_restaurant', id_restaurant)
+      .ilike('correo', correo?.trim() ?? '')
+      .maybeSingle();
+
+    if (existing) {
+      clienteId = existing.id_cliente;
+    } else {
+      const { data: nuevoCliente, error: cErr } = await db()
+        .from('cliente_restaurante')
+        .insert({
+          id_restaurant: Number(id_restaurant),
+          nombre: nombre.trim(),
+          apellido: apellido.trim(),
+          telefono: telefono.trim(),
+          correo: correo?.trim() ?? null,
+        })
+        .select('id_cliente')
+        .single();
+      if (cErr) return res.status(500).json({ error: 'Error al registrar cliente: ' + cErr.message });
+      clienteId = nuevoCliente.id_cliente;
+    }
+
+    // Crear la reserva
+    const { data: reserva, error: rErr } = await db()
+      .from('reserva')
+      .insert({
+        id_restaurant: Number(id_restaurant),
+        id_cliente: clienteId,
+        id_mesa: mesa.id_mesa,
+        fecha_reserva: fecha,
+        hora_reserva: hora,
+        cantidad_personas: Number(personas),
+        estado: 'pendiente',
+        observaciones: observaciones?.trim() ?? null,
+      })
+      .select('id_reserva')
+      .single();
+
+    if (rErr) return res.status(500).json({ error: 'Error al crear reserva: ' + rErr.message });
+
+    return res.status(201).json({
+      ok: true,
+      id_reserva: reserva.id_reserva,
+      mesa: mesa.numero_mesa,
+      mensaje: `¡Reserva confirmada! Mesa ${mesa.numero_mesa} para ${personas} personas el ${fecha} a las ${hora}.`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PORTAL PÚBLICO — GYM
+// ══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/public/gym/:id — datos públicos del gym + planes + clases
+router.get('/gym/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'id requerido' });
+
+    const { data: gym, error: gymErr } = await db()
+      .from('gimnasios')
+      .select('id_gimnasio, nombre_gimnasio, ciudad, direccion, telefono, correo_contacto, estado')
+      .eq('id_gimnasio', id)
+      .eq('estado', 'activo')
+      .maybeSingle();
+
+    if (gymErr) return res.status(500).json({ error: gymErr.message });
+    if (!gym) return res.status(404).json({ error: 'Gimnasio no encontrado.' });
+
+    // Configuración del gym
+    const { data: config } = await db()
+      .from('configuracion_gym')
+      .select('nombre_negocio, moneda, hora_apertura, hora_cierre')
+      .eq('id_gimnasio', id)
+      .maybeSingle();
+
+    // Planes de membresía activos
+    const { data: planes } = await db()
+      .from('planes_membresia')
+      .select('id_plan, nombre, descripcion, duracion_dias, precio, acceso_clases, acceso_gym')
+      .eq('id_gimnasio', id)
+      .eq('activo', true)
+      .order('precio');
+
+    // Clases activas con entrenador
+    const { data: clases } = await db()
+      .from('clases_gym')
+      .select('id_clase, nombre_clase, descripcion, dia_semana, hora_inicio, hora_fin, capacidad_maxima, entrenadores(nombre_completo, especialidad)')
+      .eq('id_gimnasio', id)
+      .eq('activa', true)
+      .order('dia_semana')
+      .order('hora_inicio');
+
+    const diasOrder: Record<string, number> = { lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6, domingo: 7 };
+
+    return res.json({
+      id: gym.id_gimnasio,
+      nombre: config?.nombre_negocio ?? gym.nombre_gimnasio,
+      ciudad: gym.ciudad,
+      direccion: gym.direccion,
+      telefono: gym.telefono ?? null,
+      correo: gym.correo_contacto ?? null,
+      moneda: config?.moneda ?? 'HNL',
+      horaApertura: (config?.hora_apertura as string)?.substring(0, 5) ?? '05:00',
+      horaCierre: (config?.hora_cierre as string)?.substring(0, 5) ?? '22:00',
+      planes: (planes ?? []).map((p: any) => ({
+        id: p.id_plan,
+        nombre: p.nombre,
+        descripcion: p.descripcion,
+        duracionDias: p.duracion_dias,
+        precio: Number(p.precio),
+        acceso_clases: p.acceso_clases,
+        acceso_gym: p.acceso_gym,
+      })),
+      clases: (clases ?? []).sort((a: any, b: any) => (diasOrder[a.dia_semana] ?? 8) - (diasOrder[b.dia_semana] ?? 8)).map((c: any) => ({
+        id: c.id_clase,
+        nombre: c.nombre_clase,
+        descripcion: c.descripcion,
+        dia: c.dia_semana,
+        horaInicio: (c.hora_inicio as string)?.substring(0, 5),
+        horaFin: (c.hora_fin as string)?.substring(0, 5),
+        capacidad: c.capacidad_maxima,
+        entrenador: (c.entrenadores as any)?.nombre_completo ?? null,
+        especialidad: (c.entrenadores as any)?.especialidad ?? null,
+      })),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/public/gym/solicitud — solicitud de membresía (crea miembro inactivo)
+router.post('/gym/solicitud', async (req: Request, res: Response) => {
+  try {
+    const { id_gimnasio, nombre_completo, correo, telefono, id_plan, documento_identidad } = req.body;
+
+    if (!id_gimnasio || !nombre_completo || !correo || !telefono) {
+      return res.status(400).json({ error: 'Faltan campos requeridos.' });
+    }
+
+    // Verificar si el plan existe
+    if (id_plan) {
+      const { data: plan } = await db()
+        .from('planes_membresia')
+        .select('id_plan, nombre, precio, duracion_dias')
+        .eq('id_plan', id_plan)
+        .eq('id_gimnasio', id_gimnasio)
+        .maybeSingle();
+      if (!plan) return res.status(404).json({ error: 'Plan no encontrado.' });
+    }
+
+    // Verificar si ya existe como miembro en ESTE gimnasio
+    const { data: existing } = await db()
+      .from('miembros')
+      .select('id_miembro, estado')
+      .eq('id_gimnasio', id_gimnasio)
+      .ilike('correo', correo.trim())
+      .maybeSingle();
+
+    if (existing) {
+      return res.status(409).json({ error: 'Ya existe una solicitud con ese correo en este gimnasio. El equipo se comunicará contigo pronto.' });
+    }
+
+    // Obtener nombre del plan para guardarlo en observaciones
+    let planNombre: string | null = null;
+    if (id_plan) {
+      const { data: planData } = await db()
+        .from('planes_membresia')
+        .select('nombre, precio, duracion_dias')
+        .eq('id_plan', id_plan)
+        .eq('id_gimnasio', id_gimnasio)
+        .maybeSingle();
+      if (planData) {
+        planNombre = `Plan solicitado: ${planData.nombre} (${planData.duracion_dias} días, L ${planData.precio})`;
+      }
+    }
+
+    // Crear miembro como inactivo (pendiente de activación por el staff)
+    const { data: miembro, error: mErr } = await db()
+      .from('miembros')
+      .insert({
+        id_gimnasio,
+        nombre_completo: nombre_completo.trim(),
+        correo: correo.trim().toLowerCase(),
+        telefono: telefono.trim(),
+        documento_identidad: documento_identidad?.trim() ?? null,
+        estado: 'inactivo',
+        observaciones: planNombre ?? undefined,
+      })
+      .select('id_miembro')
+      .single();
+
+    if (mErr) return res.status(500).json({ error: 'Error al registrar solicitud: ' + mErr.message });
+
+    return res.status(201).json({
+      ok: true,
+      id_miembro: miembro.id_miembro,
+      mensaje: '¡Solicitud enviada! El equipo del gym revisará tu información y se comunicará contigo para completar tu inscripción.',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/public/restaurantes — listado público de restaurantes
+router.get('/restaurantes', async (_req: Request, res: Response) => {
+  try {
+    const { data, error } = await db()
+      .from('restaurant')
+      .select('id_restaurant, nombre_restaurante, ciudad, direccion, telefono')
+      .eq('activo', true)
+      .order('nombre_restaurante');
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    return res.json(
+      (data ?? []).map((r: any) => ({
+        id: String(r.id_restaurant),
+        nombre: r.nombre_restaurante,
+        ciudad: r.ciudad ?? null,
+        direccion: r.direccion ?? null,
+        telefono: r.telefono ?? null,
+      })),
+    );
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

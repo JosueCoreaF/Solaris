@@ -18,11 +18,27 @@ interface Hotel {
   estado: string;
 }
 
+interface Gimnasio {
+  id_gimnasio: string;
+  nombre_gimnasio: string;
+  ciudad: string;
+  estado: string;
+}
+
+interface Restaurante {
+  id_restaurant: string;
+  nombre_restaurante: string;
+  ciudad: string;
+  activo: boolean;
+}
+
 interface Module {
   id_module: string;
   tipo_modulo: string;
   is_active: boolean;
   hoteles?: Hotel[];
+  gimnasios?: Gimnasio[];
+  restaurant?: Restaurante[];  // nombre de tabla real en Supabase
 }
 
 interface Owner {
@@ -162,6 +178,9 @@ export default function AdminOwners() {
 
   // Modal de suscripciones / estado de cuenta
   const [subsModalOpen, setSubsModalOpen] = useState(false);
+
+  // Toggle negocio individual (gym/restaurant)
+  const [patchingBusiness, setPatchingBusiness] = useState<string | null>(null);
 
   // Eliminación de hotel
   const [selectedHotelToDelete, setSelectedHotelToDelete] = useState<Hotel | null>(null);
@@ -350,6 +369,79 @@ export default function AdminOwners() {
     } catch (e: any) {
       console.error('[selectOwner] error fetching full details:', e.message);
     }
+  };
+
+  // helper: actualiza módulo + negocio en el estado local
+  const patchModuleAndBusiness = (
+    modId: string,
+    isActive: boolean,
+    patchFn: (m: Module) => Module
+  ) => {
+    setSelected(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        business_modules: prev.business_modules.map(m =>
+          m.id_module !== modId ? m : { ...patchFn(m), is_active: isActive }
+        ),
+      };
+    });
+    setOwners(prev => prev.map(o =>
+      o.id_owner !== selected?.id_owner ? o : {
+        ...o,
+        business_modules: o.business_modules.map(m =>
+          m.id_module !== modId ? m : { ...patchFn(m), is_active: isActive }
+        ),
+      }
+    ));
+  };
+
+  // ── Toggle hotel individual ──
+  const toggleHotel = async (modId: string, h: Hotel) => {
+    const newEstado = h.estado === 'activo' ? 'inactivo' : 'activo';
+    setPatchingBusiness(h.id_hotel);
+    try {
+      const updated = await apiClient.patch(`/hub/admin/hoteles/${h.id_hotel}/toggle`, { estado: newEstado });
+      patchModuleAndBusiness(modId, newEstado === 'activo', m => ({
+        ...m,
+        hoteles: (m.hoteles ?? []).map(hotel =>
+          hotel.id_hotel === h.id_hotel ? { ...hotel, estado: updated.estado } : hotel
+        ),
+      }));
+    } catch (e: any) { alert(e.message); }
+    finally { setPatchingBusiness(null); }
+  };
+
+  // ── Toggle gimnasio individual ──
+  const toggleGimnasio = async (modId: string, g: Gimnasio) => {
+    const newEstado = g.estado === 'activo' ? 'inactivo' : 'activo';
+    setPatchingBusiness(g.id_gimnasio);
+    try {
+      const updated = await apiClient.patch(`/hub/admin/gimnasios/${g.id_gimnasio}`, { estado: newEstado });
+      patchModuleAndBusiness(modId, newEstado === 'activo', m => ({
+        ...m,
+        gimnasios: (m.gimnasios ?? []).map(gym =>
+          gym.id_gimnasio === g.id_gimnasio ? { ...gym, estado: updated.estado } : gym
+        ),
+      }));
+    } catch (e: any) { alert(e.message); }
+    finally { setPatchingBusiness(null); }
+  };
+
+  // ── Toggle restaurante individual ──
+  const toggleRestaurante = async (modId: string, r: Restaurante) => {
+    const newActivo = !r.activo;
+    setPatchingBusiness(r.id_restaurant);
+    try {
+      const updated = await apiClient.patch(`/hub/admin/restaurantes/${r.id_restaurant}`, { activo: newActivo });
+      patchModuleAndBusiness(modId, newActivo, m => ({
+        ...m,
+        restaurant: (m.restaurant ?? []).map(rest =>
+          rest.id_restaurant === r.id_restaurant ? { ...rest, activo: updated.activo } : rest
+        ),
+      }));
+    } catch (e: any) { alert(e.message); }
+    finally { setPatchingBusiness(null); }
   };
 
   // ── Eliminar Hotel ──
@@ -634,16 +726,78 @@ export default function AdminOwners() {
                       <div className="pl-5 border-l border-slate-200 space-y-1.5 mt-1.5">
                         {m.hoteles.map(h => (
                           <div key={h.id_hotel} className="flex items-center justify-between text-xs text-slate-600 py-0.5">
-                            <span className="font-semibold text-slate-700">{h.nombre_hotel} ({h.ciudad})</span>
+                            <div>
+                              <span className="font-semibold text-slate-700">{h.nombre_hotel}</span>
+                              {h.ciudad && <span className="text-slate-400 ml-1">({h.ciudad})</span>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                disabled={patchingBusiness === h.id_hotel}
+                                onClick={() => toggleHotel(m.id_module, h)}
+                                title={h.estado === 'activo' ? 'Desactivar' : 'Activar'}
+                                className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50
+                                  ${h.estado === 'activo' ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                              >
+                                {patchingBusiness === h.id_hotel
+                                  ? <span className="absolute inset-0 flex items-center justify-center"><Loader2 size={9} className="animate-spin text-white" /></span>
+                                  : <span className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${h.estado === 'activo' ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                }
+                              </button>
+                              <button
+                                onClick={() => { setSelectedHotelToDelete(h); setDeleteHotelConfirmText(''); }}
+                                className="text-rose-500 hover:text-rose-700 p-1 hover:bg-rose-50 rounded transition"
+                                title="Eliminar hotel permanentemente"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {m.tipo_modulo === 'gym' && m.gimnasios && m.gimnasios.length > 0 && (
+                      <div className="pl-5 border-l border-slate-200 space-y-1.5 mt-1.5">
+                        {m.gimnasios.map(g => (
+                          <div key={g.id_gimnasio} className="flex items-center justify-between text-xs text-slate-600 py-0.5">
+                            <div>
+                              <span className="font-semibold text-slate-700">{g.nombre_gimnasio}</span>
+                              {g.ciudad && <span className="text-slate-400 ml-1">({g.ciudad})</span>}
+                            </div>
                             <button
-                              onClick={() => {
-                                setSelectedHotelToDelete(h);
-                                setDeleteHotelConfirmText('');
-                              }}
-                              className="text-rose-500 hover:text-rose-700 p-1 hover:bg-rose-50 rounded transition"
-                              title="Eliminar hotel permanentemente"
+                              disabled={patchingBusiness === g.id_gimnasio}
+                              onClick={() => toggleGimnasio(m.id_module, g)}
+                              title={g.estado === 'activo' ? 'Suspender' : 'Activar'}
+                              className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50
+                                ${g.estado === 'activo' ? 'bg-emerald-500' : 'bg-slate-300'}`}
                             >
-                              <Trash2 size={12} />
+                              {patchingBusiness === g.id_gimnasio
+                                ? <span className="absolute inset-0 flex items-center justify-center"><Loader2 size={9} className="animate-spin text-white" /></span>
+                                : <span className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${g.estado === 'activo' ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                              }
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {m.tipo_modulo === 'restaurant' && m.restaurant && m.restaurant.length > 0 && (
+                      <div className="pl-5 border-l border-slate-200 space-y-1.5 mt-1.5">
+                        {m.restaurant.map(r => (
+                          <div key={r.id_restaurant} className="flex items-center justify-between text-xs text-slate-600 py-0.5">
+                            <div>
+                              <span className="font-semibold text-slate-700">{r.nombre_restaurante}</span>
+                              {r.ciudad && <span className="text-slate-400 ml-1">({r.ciudad})</span>}
+                            </div>
+                            <button
+                              disabled={patchingBusiness === r.id_restaurant}
+                              onClick={() => toggleRestaurante(m.id_module, r)}
+                              title={r.activo ? 'Desactivar' : 'Activar'}
+                              className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50
+                                ${r.activo ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                            >
+                              {patchingBusiness === r.id_restaurant
+                                ? <span className="absolute inset-0 flex items-center justify-center"><Loader2 size={9} className="animate-spin text-white" /></span>
+                                : <span className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${r.activo ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                              }
                             </button>
                           </div>
                         ))}

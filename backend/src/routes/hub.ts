@@ -749,61 +749,180 @@ router.get('/notifications', async (req, res) => {
     const user = await getUserFromToken(req.headers.authorization);
     if (!user) return res.status(401).json({ error: 'No autorizado' });
 
-    const { hotelIds, error: ownerError } = await resolveOwner(user);
+    const { ownerIds, hotelIds, error: ownerError } = await resolveOwner(user);
     if (ownerError) return res.status(400).json({ error: ownerError.message });
-    if (hotelIds.length === 0) return res.json([]);
+    if (ownerIds.length === 0) return res.json([]);
 
-    const now       = new Date();
-    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const now         = new Date();
+    const todayStart  = new Date(now); todayStart.setHours(0, 0, 0, 0);
     const tomorrowEnd = new Date(now); tomorrowEnd.setDate(tomorrowEnd.getDate() + 1); tomorrowEnd.setHours(23, 59, 59, 999);
+    const in7Days     = new Date(now); in7Days.setDate(in7Days.getDate() + 7);
 
-    const [{ data: checkins }, { data: pagosDeuda }] = await Promise.all([
-      db.from('reservas_hotel')
-        .select('id_reserva_hotel, check_in, estado, id_hotel, huespedes(nombre_completo)')
-        .in('id_hotel', hotelIds)
-        .gte('check_in', todayStart.toISOString())
-        .lte('check_in', tomorrowEnd.toISOString())
-        .in('estado', ['confirmada', 'pendiente'])
-        .limit(20),
-      db.from('reservas_hotel')
-        .select('id_reserva_hotel, total_reserva, estado_pago, id_hotel, huespedes(nombre_completo)')
-        .in('id_hotel', hotelIds)
-        .eq('estado_pago', 'deuda')
-        .in('estado', ['check_in', 'check_out', 'confirmada'])
-        .limit(10),
-    ]);
+    // Obtener módulos activos del owner para sacar gym y restaurant IDs
+    const { data: mods } = await db
+      .from('business_modules')
+      .select('id_module, tipo_modulo')
+      .in('owner_id', ownerIds)
+      .eq('estado', 'activo');
+
+    const moduleIds = (mods || []).map((m: any) => m.id_module);
+
+    let gymIds: string[]  = [];
+    let restIds: string[] = [];
+
+    if (moduleIds.length > 0) {
+      const [{ data: gyms }, { data: rests }] = await Promise.all([
+        db.from('gimnasios').select('id_gimnasio').in('id_module', moduleIds).eq('estado', 'activo'),
+        db.from('restaurant').select('id_restaurant').in('id_module', moduleIds).eq('activo', true),
+      ]);
+      gymIds  = (gyms  || []).map((g: any) => g.id_gimnasio);
+      restIds = (rests || []).map((r: any) => r.id_restaurant);
+    }
+
+    // Consultas en paralelo para los tres módulos
+    const queries: Promise<any>[] = [
+      // Hotel — check-ins de hoy y mañana
+      hotelIds.length > 0
+        ? db.from('reservas_hotel')
+            .select('id_reserva_hotel, check_in, estado, id_hotel, huespedes(nombre_completo)')
+            .in('id_hotel', hotelIds)
+            .gte('check_in', todayStart.toISOString())
+            .lte('check_in', tomorrowEnd.toISOString())
+            .in('estado', ['confirmada', 'pendiente'])
+            .limit(20)
+        : Promise.resolve({ data: [] }),
+      // Hotel — pagos con deuda
+      hotelIds.length > 0
+        ? db.from('reservas_hotel')
+            .select('id_reserva_hotel, total_reserva, estado_pago, id_hotel, huespedes(nombre_completo)')
+            .in('id_hotel', hotelIds)
+            .eq('estado_pago', 'deuda')
+            .in('estado', ['check_in', 'check_out', 'confirmada'])
+            .limit(10)
+        : Promise.resolve({ data: [] }),
+      // Gym — solicitudes del portal pendientes de activar
+      gymIds.length > 0
+        ? db.from('miembros')
+            .select('id_miembro, nombre, apellido, observaciones, id_gimnasio')
+            .in('id_gimnasio', gymIds)
+            .eq('estado', 'inactivo')
+            .ilike('observaciones', 'Plan solicitado:%')
+            .limit(20)
+        : Promise.resolve({ data: [] }),
+      // Gym — inscripciones activas por vencer en 7 días
+      gymIds.length > 0
+        ? db.from('inscripciones_gym')
+            .select('id_inscripcion, fecha_fin, id_gimnasio, miembros(nombre, apellido)')
+            .in('id_gimnasio', gymIds)
+            .eq('estado', 'activa')
+            .gte('fecha_fin', now.toISOString())
+            .lte('fecha_fin', in7Days.toISOString())
+            .limit(20)
+        : Promise.resolve({ data: [] }),
+      // Restaurante — reservas pendientes de hoy y mañana
+      restIds.length > 0
+        ? db.from('reserva')
+            .select('id_reserva, fecha_reserva, hora_reserva, cantidad_personas, id_restaurant, clientes(nombre)')
+            .in('id_restaurant', restIds)
+            .eq('estado', 'pendiente')
+            .gte('fecha_reserva', todayStart.toISOString().split('T')[0])
+            .lte('fecha_reserva', tomorrowEnd.toISOString().split('T')[0])
+            .limit(20)
+        : Promise.resolve({ data: [] }),
+    ];
+
+    const [
+      { data: checkins },
+      { data: pagosDeuda },
+      { data: solicitudesGym },
+      { data: inscripcionesPorVencer },
+      { data: reservasRest },
+    ] = await Promise.all(queries);
 
     const notifications: any[] = [];
 
+    // ── Hotel: check-ins ──
     (checkins || []).forEach((r: any) => {
-      const huesped    = Array.isArray(r.huespedes) ? r.huespedes[0] : r.huespedes;
+      const huesped     = Array.isArray(r.huespedes) ? r.huespedes[0] : r.huespedes;
       const checkInDate = new Date(r.check_in);
-      const isToday    = checkInDate >= todayStart && checkInDate < new Date(todayStart.getTime() + 86400000);
+      const isToday     = checkInDate >= todayStart && checkInDate < new Date(todayStart.getTime() + 86400000);
       notifications.push({
-        id:          `checkin-${r.id_reserva_hotel}`,
-        type:        'checkin',
-        title:       isToday ? 'Check-in Hoy' : 'Check-in Mañana',
-        description: `${huesped?.nombre_completo || 'Huésped'} — ${checkInDate.toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' })}`,
-        severity:    isToday ? 'high' : 'medium',
-        created_at:  r.check_in,
+        id:           `checkin-${r.id_reserva_hotel}`,
+        type:         'checkin',
+        module:       'hotel',
+        title:        isToday ? 'Check-in Hoy' : 'Check-in Mañana',
+        description:  `${huesped?.nombre_completo || 'Huésped'} — ${checkInDate.toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' })}`,
+        severity:     isToday ? 'high' : 'medium',
+        created_at:   r.check_in,
         reference_id: r.id_hotel,
       });
     });
 
+    // ── Hotel: pagos con deuda ──
     (pagosDeuda || []).forEach((r: any) => {
       const huesped = Array.isArray(r.huespedes) ? r.huespedes[0] : r.huespedes;
       notifications.push({
-        id:          `deuda-${r.id_reserva_hotel}`,
-        type:        'payment',
-        title:       'Pago Pendiente',
-        description: `${huesped?.nombre_completo || 'Huésped'} — L. ${Number(r.total_reserva).toLocaleString()}`,
-        severity:    'high',
-        created_at:  new Date().toISOString(),
+        id:           `deuda-${r.id_reserva_hotel}`,
+        type:         'payment',
+        module:       'hotel',
+        title:        'Pago Pendiente — Hotel',
+        description:  `${huesped?.nombre_completo || 'Huésped'} — L. ${Number(r.total_reserva).toLocaleString()}`,
+        severity:     'high',
+        created_at:   new Date().toISOString(),
         reference_id: r.id_hotel,
       });
     });
 
-    notifications.sort((a, b) => ({ high: 0, medium: 1, low: 2 }[a.severity as string] ?? 2) - ({ high: 0, medium: 1, low: 2 }[b.severity as string] ?? 2));
+    // ── Gym: solicitudes del portal ──
+    (solicitudesGym || []).forEach((m: any) => {
+      const plan = (m.observaciones as string).replace('Plan solicitado: ', '');
+      notifications.push({
+        id:           `gym-solicitud-${m.id_miembro}`,
+        type:         'gym_request',
+        module:       'gym',
+        title:        'Solicitud Portal — Gym',
+        description:  `${m.nombre} ${m.apellido} — ${plan}`,
+        severity:     'high',
+        created_at:   new Date().toISOString(),
+        reference_id: m.id_gimnasio,
+      });
+    });
+
+    // ── Gym: inscripciones por vencer ──
+    (inscripcionesPorVencer || []).forEach((i: any) => {
+      const miembro  = Array.isArray(i.miembros) ? i.miembros[0] : i.miembros;
+      const diasLeft = Math.ceil((new Date(i.fecha_fin).getTime() - now.getTime()) / 86400000);
+      notifications.push({
+        id:           `gym-vence-${i.id_inscripcion}`,
+        type:         'gym_expiry',
+        module:       'gym',
+        title:        'Membresía por Vencer',
+        description:  `${miembro?.nombre || ''} ${miembro?.apellido || ''} — vence en ${diasLeft} día${diasLeft !== 1 ? 's' : ''}`,
+        severity:     diasLeft <= 2 ? 'high' : 'medium',
+        created_at:   new Date().toISOString(),
+        reference_id: i.id_gimnasio,
+      });
+    });
+
+    // ── Restaurante: reservas pendientes ──
+    (reservasRest || []).forEach((r: any) => {
+      const cliente  = Array.isArray(r.clientes) ? r.clientes[0] : r.clientes;
+      const fecha    = new Date(`${r.fecha_reserva}T${r.hora_reserva}`);
+      const isToday  = r.fecha_reserva === todayStart.toISOString().split('T')[0];
+      notifications.push({
+        id:           `rest-reserva-${r.id_reserva}`,
+        type:         'checkin',
+        module:       'restaurant',
+        title:        isToday ? 'Reserva Hoy — Restaurante' : 'Reserva Mañana — Restaurante',
+        description:  `${cliente?.nombre || 'Cliente'} — ${fecha.toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' })}, ${r.cantidad_personas} persona${r.cantidad_personas !== 1 ? 's' : ''}`,
+        severity:     isToday ? 'high' : 'medium',
+        created_at:   new Date().toISOString(),
+        reference_id: r.id_restaurant,
+      });
+    });
+
+    const severityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+    notifications.sort((a, b) => (severityOrder[a.severity] ?? 2) - (severityOrder[b.severity] ?? 2));
 
     return res.json(notifications);
   } catch (err: any) {

@@ -47,6 +47,7 @@ export interface Platillo {
   descripcion: string;
   precio: number;
   activo: boolean;
+  imagen_url?: string;
   categoria_platillo?: CategoriaPlatillo;
 }
 

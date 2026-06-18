@@ -110,3 +110,78 @@ export async function fetchGuestMessages(channelId: string, after?: string) {
   if (!res.ok) throw new Error('Error al obtener mensajes.');
   return res.json() as Promise<any[]>;
 }
+
+// ── Listados públicos ─────────────────────────────────────────────────────────
+
+export async function fetchRestaurantes(): Promise<{ id: string; nombre: string; ciudad: string | null; direccion: string | null; telefono: string | null }[]> {
+  const res = await fetch(`${BASE}/restaurantes`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function fetchGyms(): Promise<{ id: string; nombre: string; ciudad: string | null; direccion: string | null; telefono: string | null }[]> {
+  const res = await fetch(`${BASE}/gyms`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+// ── Restaurante ───────────────────────────────────────────────────────────────
+
+export async function fetchRestaurante(id: string) {
+  const res = await fetch(`${BASE}/restaurante/${id}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || 'Restaurante no encontrado.');
+  }
+  return res.json();
+}
+
+export async function crearReservaRestaurante(payload: {
+  id_restaurant: string;
+  nombre: string;
+  apellido: string;
+  correo?: string;
+  telefono: string;
+  fecha: string;
+  hora: string;
+  personas: number;
+  observaciones?: string;
+}) {
+  const res = await fetch(`${BASE}/restaurante/reserva`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error((data as any).error || 'Error al crear reserva.');
+  return data;
+}
+
+// ── Gym ──────────────────────────────────────────────────────────────────────
+
+export async function fetchGym(id: string) {
+  const res = await fetch(`${BASE}/gym/${id}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || 'Gimnasio no encontrado.');
+  }
+  return res.json();
+}
+
+export async function crearSolicitudGym(payload: {
+  id_gimnasio: string;
+  nombre_completo: string;
+  correo: string;
+  telefono: string;
+  id_plan?: string;
+  documento_identidad?: string;
+}) {
+  const res = await fetch(`${BASE}/gym/solicitud`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error((data as any).error || 'Error al enviar solicitud.');
+  return data;
+}

@@ -16,6 +16,7 @@ import { Clases } from './features/clases/Clases';
 import { Pagos } from './features/pagos/Pagos';
 import { Reportes } from './features/reportes/Reportes';
 import { Config } from './features/config/Config';
+import { Perfil } from './features/perfil/Perfil';
 
 const AppContent: React.FC = () => {
   const { accountBlocked, loading, signOut } = useAuth();
@@ -50,6 +51,7 @@ const AppContent: React.FC = () => {
               <Route path="/pagos" element={<Pagos />} />
               <Route path="/reportes" element={<Reportes />} />
               <Route path="/config" element={<Config />} />
+              <Route path="/perfil" element={<Perfil />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

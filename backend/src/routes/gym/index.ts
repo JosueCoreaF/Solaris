@@ -55,13 +55,26 @@ router.get('/account-status', async (req, res) => {
     if (ownerId) {
       const { data: module } = await supabaseAdmin!
         .from('business_modules')
-        .select('is_active, estado')
+        .select('id_module, is_active, estado')
         .eq('owner_id', ownerId)
         .eq('tipo_modulo', 'gym')
         .maybeSingle()
 
       if (module && (module.is_active === false || module.estado === 'inactivo')) {
         return res.status(403).json({ error: 'MODULE_SUSPENDED', message: 'Este negocio ha sido suspendido. Contacta con soporte.', nombre_empresa })
+      }
+
+      // Verificar que el gimnasio individual también esté activo
+      if (module?.id_module) {
+        const { data: gym } = await supabaseAdmin!
+          .from('gimnasios')
+          .select('estado')
+          .eq('id_module', module.id_module)
+          .maybeSingle()
+
+        if (gym && gym.estado !== 'activo') {
+          return res.status(403).json({ error: 'MODULE_SUSPENDED', message: 'Este gimnasio ha sido desactivado. Contacta con soporte.', nombre_empresa })
+        }
       }
     }
 

@@ -4,10 +4,11 @@ import {
   Sun, Moon, LogOut, ArrowLeft, RefreshCw,
   LayoutDashboard, UtensilsCrossed, Coffee, ClipboardList,
   Users, UserCog, Package, CalendarDays, Truck, ShieldCheck,
-  BookOpen, Receipt, Wallet,
+  BookOpen, Receipt, Wallet, CircleUserRound, Bot, BarChart3,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useRestaurant } from '../context/RestaurantContext';
+import type { UserRole } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import SolarisLogo from './SolarisLogo';
 
@@ -17,31 +18,66 @@ const IconCheck = () => (
   </svg>
 );
 
-const sections = [
-  {
-    title: 'Principal',
-    items: [
-      { to: '/',            label: 'Dashboard',   icon: LayoutDashboard },
-      { to: '/platillos',   label: 'Platillos',   icon: UtensilsCrossed },
-      { to: '/menus',       label: 'Menús',       icon: BookOpen },
-      { to: '/mesas',       label: 'Mesas',       icon: Coffee },
-      { to: '/pedidos',     label: 'Pedidos',     icon: ClipboardList },
-      { to: '/clientes',    label: 'Clientes',    icon: Users },
-      { to: '/reservas',    label: 'Reservas',    icon: CalendarDays },
-    ],
-  },
-  {
-    title: 'Gestión',
-    items: [
-      { to: '/empleados',   label: 'Empleados',   icon: UserCog },
-      { to: '/inventario',  label: 'Inventario',  icon: Package },
-      { to: '/proveedores', label: 'Proveedores', icon: Truck },
-      { to: '/facturas',    label: 'Facturas',    icon: Receipt },
-      { to: '/gastos',      label: 'Gastos',      icon: Wallet },
-      { to: '/usuarios',    label: 'Usuarios',    icon: ShieldCheck },
-    ],
-  },
-];
+const PLAN_BADGES: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  rest_starter: { label: 'Starter', color: '#6366f1', bg: 'rgba(99,102,241,0.08)',  border: 'rgba(99,102,241,0.25)' },
+  rest_pro:     { label: 'Pro',     color: '#8b5cf6', bg: 'rgba(139,92,246,0.08)',  border: 'rgba(139,92,246,0.25)' },
+  rest_elite:   { label: 'Elite',   color: '#f59e0b', bg: 'rgba(245,158,11,0.08)',  border: 'rgba(245,158,11,0.25)' },
+};
+
+const ROLE_LABELS: Partial<Record<UserRole, string>> = {
+  PROPIETARIO: 'Propietario',
+  ADMIN:       'Administrador',
+  GERENTE:     'Gerente',
+  CAJERO:      'Cajero',
+  MESERO:      'Mesero',
+  COCINA:      'Cocina',
+  INVITADO:    'Invitado',
+};
+
+type NavItem = { to: string; label: string; icon: any; roles?: UserRole[]; feature?: string; action?: () => void };
+type NavSection = { title: string; items: NavItem[] };
+
+const getSections = (role: UserRole, featureFlags: string[]): NavSection[] => {
+  const all: NavSection[] = [
+    {
+      title: 'Principal',
+      items: [
+        { to: '/',            label: 'Dashboard',       icon: LayoutDashboard, roles: ['PROPIETARIO','ADMIN','GERENTE','CAJERO','MESERO','COCINA'] },
+        { to: '/platillos',   label: 'Platillos',       icon: UtensilsCrossed, roles: ['PROPIETARIO','ADMIN','GERENTE','COCINA'] },
+        { to: '/menus',       label: 'Menús',           icon: BookOpen,        roles: ['PROPIETARIO','ADMIN','GERENTE','COCINA'] },
+        { to: '/mesas',       label: 'Mesas',           icon: Coffee,          roles: ['PROPIETARIO','ADMIN','GERENTE','CAJERO','MESERO'] },
+        { to: '/pedidos',     label: 'Pedidos',         icon: ClipboardList,   roles: ['PROPIETARIO','ADMIN','GERENTE','CAJERO','MESERO','COCINA'] },
+        { to: '/clientes',    label: 'Clientes',        icon: Users,           roles: ['PROPIETARIO','ADMIN','GERENTE','CAJERO'] },
+        { to: '/reservas',    label: 'Reservas',        icon: CalendarDays,    roles: ['PROPIETARIO','ADMIN','GERENTE','CAJERO','MESERO'] },
+        { to: '/reportes',    label: 'Reportes',        icon: BarChart3,        roles: ['PROPIETARIO','ADMIN','GERENTE'], feature: 'reportes' },
+        {
+          to: '',
+          label: 'Asistente IA',
+          icon: Bot,
+          roles: ['PROPIETARIO','ADMIN','GERENTE'],
+          feature: 'ai_asistente',
+          action: () => window.dispatchEvent(new CustomEvent('solaris:open-ai-chat')),
+        },
+      ],
+    },
+    {
+      title: 'Gestión',
+      items: [
+        { to: '/empleados',   label: 'Empleados',   icon: UserCog,         roles: ['PROPIETARIO','ADMIN','GERENTE'] },
+        { to: '/inventario',  label: 'Inventario',  icon: Package,         roles: ['PROPIETARIO','ADMIN','GERENTE','COCINA'] },
+        { to: '/proveedores', label: 'Proveedores', icon: Truck,           roles: ['PROPIETARIO','ADMIN','GERENTE'] },
+        { to: '/facturas',    label: 'Facturas',    icon: Receipt,         roles: ['PROPIETARIO','ADMIN','GERENTE','CAJERO'] },
+        { to: '/gastos',      label: 'Gastos',      icon: Wallet,          roles: ['PROPIETARIO','ADMIN','GERENTE'] },
+        { to: '/usuarios',    label: 'Usuarios',    icon: ShieldCheck,     roles: ['PROPIETARIO','ADMIN'] },
+        { to: '/perfil',      label: 'Mi Perfil',   icon: CircleUserRound },
+      ],
+    },
+  ];
+  return all.map(sec => ({
+    ...sec,
+    items: sec.items.filter(item => !item.roles || item.roles.includes(role)),
+  })).filter(sec => sec.items.length > 0);
+};
 
 const getInitials = (nombre?: string) => {
   if (!nombre) return 'RS';
@@ -51,8 +87,9 @@ const getInitials = (nombre?: string) => {
 };
 
 export const Sidebar: React.FC = () => {
-  const { user, signOut } = useAuth();
-  const { restaurant, modules, activeModule, selectModule } = useRestaurant();
+  const { user, role, signOut } = useAuth();
+  const { restaurant, plan, modules, activeModule, selectModule } = useRestaurant();
+  const featureFlags: string[] = plan?.feature_flags ?? [];
   const { theme, toggleTheme } = useTheme();
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -124,26 +161,66 @@ export const Sidebar: React.FC = () => {
         </button>
       </div>
 
+      {/* Plan badge */}
+      {plan?.id_plan && PLAN_BADGES[plan.id_plan] && (
+        <div style={{ padding: '6px 14px 0' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '6px 10px', borderRadius: 6,
+            background: PLAN_BADGES[plan.id_plan].bg,
+            border: `1px solid ${PLAN_BADGES[plan.id_plan].border}`,
+          }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: PLAN_BADGES[plan.id_plan].color, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+              Plan {PLAN_BADGES[plan.id_plan].label}
+            </span>
+            {plan.id_plan === 'rest_starter' && (
+              <a
+                href={`${getHubUrl()}/upgrade?module=restaurant`}
+                style={{ fontSize: 10, fontWeight: 700, color: PLAN_BADGES[plan.id_plan].color, textDecoration: 'none' }}
+              >
+                Mejorar →
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Nav */}
       <nav className="menu">
-        {sections.map((section, idx) => (
+        {getSections(role, featureFlags).map((section, idx) => (
           <div key={section.title} className="sidebar-group" style={{ marginTop: idx === 0 ? 4 : 8 }}>
             <div className="sidebar-group-title">{section.title}</div>
             <div className="sidebar-group-items">
-              {section.items.map(item => {
-                const Icon = item.icon;
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.to === '/'}
-                    className={({ isActive }) => isActive ? 'menu-item active' : 'menu-item'}
-                  >
-                    <span className="menu-icon"><Icon size={16} /></span>
-                    <span className="menu-label">{item.label}</span>
-                  </NavLink>
-                );
-              })}
+              {section.items
+                .filter(item => !item.feature || featureFlags.includes(item.feature))
+                .map(item => {
+                  const Icon = item.icon;
+                  if (item.action) {
+                    return (
+                      <button
+                        key={item.label}
+                        className="menu-item"
+                        onClick={item.action}
+                        style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer' }}
+                      >
+                        <span className="menu-icon"><Icon size={16} /></span>
+                        <span className="menu-label">{item.label}</span>
+                      </button>
+                    );
+                  }
+                  return (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.to === '/'}
+                      className={({ isActive }) => isActive ? 'menu-item active' : 'menu-item'}
+                    >
+                      <span className="menu-icon"><Icon size={16} /></span>
+                      <span className="menu-label">{item.label}</span>
+                    </NavLink>
+                  );
+                })
+              }
             </div>
           </div>
         ))}
@@ -167,6 +244,11 @@ export const Sidebar: React.FC = () => {
             <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {user?.email}
             </div>
+            {role && role !== 'INVITADO' && (
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 1 }}>
+                {ROLE_LABELS[role] ?? role}
+              </div>
+            )}
           </div>
         </div>
 

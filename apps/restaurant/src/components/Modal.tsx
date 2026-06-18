@@ -43,14 +43,14 @@ export const Modal: React.FC<ModalProps> = ({ open, onClose, title, children, si
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 10 }}
             transition={{ duration: 0.2 }}
-            className={`relative w-full ${sizeMap[size]} bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl z-10 max-h-[90vh] flex flex-col`}
+            className={`relative w-full ${sizeMap[size]} bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-10 max-h-[90vh] flex flex-col`}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-              <h2 className="text-lg font-semibold text-white">{title}</h2>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
               <button
                 onClick={onClose}
-                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>

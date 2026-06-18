@@ -5,8 +5,16 @@ import { useRestaurant } from '../context/RestaurantContext';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
-const ROLES = ['GERENTE', 'MESERO', 'COCINERO', 'CAJERO', 'REPARTIDOR'] as const;
+const ROLES = ['ADMIN', 'MESERO', 'COCINA', 'CONTADOR', 'VENDEDOR'] as const;
 type Rol = typeof ROLES[number];
+
+const ROL_LABEL: Record<string, string> = {
+  ADMIN:    'Gerente / Admin',
+  MESERO:   'Mesero',
+  COCINA:   'Cocinero',
+  CONTADOR: 'Cajero / Contador',
+  VENDEDOR: 'Repartidor',
+};
 
 interface Usuario {
   user_id: string;
@@ -121,11 +129,11 @@ export const Usuarios: React.FC = () => {
   };
 
   const rolColor: Record<string, string> = {
-    GERENTE:    'bg-orange-500/20 text-orange-400 border-orange-500/30',
-    MESERO:     'bg-blue-500/20 text-blue-400 border-blue-500/30',
-    COCINERO:   'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    CAJERO:     'bg-purple-500/20 text-purple-400 border-purple-500/30',
-    REPARTIDOR: 'bg-green-500/20 text-green-400 border-green-500/30',
+    ADMIN:    'bg-orange-500/20 text-orange-400 border-orange-500/30',
+    MESERO:   'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    COCINA:   'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    CONTADOR: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    VENDEDOR: 'bg-green-500/20 text-green-400 border-green-500/30',
   };
 
   return (
@@ -178,12 +186,12 @@ export const Usuarios: React.FC = () => {
               {usuarios.map(u => (
                 <tr key={u.user_id} className="hover:bg-slate-800/40 transition-colors">
                   <td className="px-5 py-3.5">
-                    <div className="font-medium text-white">{u.nombre || '—'}</div>
+                    <div className="font-medium text-slate-900 dark:text-white">{u.nombre || '—'}</div>
                     <div className="text-slate-500 text-xs">{u.email || u.user_id}</div>
                   </td>
                   <td className="px-5 py-3.5">
                     <span className={`inline-flex px-2.5 py-0.5 rounded-lg border text-xs font-semibold ${rolColor[u.rol] || 'bg-slate-700 text-slate-300 border-slate-600'}`}>
-                      {u.rol}
+                      {ROL_LABEL[u.rol] ?? u.rol}
                     </span>
                   </td>
                   <td className="px-5 py-3.5">
@@ -295,7 +303,7 @@ export const Usuarios: React.FC = () => {
                   className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 outline-none transition-colors"
                 >
                   {ROLES.map(r => (
-                    <option key={r} value={r}>{r}</option>
+                    <option key={r} value={r}>{ROL_LABEL[r] ?? r}</option>
                   ))}
                 </select>
               </div>
