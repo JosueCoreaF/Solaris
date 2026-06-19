@@ -99,7 +99,7 @@ export const fetchDashboardTrends = async (): Promise<DashboardTrends> => {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
     const key = d.toISOString().split('T')[0];
-    const total = (pagos ?? []).filter((p: any) => p.fecha_pago === key).reduce((s: number, p: any) => s + Number(p.monto), 0);
+    const total = (pagos ?? []).filter((p: any) => (p.fecha_pago ?? '').toString().split('T')[0] === key).reduce((s: number, p: any) => s + Number(p.monto), 0);
     weeklyRevenue.push({ label: dayLabels[d.getDay()], value: total });
   }
 
