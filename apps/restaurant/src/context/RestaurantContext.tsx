@@ -48,6 +48,7 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [modules, setModules] = useState<BusinessModule[]>([]);
   const [modulesLoading, setModulesLoading] = useState(true);
   const [activeModule, setActiveModule] = useState<BusinessModule | null>(null);
+  const [selectionReady, setSelectionReady] = useState(false);
 
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [restaurantLoading, setRestaurantLoading] = useState(true);
@@ -62,6 +63,8 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     setModulesLoading(true);
     try {
+      let mods: BusinessModule[] = [];
+
       // Flujo owner: business_modules filtrado por RLS (owner_id = auth.uid())
       const { data: ownerModules, error: ownerErr } = await supabase
         .from('business_modules')
@@ -70,35 +73,41 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         .eq('estado', 'activo');
 
       if (!ownerErr && ownerModules && ownerModules.length > 0) {
-        setModules(ownerModules);
-        return;
-      }
+        mods = ownerModules;
+      } else {
+        // Flujo staff: usuarios_roles → id_module → business_modules
+        const { data: roles } = await supabase
+          .from('usuarios_roles')
+          .select('*')
+          .eq('user_id', user.id);
 
-      // Flujo staff: usuarios_roles → id_module → business_modules
-      const { data: roles } = await supabase
-        .from('usuarios_roles')
-        .select('*')
-        .eq('user_id', user.id);
-
-      if (roles && roles.length > 0) {
-        const idModules = roles.map((r: any) => r.id_module).filter(Boolean);
-        if (idModules.length > 0) {
-          const { data: staffModules } = await supabase
-            .from('business_modules')
-            .select('*')
-            .in('id_module', idModules)
-            .eq('tipo_modulo', 'restaurant')
-            .eq('estado', 'activo');
-
-          setModules(staffModules ?? []);
-          return;
+        if (roles && roles.length > 0) {
+          const idModules = roles.map((r: any) => r.id_module).filter(Boolean);
+          if (idModules.length > 0) {
+            const { data: staffModules } = await supabase
+              .from('business_modules')
+              .select('*')
+              .in('id_module', idModules)
+              .eq('tipo_modulo', 'restaurant')
+              .eq('estado', 'activo');
+            mods = staffModules ?? [];
+          }
         }
       }
 
-      setModules([]);
+      setModules(mods);
+
+      if (mods.length > 0) {
+        const saved = localStorage.getItem('active_restaurant_id');
+        const found = saved ? mods.find((m: BusinessModule) => m.id_module === saved) : null;
+        const target = found ?? mods[0];
+        setActiveModule(target);
+        localStorage.setItem('active_restaurant_id', target.id_module);
+      }
     } catch {
       setModules([]);
     } finally {
+      setSelectionReady(true);
       setModulesLoading(false);
     }
   }, [user]);
@@ -137,30 +146,11 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, []);
 
-  // ── 3. Auto-selección cuando hay un solo módulo ───────────────────────────
+  // ── 3. Validar que el módulo activo sigue en la lista tras recargar módulos ─
   useEffect(() => {
-    if (modulesLoading) return;
-
-    if (modules.length === 0) return;
-
-    if (modules.length === 1) {
-      setActiveModule(modules[0]);
-      return;
-    }
-
-    // Si ya había un módulo activo y sigue en la lista, mantenerlo
-    if (activeModule) {
-      const still = modules.find(m => m.id_module === activeModule.id_module);
-      if (!still) setActiveModule(null);
-      return;
-    }
-
-    // Intentar recuperar el módulo desde localStorage (cuando se entra desde el hub)
-    const saved = localStorage.getItem('active_restaurant_id');
-    if (saved) {
-      const found = modules.find(m => m.id_module === saved);
-      if (found) { setActiveModule(found); return; }
-    }
+    if (modulesLoading || !activeModule) return;
+    const still = modules.find(m => m.id_module === activeModule.id_module);
+    if (!still) setActiveModule(null);
   }, [modules, modulesLoading]);
 
   // ── 4. Recuperar restaurante cuando cambia el módulo activo ──────────────
@@ -180,7 +170,9 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       localStorage.removeItem('active_restaurant_id');
       setActiveModule(null);
       setRestaurant(null);
+      setSelectionReady(false);
     } else {
+      setSelectionReady(false); // reset antes de cargar módulos
       fetchModules();
     }
   }, [user, authLoading]);
@@ -195,7 +187,7 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     localStorage.setItem('active_restaurant_id', mod.id_module);
   }, []);
 
-  const needsSelector = !modulesLoading && modules.length > 1 && !activeModule;
+  const needsSelector = false;
 
   return (
     <RestaurantContext.Provider value={{

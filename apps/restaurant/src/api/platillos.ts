@@ -1,6 +1,15 @@
 import { supabase } from './supabase';
 import type { Platillo, CategoriaPlatillo } from '../types';
 
+export async function uploadPlatilloImage(file: File, restaurantId: string): Promise<string> {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+  const path = `platillos/${restaurantId}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from('solaris-media').upload(path, file, { upsert: true, contentType: file.type });
+  if (error) throw error;
+  const { data } = supabase.storage.from('solaris-media').getPublicUrl(path);
+  return data.publicUrl;
+}
+
 export async function getPlatillos(idRestaurant: string): Promise<Platillo[]> {
   const { data, error } = await supabase
     .from('platillo')

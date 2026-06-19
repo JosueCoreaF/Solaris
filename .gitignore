@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .claude/
+.agents/
 memory/
 .env
 .env.*
@@ -37,3 +38,5 @@ backend/migrate-branding.js
 backend/migrate_billing.js
 apps/admin/
 apps/hub/src/workers/
+videos/
+skills-lock.json

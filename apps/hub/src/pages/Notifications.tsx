@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, CalendarCheck, CreditCard, ChevronRight, RefreshCw, Loader2, AlertCircle, Dumbbell, UtensilsCrossed, Hotel } from 'lucide-react';
+import { Bell, CalendarCheck, CreditCard, ChevronRight, RefreshCw, Loader2, AlertCircle, Dumbbell, UtensilsCrossed, Hotel, ClipboardList } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
 import { useDashboard } from '../components/DashboardLayout';
@@ -38,17 +38,21 @@ const NotificationsContent = () => {
   const typeIcon = (type: string, module?: string) => {
     if (type === 'checkin' && module === 'restaurant') return <UtensilsCrossed className="w-5 h-5" />;
     if (type === 'checkin') return <CalendarCheck className="w-5 h-5" />;
+    if (type === 'payment' && module === 'gym') return <Dumbbell className="w-5 h-5" />;
     if (type === 'payment') return <CreditCard className="w-5 h-5" />;
     if (type === 'gym_request' || type === 'gym_expiry') return <Dumbbell className="w-5 h-5" />;
+    if (type === 'order') return <ClipboardList className="w-5 h-5" />;
     return <AlertCircle className="w-5 h-5" />;
   };
 
   const typeBg = (type: string, module?: string) => {
     if (type === 'checkin' && module === 'restaurant') return 'bg-amber-100 text-amber-600';
     if (type === 'checkin') return 'bg-emerald-100 text-emerald-600';
+    if (type === 'payment' && module === 'gym') return 'bg-indigo-100 text-indigo-600';
     if (type === 'payment') return 'bg-rose-100 text-rose-600';
     if (type === 'gym_request') return 'bg-indigo-100 text-indigo-600';
     if (type === 'gym_expiry') return 'bg-orange-100 text-orange-600';
+    if (type === 'order') return 'bg-amber-100 text-amber-600';
     return 'bg-slate-100 text-slate-600';
   };
 

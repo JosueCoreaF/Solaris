@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Pencil, Trash2, Search, UtensilsCrossed, ImageOff } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, UtensilsCrossed, ImageOff, Upload, X, Loader2 } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { Badge } from '../components/Badge';
 import { useRestaurant } from '../context/RestaurantContext';
-import { getPlatillos, createPlatillo, updatePlatillo, deletePlatillo, getCategoriasPlatillo } from '../api/platillos';
+import { getPlatillos, createPlatillo, updatePlatillo, deletePlatillo, getCategoriasPlatillo, uploadPlatilloImage } from '../api/platillos';
 import type { Platillo, CategoriaPlatillo } from '../types';
 
 const emptyForm = {
@@ -28,6 +28,9 @@ export const Platillos: React.FC = () => {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploadingImg, setUploadingImg] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     if (!restaurant) return;
@@ -62,6 +65,22 @@ export const Platillos: React.FC = () => {
     });
     setError(null);
     setModalOpen(true);
+  };
+
+  const handleImageFile = async (file: File) => {
+    if (!restaurant) return;
+    if (!file.type.startsWith('image/')) { setError('Solo se aceptan archivos de imagen.'); return; }
+    if (file.size > 4 * 1024 * 1024) { setError('La imagen no debe superar 4 MB.'); return; }
+    setUploadingImg(true);
+    setError(null);
+    try {
+      const url = await uploadPlatilloImage(file, restaurant.id_restaurant);
+      setForm(f => ({ ...f, imagen_url: url }));
+    } catch (e: any) {
+      setError('Error al subir la imagen: ' + (e.message ?? ''));
+    } finally {
+      setUploadingImg(false);
+    }
   };
 
   const handleSave = async () => {
@@ -285,22 +304,59 @@ export const Platillos: React.FC = () => {
               />
             </div>
             <div className="col-span-2">
-              <label className={labelCls}>URL de imagen</label>
+              <label className={labelCls}>Imagen</label>
               <input
-                value={form.imagen_url}
-                onChange={e => setForm(f => ({ ...f, imagen_url: e.target.value }))}
-                placeholder="https://example.com/imagen.jpg"
-                className={`${inputCls} font-mono text-xs`}
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleImageFile(f); e.target.value = ''; }}
               />
-              {form.imagen_url && (
-                <div className="mt-2 rounded-xl overflow-hidden h-24 bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
-                  <img
-                    src={form.imagen_url}
-                    alt="Preview"
-                    className="h-full w-full object-cover"
-                    onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
+              {form.imagen_url ? (
+                <div className="relative rounded-xl overflow-hidden h-36 bg-slate-100 dark:bg-slate-800 group">
+                  <img src={form.imagen_url} alt="Preview" className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white text-xs font-medium rounded-lg backdrop-blur-sm transition-colors"
+                    >
+                      <Upload className="w-3.5 h-3.5" /> Cambiar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, imagen_url: '' }))}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/40 hover:bg-red-500/60 text-white text-xs font-medium rounded-lg backdrop-blur-sm transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" /> Quitar
+                    </button>
+                  </div>
                 </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) handleImageFile(f); }}
+                  disabled={uploadingImg}
+                  className={`w-full h-32 border-2 border-dashed rounded-xl flex flex-col items-center justify-center gap-2 transition-colors ${
+                    dragOver ? 'border-orange-500 bg-orange-500/5' : 'border-slate-300 dark:border-slate-700 hover:border-orange-400 hover:bg-orange-500/5'
+                  }`}
+                >
+                  {uploadingImg ? (
+                    <Loader2 className="w-6 h-6 text-orange-400 animate-spin" />
+                  ) : (
+                    <>
+                      <Upload className="w-6 h-6 text-slate-400" />
+                      <span className="text-xs text-slate-500">Haz clic o arrastra una imagen aquí</span>
+                      <span className="text-xs text-slate-400">PNG, JPG, WEBP · máx 4 MB</span>
+                    </>
+                  )}
+                </button>
+              )}
+              {uploadingImg && form.imagen_url === '' && (
+                <p className="text-xs text-orange-400 mt-1 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Subiendo imagen...</p>
               )}
             </div>
           </div>

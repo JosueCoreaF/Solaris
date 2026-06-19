@@ -88,6 +88,17 @@ export async function getRecetasPlatillo(idPlatillo: string) {
   return data ?? [];
 }
 
+export async function getAllRecetasByPlatillos(idPlatillos: (string | number)[]) {
+  if (!idPlatillos.length) return [];
+  const { data, error } = await supabase
+    .from('receta_platillo')
+    .select('*, inventario(*, producto(*))')
+    .in('id_platillo', idPlatillos)
+    .order('id_rec_platillo');
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function createRecetaItem(payload: { id_platillo: string; id_inventario: string; cantidad_utilizada: number }) {
   const { data, error } = await supabase
     .from('receta_platillo')

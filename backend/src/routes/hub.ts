@@ -829,6 +829,33 @@ router.get('/notifications', async (req, res) => {
             .lte('fecha_reserva', tomorrowEnd.toISOString().split('T')[0])
             .limit(20)
         : Promise.resolve({ data: [] }),
+      // Gym — inscripciones con deuda de pago
+      gymIds.length > 0
+        ? db.from('inscripciones_gym')
+            .select('id_inscripcion, id_gimnasio, estado_pago, miembros(nombre, apellido)')
+            .in('id_gimnasio', gymIds)
+            .eq('estado', 'activa')
+            .eq('estado_pago', 'deuda')
+            .limit(15)
+        : Promise.resolve({ data: [] }),
+      // Restaurante — pedidos activos (pendiente o preparando)
+      restIds.length > 0
+        ? db.from('pedido_restaurante')
+            .select('id_pedido, estado_pedido, id_restaurant, created_at, mesa_restaurante(numero_mesa)')
+            .in('id_restaurant', restIds)
+            .in('estado_pedido', ['pendiente', 'preparando'])
+            .order('created_at', { ascending: false })
+            .limit(15)
+        : Promise.resolve({ data: [] }),
+      // Restaurante — facturas sin pagar (estado Por pagar)
+      restIds.length > 0
+        ? db.from('factura_restaurante')
+            .select('id_factura, total, id_restaurant, estado, created_at')
+            .in('id_restaurant', restIds)
+            .eq('estado', 'Por pagar')
+            .order('created_at', { ascending: false })
+            .limit(10)
+        : Promise.resolve({ data: [] }),
     ];
 
     const [
@@ -837,6 +864,9 @@ router.get('/notifications', async (req, res) => {
       { data: solicitudesGym },
       { data: inscripcionesPorVencer },
       { data: reservasRest },
+      { data: gymDeudas },
+      { data: pedidosActivos },
+      { data: facturasDeuda },
     ] = await Promise.all(queries);
 
     const notifications: any[] = [];
@@ -918,6 +948,51 @@ router.get('/notifications', async (req, res) => {
         severity:     isToday ? 'high' : 'medium',
         created_at:   new Date().toISOString(),
         reference_id: r.id_restaurant,
+      });
+    });
+
+    // ── Gym: inscripciones con deuda ──
+    (gymDeudas || []).forEach((i: any) => {
+      const miembro = Array.isArray(i.miembros) ? i.miembros[0] : i.miembros;
+      notifications.push({
+        id:           `gym-deuda-${i.id_inscripcion}`,
+        type:         'payment',
+        module:       'gym',
+        title:        'Pago Pendiente — Gym',
+        description:  `${miembro?.nombre || ''} ${miembro?.apellido || ''} tiene deuda en su inscripción activa`,
+        severity:     'high',
+        created_at:   new Date().toISOString(),
+        reference_id: i.id_gimnasio,
+      });
+    });
+
+    // ── Restaurante: pedidos activos ──
+    (pedidosActivos || []).forEach((p: any) => {
+      const mesa = Array.isArray(p.mesa_restaurante) ? p.mesa_restaurante[0] : p.mesa_restaurante;
+      const label = p.estado_pedido === 'preparando' ? 'En preparación' : 'Pedido nuevo';
+      notifications.push({
+        id:           `rest-pedido-${p.id_pedido}`,
+        type:         'order',
+        module:       'restaurant',
+        title:        `${label} — Restaurante`,
+        description:  mesa?.numero_mesa ? `Mesa ${mesa.numero_mesa}` : 'Pedido activo',
+        severity:     p.estado_pedido === 'pendiente' ? 'high' : 'medium',
+        created_at:   p.created_at,
+        reference_id: p.id_restaurant,
+      });
+    });
+
+    // ── Restaurante: facturas sin pagar ──
+    (facturasDeuda || []).forEach((f: any) => {
+      notifications.push({
+        id:           `rest-factura-${f.id_factura}`,
+        type:         'payment',
+        module:       'restaurant',
+        title:        'Factura Por Cobrar — Restaurante',
+        description:  `L. ${Number(f.total).toLocaleString('es-HN', { minimumFractionDigits: 2 })} pendiente de pago`,
+        severity:     'medium',
+        created_at:   f.created_at,
+        reference_id: f.id_restaurant,
       });
     });
 
