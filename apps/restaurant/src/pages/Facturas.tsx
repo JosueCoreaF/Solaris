@@ -367,7 +367,7 @@ export const Facturas: React.FC = () => {
 
       {/* Modal ver detalle */}
       {viewFactura && (
-        <Modal open={!!viewFactura} onClose={() => setViewFactura(null)} title={`Factura #${viewFactura.id_factura.slice(0, 8)}…`} size="sm">
+        <Modal open={!!viewFactura} onClose={() => setViewFactura(null)} title={`Factura #${String(viewFactura.id_factura).padStart(4, '0')}`} size="sm">
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
