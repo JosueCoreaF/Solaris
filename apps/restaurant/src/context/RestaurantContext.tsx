@@ -43,7 +43,7 @@ const RestaurantContext = createContext<RestaurantContextValue | null>(null);
 
 // ─── Provider ───────────────────────────────────────────────────────────────
 export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   const [modules, setModules] = useState<BusinessModule[]>([]);
   const [modulesLoading, setModulesLoading] = useState(true);
@@ -175,6 +175,7 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // ── 5. Inicializar cuando el usuario cambia ───────────────────────────────
   useEffect(() => {
+    if (authLoading) return; // Esperar a que la auth resuelva antes de actuar
     if (!user) {
       localStorage.removeItem('active_restaurant_id');
       setActiveModule(null);
@@ -182,7 +183,7 @@ export const RestaurantProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } else {
       fetchModules();
     }
-  }, [user]);
+  }, [user, authLoading]);
 
   // ── Refetch completo (útil tras crear/editar datos) ───────────────────────
   const refetch = useCallback(async () => {
