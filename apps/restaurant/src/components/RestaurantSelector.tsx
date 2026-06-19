@@ -61,7 +61,7 @@ export const RestaurantSelector: React.FC = () => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-white font-semibold truncate">
-                    {mod.nombre ?? `Restaurante ${i + 1}`}
+                    {mod.nombre_modulo ?? mod.nombre ?? `Restaurante ${i + 1}`}
                   </p>
                   <p className="text-slate-500 text-xs mt-0.5 font-mono truncate">
                     {mod.id_module}

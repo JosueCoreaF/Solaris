@@ -327,9 +327,9 @@ export const Sidebar: React.FC = () => {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ width: 32, height: 32, borderRadius: 6, background: 'var(--surface-raised)', color: activeModuleId === mod.id_module ? 'var(--accent)' : 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
-                      {getInitials(mod.nombre)}
+                      {getInitials(mod.nombre_modulo ?? mod.nombre)}
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-h)' }}>{mod.nombre ?? mod.id_module}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-h)' }}>{mod.nombre_modulo ?? mod.nombre ?? mod.id_module}</div>
                   </div>
                   {activeModuleId === mod.id_module && <span style={{ color: 'var(--accent)' }}><IconCheck /></span>}
                 </div>
