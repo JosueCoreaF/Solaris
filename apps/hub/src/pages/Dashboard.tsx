@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useDashboard } from '../components/DashboardLayout';
+import apiClient from '../services/api';
 import {
   Wallet,
   Building2,
@@ -23,6 +25,41 @@ const DashboardContent = () => {
   const navigate = useNavigate();
   const { session } = useAuth();
   const { modules, kpis, ownerNombre, summary, notifications, dataLoading, error, refetch } = useDashboard();
+
+  const [applying, setApplying] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'info' | 'error', message: string } | null>(null);
+
+  const handleApplyAdjustment = async () => {
+    try {
+      setApplying(true);
+      setFeedback(null);
+      
+      const response = await apiClient.post('/hub/apply-recommendation');
+      
+      if (response?.success) {
+        setFeedback({
+          type: response.applied ? 'success' : 'info',
+          message: response.message || 'Ajuste procesado correctamente.'
+        });
+        
+        if (response.applied) {
+          refetch();
+        }
+      } else {
+        setFeedback({
+          type: 'error',
+          message: response?.message || 'No se pudo aplicar el ajuste en este momento.'
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: err.response?.data?.error || err.message || 'Error al aplicar el ajuste de tarifas.'
+      });
+    } finally {
+      setApplying(false);
+    }
+  };
 
   // Si la sesión todavía no se ha cargado, mostrar spinner inicial
   if (session === undefined) {
@@ -382,9 +419,41 @@ const DashboardContent = () => {
                   <p className="text-slate-600 leading-relaxed mb-5">
                     {summary?.ai_recommendation || 'Analizando tus métricas para generar una recomendación...'}
                   </p>
+                  
+                  {feedback && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`mb-5 p-4 rounded-xl text-sm flex items-start justify-between gap-3 ${
+                        feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' :
+                        feedback.type === 'info' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
+                        'bg-rose-50 text-rose-800 border border-rose-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className={`w-5 h-5 shrink-0 ${feedback.type === 'success' ? 'text-emerald-600' : 'text-blue-600'}`} />
+                        <span>{feedback.message}</span>
+                      </div>
+                      <button onClick={() => setFeedback(null)} className="text-slate-400 hover:text-slate-600 text-xs font-bold font-mono px-1">
+                        ✕
+                      </button>
+                    </motion.div>
+                  )}
+
                   <div className="flex flex-wrap gap-3">
-                    <button className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors">
-                      Aplicar Ajuste
+                    <button 
+                      onClick={handleApplyAdjustment}
+                      disabled={applying}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors flex items-center gap-2 disabled:opacity-75 disabled:cursor-not-allowed"
+                    >
+                      {applying ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Aplicando...
+                        </>
+                      ) : (
+                        'Aplicar Ajuste'
+                      )}
                     </button>
                     <button
                       onClick={() => navigate('/notifications')}

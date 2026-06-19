@@ -742,6 +742,261 @@ router.get('/dashboard-summary', async (req, res) => {
   }
 });
 
+// ─── POST /hub/apply-recommendation ──────────────────────────────────────────
+
+router.post('/apply-recommendation', async (req, res) => {
+  try {
+    const user = await getUserFromToken(req.headers.authorization);
+    if (!user) return res.status(401).json({ error: 'No autorizado' });
+
+    const { ownerRow, ownerIds, hotelIds, error: ownerError } = await resolveOwner(user);
+    if (ownerError) return res.status(400).json({ error: ownerError.message });
+    if (ownerIds.length === 0) return res.status(400).json({ error: 'Perfil de propietario no encontrado.' });
+
+    // 1. Obtener módulos para calcular ocupación actual
+    const { data: modules, error: modulesErr } = await db
+      .from('business_modules')
+      .select('id_module, tipo_modulo, nombre_modulo, estado')
+      .in('owner_id', ownerIds)
+      .eq('estado', 'activo');
+
+    if (modulesErr) return res.status(400).json({ error: modulesErr.message });
+    const moduleIds = (modules || []).map((m: any) => m.id_module);
+
+    // ── HOTELES ──
+    let hoteles: any[] = [];
+    if (moduleIds.length > 0) {
+      const { data: h } = await db
+        .from('hoteles')
+        .select('id_hotel, nombre_hotel, estado, id_module')
+        .in('id_module', moduleIds)
+        .eq('estado', 'activo');
+      hoteles = h || [];
+    }
+
+    // ── GIMNASIOS ──
+    let gimnasios: any[] = [];
+    if (moduleIds.length > 0) {
+      const { data: g } = await db
+        .from('gimnasios')
+        .select('id_gimnasio, nombre_gimnasio, estado, id_module')
+        .in('id_module', moduleIds)
+        .eq('estado', 'activo');
+      gimnasios = g || [];
+    }
+
+    // ── RESTAURANTES ──
+    let restaurantes: any[] = [];
+    if (moduleIds.length > 0) {
+      const { data: r } = await db
+        .from('restaurant')
+        .select('id_restaurant, nombre_restaurante, activo, id_module')
+        .in('id_module', moduleIds)
+        .eq('activo', true);
+      restaurantes = r || [];
+    }
+
+    const moduleIdByHotel: Record<string, string> = {};
+    hoteles.forEach((h: any) => { if (h.id_module) moduleIdByHotel[h.id_hotel] = h.id_module; });
+    const moduleIdByGym: Record<string, string> = {};
+    gimnasios.forEach((g: any) => { if (g.id_module) moduleIdByGym[g.id_gimnasio] = g.id_module; });
+    const moduleIdByRest: Record<string, string> = {};
+    restaurantes.forEach((r: any) => { if (r.id_module) moduleIdByRest[r.id_restaurant] = r.id_module; });
+
+    const statsByModule: Record<string, { ocupacion: number }> = {};
+    moduleIds.forEach((id: string) => { statsByModule[id] = { ocupacion: 0 }; });
+
+    // Calcular ocupación de Hoteles
+    const allHotelIds = hoteles.map((h: any) => h.id_hotel);
+    if (allHotelIds.length > 0) {
+      const { data: habsData } = await db
+        .from('habitaciones')
+        .select('id_hotel, estado')
+        .in('id_hotel', allHotelIds);
+
+      const totalHabsByHotel: Record<string, number> = {};
+      const occupiedHabsByHotel: Record<string, number> = {};
+      (habsData || []).forEach((h: any) => {
+        totalHabsByHotel[h.id_hotel] = (totalHabsByHotel[h.id_hotel] || 0) + 1;
+        if (h.estado === 'ocupada') {
+          occupiedHabsByHotel[h.id_hotel] = (occupiedHabsByHotel[h.id_hotel] || 0) + 1;
+        }
+      });
+
+      hoteles.forEach((hotel: any) => {
+        const idModule = moduleIdByHotel[hotel.id_hotel];
+        if (idModule && statsByModule[idModule]) {
+          const total = totalHabsByHotel[hotel.id_hotel] || 0;
+          const occupied = occupiedHabsByHotel[hotel.id_hotel] || 0;
+          statsByModule[idModule].ocupacion = total > 0 ? Math.round((occupied / total) * 100) : 0;
+        }
+      });
+    }
+
+    // Calcular ocupación de Gimnasios
+    const allGymIds = gimnasios.map((g: any) => g.id_gimnasio);
+    if (allGymIds.length > 0) {
+      const { data: ins } = await db
+        .from('inscripciones_gym')
+        .select('id_gimnasio, estado')
+        .in('id_gimnasio', allGymIds);
+
+      const activeInsByGym: Record<string, number> = {};
+      (ins || []).forEach((i: any) => {
+        if (i.estado === 'activa') {
+          activeInsByGym[i.id_gimnasio] = (activeInsByGym[i.id_gimnasio] || 0) + 1;
+        }
+      });
+
+      gimnasios.forEach((g: any) => {
+        const idModule = moduleIdByGym[g.id_gimnasio];
+        if (idModule && statsByModule[idModule]) {
+          const active = activeInsByGym[g.id_gimnasio] || 0;
+          statsByModule[idModule].ocupacion = active > 0 ? Math.min(100, Math.round((active / 50) * 100)) : 0;
+        }
+      });
+    }
+
+    // Calcular ocupación de Restaurantes
+    const allRestIds = restaurantes.map((r: any) => r.id_restaurant);
+    if (allRestIds.length > 0) {
+      const { data: mesas } = await db
+        .from('mesa_restaurante')
+        .select('id_restaurant, estado')
+        .in('id_restaurant', allRestIds);
+
+      const mesasTotalesByRest: Record<string, number> = {};
+      const mesasOcupadasByRest: Record<string, number> = {};
+      (mesas || []).forEach((m: any) => {
+        mesasTotalesByRest[m.id_restaurant] = (mesasTotalesByRest[m.id_restaurant] || 0) + 1;
+        if (m.estado === 'ocupada') {
+          mesasOcupadasByRest[m.id_restaurant] = (mesasOcupadasByRest[m.id_restaurant] || 0) + 1;
+        }
+      });
+
+      restaurantes.forEach((r: any) => {
+        const idModule = moduleIdByRest[r.id_restaurant];
+        if (idModule && statsByModule[idModule]) {
+          const total = mesasTotalesByRest[r.id_restaurant] || 0;
+          const ocupadas = mesasOcupadasByRest[r.id_restaurant] || 0;
+          statsByModule[idModule].ocupacion = total > 0 ? Math.round((ocupadas / total) * 100) : 0;
+        }
+      });
+    }
+
+    let globalOcupacion = 0;
+    modules.forEach((mod: any) => {
+      globalOcupacion += statsByModule[mod.id_module]?.ocupacion || 0;
+    });
+    const avgOcupacion = modules.length > 0 ? Math.round(globalOcupacion / modules.length) : 0;
+
+    let factor = 1.0;
+    let tipoAjuste = '';
+    let mensajeRespuesta = '';
+
+    if (avgOcupacion < 30) {
+      factor = 0.85; // Descuento del 15%
+      tipoAjuste = 'descuento';
+      mensajeRespuesta = `Se ha aplicado un descuento estratégico del 15% en las tarifas de tus hoteles debido a la baja ocupación del ${avgOcupacion}%.`;
+    } else if (avgOcupacion > 80) {
+      factor = 1.15; // Incremento del 15%
+      tipoAjuste = 'incremento';
+      mensajeRespuesta = `Se ha aplicado un incremento temporal del 15% en las tarifas de tus hoteles debido a la alta ocupación del ${avgOcupacion}%.`;
+    } else {
+      return res.json({
+        success: false,
+        applied: false,
+        message: `La ocupación promedio actual es del ${avgOcupacion}%, lo cual se considera estable. No se requiere aplicar ajustes en este momento.`,
+      });
+    }
+
+    if (allHotelIds.length === 0) {
+      return res.json({
+        success: true,
+        applied: false,
+        message: `Ocupación calculada (${avgOcupacion}%), pero no tienes módulos de hotel activos para ajustar tarifas.`,
+      });
+    }
+
+    // 2. Obtener los tipos de habitación de los hoteles
+    const { data: tipos } = await db
+      .from('tipos_habitacion')
+      .select('id_tipo_habitacion')
+      .in('id_hotel', allHotelIds);
+
+    const tipoIds = (tipos || []).map((t: any) => t.id_tipo_habitacion);
+
+    if (tipoIds.length > 0) {
+      // Obtener tarifas activas
+      const { data: tarifas } = await db
+        .from('tarifas')
+        .select('*')
+        .in('id_tipo_habitacion', tipoIds)
+        .eq('activa', true);
+
+      if (tarifas && tarifas.length > 0) {
+        for (const tarifa of tarifas) {
+          const nuevaTarifaNoche = Math.round(Number(tarifa.tarifa_noche) * factor * 100) / 100;
+          const nuevaTarifaHora = Math.round(Number(tarifa.tarifa_hora) * factor * 100) / 100;
+          const nuevaTarifaPasadia = Math.round(Number(tarifa.tarifa_pasadia) * factor * 100) / 100;
+
+          // Actualizar tarifa
+          await db
+            .from('tarifas')
+            .update({
+              tarifa_noche: nuevaTarifaNoche,
+              tarifa_hora: nuevaTarifaHora,
+              tarifa_pasadia: nuevaTarifaPasadia,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id_tarifa', tarifa.id_tarifa);
+
+          // Actualizar la desnormalización en la tabla de habitaciones
+          await db
+            .from('habitaciones')
+            .update({
+              tarifa_noche: nuevaTarifaNoche,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id_tipo_habitacion', tarifa.id_tipo_habitacion);
+        }
+      }
+    }
+
+    // 3. Registrar en bitácora de actividad
+    await db.from('bitacora_actividad').insert({
+      usuario_id: user.id,
+      accion: 'APPLY_AI_TARIFF_AJUSTMENT',
+      tabla_afectada: 'tarifas',
+      valores_antiguos: { ocupacion_anterior: avgOcupacion },
+      valores_nuevos: { factor, tipo: tipoAjuste, ocupacion_actual: avgOcupacion },
+    });
+
+    // 4. Crear notificaciones en los hoteles
+    const notificacionesRows = allHotelIds.map((hotelId: string) => ({
+      id_hotel: hotelId,
+      tipo: 'sistema',
+      titulo: tipoAjuste === 'descuento' ? 'Tarifas promocionales aplicadas' : 'Incremento de tarifas aplicado',
+      mensaje: tipoAjuste === 'descuento'
+        ? `La IA Solaris ha aplicado un descuento del 15% en las tarifas del hotel debido a la baja ocupación (${avgOcupacion}%).`
+        : `La IA Solaris ha incrementado las tarifas un 15% debido a la alta ocupación (${avgOcupacion}%).`,
+      leida: false,
+    }));
+
+    if (notificacionesRows.length > 0) {
+      await db.from('notificaciones').insert(notificacionesRows);
+    }
+
+    return res.json({
+      success: true,
+      applied: true,
+      message: mensajeRespuesta,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── GET /hub/notifications ───────────────────────────────────────────────────
 
 router.get('/notifications', async (req, res) => {
