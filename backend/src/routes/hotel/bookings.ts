@@ -1010,6 +1010,7 @@ router.get('/reservas', async (req, res) => {
         return servicios.some((s: any) => s.servicios_adicionales?.nombre === name);
       };
 
+      const NOMBRES_FIJOS = ['Cama Extra', 'Neverita', 'Plancha', 'Limpieza Diaria'];
       const mapped = {
         ...r,
         huesped: r.huesped?.nombre_completo ?? '',
@@ -1019,7 +1020,10 @@ router.get('/reservas', async (req, res) => {
         cama_extra: hasService('Cama Extra'),
         neverita: hasService('Neverita'),
         plancha: hasService('Plancha'),
-        limpieza_diaria: hasService('Limpieza Diaria')
+        limpieza_diaria: hasService('Limpieza Diaria'),
+        servicios_personalizados: servicios
+          .map((s: any) => s.servicios_adicionales?.nombre)
+          .filter((n: any) => n && !NOMBRES_FIJOS.includes(n)),
       };
       
       // Eliminar los objetos relacionales crudos para no engordar la respuesta
@@ -1073,6 +1077,7 @@ router.post('/reservas', async (req, res) => {
     limpieza_diaria,
     neverita,
     plancha,
+    servicios_personalizados,
     tipo_reserva,
   } = req.body;
 
@@ -1086,12 +1091,13 @@ router.post('/reservas', async (req, res) => {
     return res.status(401).json({ error: 'No autorizado o no hay owner_id asociado' });
   }
 
-  // Construir lista de servicios
+  // Construir lista de servicios (los 4 fijos + cualquier servicio personalizado del hotel)
   const servicios: string[] = [];
   if (cama_extra)      servicios.push('Cama Extra');
   if (neverita)        servicios.push('Neverita');
   if (plancha)         servicios.push('Plancha');
   if (limpieza_diaria) servicios.push('Limpieza Diaria');
+  if (Array.isArray(servicios_personalizados)) servicios.push(...servicios_personalizados.filter(Boolean));
 
   // Resolver tarifa activa para las fechas de la reserva.
   // Prioridad: 1) período específico en habitacion_tarifas_periodo
@@ -1337,10 +1343,18 @@ router.patch('/reservas/:id', async (req, res) => {
     return dbExistingServices.some((s: any) => s.servicios_adicionales?.nombre === name);
   };
 
+  const NOMBRES_FIJOS = ['Cama Extra', 'Neverita', 'Plancha', 'Limpieza Diaria'];
+  const existingCustomNames = (dbExistingServices && Array.isArray(dbExistingServices))
+    ? dbExistingServices
+        .map((s: any) => s.servicios_adicionales?.nombre)
+        .filter((n: any) => n && !NOMBRES_FIJOS.includes(n))
+    : [];
+
   const finalCamaExtra = updates.cama_extra !== undefined ? updates.cama_extra : hasExistingService('Cama Extra');
   const finalNeverita = updates.neverita !== undefined ? updates.neverita : hasExistingService('Neverita');
   const finalPlancha = updates.plancha !== undefined ? updates.plancha : hasExistingService('Plancha');
   const finalLimpiezaDiaria = updates.limpieza_diaria !== undefined ? updates.limpieza_diaria : hasExistingService('Limpieza Diaria');
+  const finalCustomServices: string[] = Array.isArray(updates.servicios_personalizados) ? updates.servicios_personalizados.filter(Boolean) : existingCustomNames;
 
   // Si se está modificando check_in, check_out, cama_extra, neverita o plancha
   if (
@@ -1388,7 +1402,7 @@ router.patch('/reservas/:id', async (req, res) => {
   }
 
   // Quitar los booleanos heredados antes de actualizar para evitar que falle
-  const { cama_extra, neverita, plancha, limpieza_diaria, ...reservasUpdates } = updates;
+  const { cama_extra, neverita, plancha, limpieza_diaria, servicios_personalizados, ...reservasUpdates } = updates;
 
   // Mapear el estado_pago defensivamente en las actualizaciones si se provee
   if (reservasUpdates.estado_pago !== undefined) {
@@ -1424,7 +1438,8 @@ router.patch('/reservas/:id', async (req, res) => {
     updates.cama_extra !== undefined ||
     updates.neverita !== undefined ||
     updates.plancha !== undefined ||
-    updates.limpieza_diaria !== undefined
+    updates.limpieza_diaria !== undefined ||
+    updates.servicios_personalizados !== undefined
   ) {
     await db().from('reserva_servicios').delete().eq('id_reserva_hotel', id);
 
@@ -1433,6 +1448,7 @@ router.patch('/reservas/:id', async (req, res) => {
     if (finalNeverita) servicesToInsert.push({ name: 'Neverita' });
     if (finalPlancha) servicesToInsert.push({ name: 'Plancha' });
     if (finalLimpiezaDiaria) servicesToInsert.push({ name: 'Limpieza Diaria' });
+    for (const nombre of finalCustomServices) servicesToInsert.push({ name: nombre });
 
     if (servicesToInsert.length > 0) {
       const { data: dbServices } = await db()

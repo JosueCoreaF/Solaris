@@ -113,13 +113,13 @@ export async function fetchGuestMessages(channelId: string, after?: string) {
 
 // ── Listados públicos ─────────────────────────────────────────────────────────
 
-export async function fetchRestaurantes(): Promise<{ id: string; nombre: string; ciudad: string | null; direccion: string | null; telefono: string | null }[]> {
+export async function fetchRestaurantes(): Promise<{ id: string; nombre: string; ciudad: string | null; direccion: string | null; telefono: string | null; platillosCount: number }[]> {
   const res = await fetch(`${BASE}/restaurantes`);
   if (!res.ok) return [];
   return res.json();
 }
 
-export async function fetchGyms(): Promise<{ id: string; nombre: string; ciudad: string | null; direccion: string | null; telefono: string | null }[]> {
+export async function fetchGyms(): Promise<{ id: string; nombre: string; ciudad: string | null; direccion: string | null; telefono: string | null; planesCount: number }[]> {
   const res = await fetch(`${BASE}/gyms`);
   if (!res.ok) return [];
   return res.json();

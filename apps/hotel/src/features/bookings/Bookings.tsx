@@ -36,7 +36,7 @@ import {
   type Reserva,
   type BloqueHabitacion,
 } from '../../api/bookingsService';
-import { obtenerConfigHotelera } from '../../api/configService';
+import { obtenerConfigHotelera, obtenerServiciosAdicionales, type ServicioAdicional } from '../../api/configService';
 import { obtenerTarifasVigentes, type Tarifa } from '../../api/tarifasService';
 import { EmailStudioModal } from '../../components/EmailStudioModal';
 import { useHasFeature } from '../../hooks/usePlanFeature';
@@ -74,6 +74,7 @@ interface EditorForm {
   limpiezaDiaria: boolean;
   neverita: boolean;
   plancha: boolean;
+  serviciosPersonalizados: string[];
   observaciones: string;
   nuevoNombre: string;
   nuevoCorreo: string;
@@ -109,6 +110,7 @@ function defaultForm(checkIn?: string, habitacionId?: string): EditorForm {
     limpiezaDiaria: false,
     neverita: false,
     plancha: false,
+    serviciosPersonalizados: [],
     observaciones: '',
     nuevoNombre: '',
     nuevoCorreo: '',
@@ -135,6 +137,7 @@ export const Bookings: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [hotelConfig, setHotelConfig] = useState<any>(null);
   const [tarifas, setTarifas] = useState<Tarifa[]>([]);
+  const [serviciosAdicionales, setServiciosAdicionales] = useState<ServicioAdicional[]>([]);
 
   // ── Filters ──
   const [hotelFiltro, setHotelFiltro] = useState<string>(() => {
@@ -232,7 +235,7 @@ export const Bookings: React.FC = () => {
       const rangeStart = toDateKey(addDays(viewMonth, -45));
       const rangeEnd = toDateKey(addDays(viewMonth, 45));
       const activeHotelId = localStorage.getItem('active_hotel_id') || '';
-      const [h, hab, hues, res, emps, bloq, configData, activeTarifas] = await Promise.all([
+      const [h, hab, hues, res, emps, bloq, configData, activeTarifas, serviciosAd] = await Promise.all([
         fetchHoteles(),
         fetchHabitaciones(),
         fetchHuespedes(),
@@ -241,6 +244,7 @@ export const Bookings: React.FC = () => {
         fetchBloques(rangeStart, rangeEnd),
         obtenerConfigHotelera(activeHotelId).catch(() => null),
         obtenerTarifasVigentes().catch(() => []),
+        obtenerServiciosAdicionales().catch(() => []),
       ]);
       setHoteles(h);
       setHabitaciones(hab);
@@ -249,6 +253,7 @@ export const Bookings: React.FC = () => {
       setEmpresas(emps);
       setBloqueos(bloq || []);
       setTarifas(activeTarifas || []);
+      setServiciosAdicionales((serviciosAd || []).filter((s: ServicioAdicional) => s.activo));
 
       let singleConfig = null;
       if (configData) {
@@ -879,6 +884,7 @@ export const Bookings: React.FC = () => {
       limpiezaDiaria: r.limpieza_diaria ?? false,
       neverita: r.neverita ?? false,
       plancha: r.plancha ?? false,
+      serviciosPersonalizados: r.servicios_personalizados ?? [],
       observaciones: r.observaciones ?? '',
       nuevoNombre: '',
       nuevoCorreo: '',
@@ -1247,6 +1253,7 @@ export const Bookings: React.FC = () => {
           limpieza_diaria: form.limpiezaDiaria,
           neverita: form.neverita,
           plancha: form.plancha,
+          servicios_personalizados: form.serviciosPersonalizados,
           tipo_reserva: form.tipoReserva,
         } as any);
         showToast('Reserva actualizada.');
@@ -1271,6 +1278,7 @@ export const Bookings: React.FC = () => {
           limpieza_diaria: form.limpiezaDiaria,
           neverita: form.neverita,
           plancha: form.plancha,
+          servicios_personalizados: form.serviciosPersonalizados,
           tipo_reserva: form.tipoReserva,
         });
         const guestName = form.registrarNuevo
@@ -2627,6 +2635,25 @@ export const Bookings: React.FC = () => {
                       />
                       💨 Plancha de ropa
                     </label>
+                    {serviciosAdicionales.map(s => {
+                      const checked = form.serviciosPersonalizados.includes(s.nombre);
+                      return (
+                        <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: isPastReserva ? 'not-allowed' : 'pointer', fontSize: 12, color: checked ? '#ec4899' : '#64748b', fontWeight: checked ? 600 : 400, marginTop: 4 }}>
+                          <input
+                            disabled={isPastReserva}
+                            type="checkbox"
+                            checked={checked}
+                            onChange={e => setForm(f => ({
+                              ...f,
+                              serviciosPersonalizados: e.target.checked
+                                ? [...f.serviciosPersonalizados, s.nombre]
+                                : f.serviciosPersonalizados.filter(n => n !== s.nombre),
+                            }))}
+                          />
+                          🏷️ {s.nombre}{s.precio_defecto > 0 ? ` (L. ${Number(s.precio_defecto).toFixed(2)})` : ''}
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
 

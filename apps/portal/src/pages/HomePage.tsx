@@ -36,11 +36,11 @@ export default function HomePage() {
   const getHubUrl = () => {
     const envHubUrl = import.meta.env.VITE_HUB_URL;
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    
+
     if (isLocal) {
       return envHubUrl || `${window.location.protocol}//${window.location.hostname}:5174`;
     }
-    
+
     if (!envHubUrl || envHubUrl.includes('localhost') || envHubUrl.includes('127.0.0.1')) {
       const hostname = window.location.hostname;
       if (hostname.endsWith('solarys.uk')) {
@@ -64,7 +64,7 @@ export default function HomePage() {
     <div className="min-h-screen bg-[#fafaf9] flex flex-col font-sans overflow-hidden relative">
 
       {/* Ambient glowing blobs */}
-      <motion.div 
+      <motion.div
         animate={{
           scale: [1, 1.15, 1],
           x: [0, 30, 0],
@@ -75,9 +75,9 @@ export default function HomePage() {
           repeat: Infinity,
           ease: "easeInOut"
         }}
-        className="absolute top-[-10%] left-[-15%] w-[650px] h-[650px] rounded-full bg-emerald-200/10 blur-[140px] pointer-events-none z-0" 
+        className="absolute top-[-10%] left-[-15%] w-[650px] h-[650px] rounded-full bg-emerald-200/10 blur-[140px] pointer-events-none z-0"
       />
-      <motion.div 
+      <motion.div
         animate={{
           scale: [1, 1.1, 1],
           x: [0, -40, 0],
@@ -89,9 +89,9 @@ export default function HomePage() {
           ease: "easeInOut",
           delay: 1
         }}
-        className="absolute top-[15%] right-[-15%] w-[700px] h-[700px] rounded-full bg-amber-200/15 blur-[160px] pointer-events-none z-0" 
+        className="absolute top-[15%] right-[-15%] w-[700px] h-[700px] rounded-full bg-amber-200/15 blur-[160px] pointer-events-none z-0"
       />
-      <motion.div 
+      <motion.div
         animate={{
           scale: [1, 1.2, 1],
           x: [0, 25, 0],
@@ -103,7 +103,7 @@ export default function HomePage() {
           ease: "easeInOut",
           delay: 2
         }}
-        className="absolute bottom-[-10%] left-[20%] w-[550px] h-[550px] rounded-full bg-blue-100/10 blur-[130px] pointer-events-none z-0" 
+        className="absolute bottom-[-10%] left-[20%] w-[550px] h-[550px] rounded-full bg-blue-100/10 blur-[130px] pointer-events-none z-0"
       />
 
       {/* Grid Pattern overlay */}
@@ -262,21 +262,6 @@ export default function HomePage() {
             </div>
           </div>
         </div>
-
-        {/* CTA buscar reserva */}
-        <motion.div
-          initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-          transition={{ delay: 0.3, duration: 0.5 }}
-          className="mt-12 max-w-2xl mx-auto bg-white border border-stone-200 rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4"
-        >
-          <div className="text-left">
-            <h3 className="font-black text-stone-900">¿Eres dueño de un negocio?</h3>
-            <p className="text-sm text-stone-500">Accede al panel de administración de Solaris.</p>
-          </div>
-          <a href={`${hubBase}`} className="bg-stone-900 hover:bg-stone-800 text-white text-sm font-bold px-5 py-3 rounded-full transition-colors inline-flex items-center gap-2 whitespace-nowrap">
-            Ir al Panel <ChevronRight size={16} />
-          </a>
-        </motion.div>
       </section>
 
       {/* Footer */}

@@ -81,6 +81,14 @@ router.get('/hotel/:slug', async (req: Request, res: Response) => {
       .eq('id_hotel', hotel.id_hotel)
       .maybeSingle();
 
+    // Query 3: servicios adicionales activos (seleccionables al reservar)
+    const { data: serviciosAdicionales } = await db()
+      .from('servicios_adicionales')
+      .select('id_servicio, nombre, descripcion, precio_defecto')
+      .eq('id_hotel', hotel.id_hotel)
+      .eq('activo', true)
+      .order('nombre');
+
     return res.json({
       id:                 hotel.id_hotel,
       nombre:             hotel.nombre_hotel,
@@ -102,6 +110,12 @@ router.get('/hotel/:slug', async (req: Request, res: Response) => {
       horaCheckin:        (config?.hora_check_in  as string)?.substring(0, 5) ?? '15:00',
       horaCheckout:       (config?.hora_check_out as string)?.substring(0, 5) ?? '12:00',
       cargoPersonaExtra:  Number(config?.cargo_persona_extra ?? 0),
+      serviciosAdicionales: (serviciosAdicionales || []).map((s: any) => ({
+        id: s.id_servicio,
+        nombre: s.nombre,
+        descripcion: s.descripcion,
+        precio: Number(s.precio_defecto ?? 0),
+      })),
     });
   } catch (err: any) {
     console.error('[portal/hotel/:slug] catch:', err.message);
@@ -2181,13 +2195,23 @@ router.get('/restaurantes', async (_req: Request, res: Response) => {
       .eq('activo', true)
       .order('nombre_restaurante');
     if (error) return res.status(500).json({ error: error.message });
-    return res.json((data ?? []).map((r: any) => ({
-      id: String(r.id_restaurant),
-      nombre: r.nombre_restaurante,
-      ciudad: r.ciudad ?? null,
-      direccion: r.direccion ?? null,
-      telefono: r.telefono ?? null,
-    })));
+
+    const enriched = await Promise.all((data ?? []).map(async (r: any) => {
+      const { count } = await db()
+        .from('platillo')
+        .select('id_platillo', { count: 'exact', head: true })
+        .eq('id_restaurant', r.id_restaurant)
+        .eq('activo', true);
+      return {
+        id: String(r.id_restaurant),
+        nombre: r.nombre_restaurante,
+        ciudad: r.ciudad ?? null,
+        direccion: r.direccion ?? null,
+        telefono: r.telefono ?? null,
+        platillosCount: count ?? 0,
+      };
+    }));
+    return res.json(enriched);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -2203,19 +2227,19 @@ router.get('/gyms', async (_req: Request, res: Response) => {
       .order('nombre_gimnasio');
     if (error) return res.status(500).json({ error: error.message });
 
-    // Para cada gym, obtener nombre_negocio desde configuracion_gym si existe
+    // Para cada gym, obtener nombre_negocio desde configuracion_gym y cantidad de planes activos
     const enriched = await Promise.all((data ?? []).map(async (g: any) => {
-      const { data: cfg } = await db()
-        .from('configuracion_gym')
-        .select('nombre_negocio')
-        .eq('id_gimnasio', g.id_gimnasio)
-        .maybeSingle();
+      const [{ data: cfg }, { count }] = await Promise.all([
+        db().from('configuracion_gym').select('nombre_negocio').eq('id_gimnasio', g.id_gimnasio).maybeSingle(),
+        db().from('planes_membresia').select('id_plan', { count: 'exact', head: true }).eq('id_gimnasio', g.id_gimnasio).eq('activo', true),
+      ]);
       return {
         id: g.id_gimnasio,
         nombre: cfg?.nombre_negocio ?? g.nombre_gimnasio,
         ciudad: g.ciudad ?? null,
         direccion: g.direccion ?? null,
         telefono: g.telefono ?? null,
+        planesCount: count ?? 0,
       };
     }));
     return res.json(enriched);
@@ -2515,31 +2539,6 @@ router.post('/gym/solicitud', async (req: Request, res: Response) => {
       id_miembro: miembro.id_miembro,
       mensaje: '¡Solicitud enviada! El equipo del gym revisará tu información y se comunicará contigo para completar tu inscripción.',
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/public/restaurantes — listado público de restaurantes
-router.get('/restaurantes', async (_req: Request, res: Response) => {
-  try {
-    const { data, error } = await db()
-      .from('restaurant')
-      .select('id_restaurant, nombre_restaurante, ciudad, direccion, telefono')
-      .eq('activo', true)
-      .order('nombre_restaurante');
-
-    if (error) return res.status(500).json({ error: error.message });
-
-    return res.json(
-      (data ?? []).map((r: any) => ({
-        id: String(r.id_restaurant),
-        nombre: r.nombre_restaurante,
-        ciudad: r.ciudad ?? null,
-        direccion: r.direccion ?? null,
-        telefono: r.telefono ?? null,
-      })),
-    );
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

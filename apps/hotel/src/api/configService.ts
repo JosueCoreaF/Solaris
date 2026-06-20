@@ -185,6 +185,57 @@ export const crearAmenidad = (a: { nombre: string; descripcion: string }) =>
 export const actualizarAmenidad = (id: string, u: any) => actualizarServicio(id, u);
 export const eliminarAmenidad = eliminarServicio;
 
+// Servicios adicionales (cobrables, seleccionables al crear una reserva — distinto de las
+// comodidades/amenidades arriba, que son informativas)
+export interface ServicioAdicional {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  precio_defecto: number;
+  activo: boolean;
+}
+
+export async function obtenerServiciosAdicionales(): Promise<ServicioAdicional[]> {
+  const response = await fetchWithHotel(`${API_BASE}/servicios-adicionales`, { method: 'GET' });
+  if (!response.ok) throw new Error(response.statusText);
+  const result = await response.json();
+  return result.data || result;
+}
+
+export async function crearServicioAdicional(s: Omit<ServicioAdicional, 'id'>): Promise<ServicioAdicional> {
+  const response = await fetchWithHotel(`${API_BASE}/servicios-adicionales`, {
+    method: 'POST',
+    body: JSON.stringify(s),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || response.statusText);
+  }
+  const result = await response.json();
+  return result.data || result;
+}
+
+export async function actualizarServicioAdicional(id: string, s: Partial<Omit<ServicioAdicional, 'id'>>): Promise<ServicioAdicional> {
+  const response = await fetchWithHotel(`${API_BASE}/servicios-adicionales/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(s),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || response.statusText);
+  }
+  const result = await response.json();
+  return result.data || result;
+}
+
+export async function eliminarServicioAdicional(id: string): Promise<void> {
+  const response = await fetchWithHotel(`${API_BASE}/servicios-adicionales/${id}`, { method: 'DELETE' });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || response.statusText);
+  }
+}
+
 
 
 // Parámetros de Reserva

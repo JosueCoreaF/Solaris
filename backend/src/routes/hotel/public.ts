@@ -195,12 +195,14 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
       limpieza_diaria,
       neverita,
       plancha,
+      serviciosPersonalizados,
     } = req.body;
 
     const finalCamaExtra = !!(camaExtra || cama_extra);
     const finalLimpiezaDiaria = !!(limpiezaDiaria || limpieza_diaria);
     const finalNeverita = !!neverita;
     const finalPlancha = !!plancha;
+    const finalServiciosPersonalizados: string[] = Array.isArray(serviciosPersonalizados) ? serviciosPersonalizados.filter(Boolean) : [];
 
     if (!nombre || !habitacionId || !checkIn || !checkOut) {
       return res.status(400).json({ error: 'Faltan campos requeridos.' });
@@ -385,6 +387,7 @@ router.post('/solicitud-reserva', async (req: Request, res: Response) => {
       if (finalNeverita) servicesToInsert.push({ name: 'Neverita' });
       if (finalPlancha) servicesToInsert.push({ name: 'Plancha' });
       if (finalLimpiezaDiaria) servicesToInsert.push({ name: 'Limpieza Diaria' });
+      for (const nombre of finalServiciosPersonalizados) servicesToInsert.push({ name: nombre });
 
       if (servicesToInsert.length > 0) {
         const { data: dbServices } = await db()

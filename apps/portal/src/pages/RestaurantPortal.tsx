@@ -140,17 +140,28 @@ export default function RestaurantPortal() {
   return (
     <div className="min-h-screen bg-[#fdfaf6] font-sans">
       {/* ── Nav ─────────────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-amber-100/60 px-4 py-3 flex items-center gap-3">
-        <Link to="/landing/restaurant" className="text-stone-400 hover:text-amber-600 transition-colors">
+      <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-amber-100/60 px-4 lg:px-8 py-3 flex items-center gap-3">
+        <Link to="/landing/restaurant"
+          className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-stone-400 hover:text-amber-600 hover:bg-amber-50 transition-colors">
           <ArrowLeft size={18} />
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-sm font-bold text-stone-800 truncate">{rest.nombre}</h1>
           {rest.ciudad && <p className="text-xs text-stone-400">{rest.ciudad}</p>}
         </div>
+        {categorias.length > 0 && (
+          <div className="hidden lg:flex items-center gap-1 mr-2">
+            <a href="#menu" className="px-3.5 py-2 rounded-lg text-sm font-semibold text-stone-500 hover:text-stone-800 hover:bg-stone-50 transition-colors">
+              Menú
+            </a>
+            <a href="#disponibilidad" className="px-3.5 py-2 rounded-lg text-sm font-semibold text-stone-500 hover:text-stone-800 hover:bg-stone-50 transition-colors">
+              Disponibilidad
+            </a>
+          </div>
+        )}
         <button
           onClick={() => { setShowForm(true); setSuccess(null); }}
-          className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 transition-all text-white text-xs font-bold px-4 py-2 rounded-xl shadow-sm shadow-amber-200"
+          className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 hover:shadow-md hover:-translate-y-0.5 transition-all text-white text-xs lg:text-sm font-bold px-4 lg:px-5 py-2 lg:py-2.5 rounded-xl shadow-sm shadow-amber-200"
         >
           <Calendar size={13} />
           Reservar mesa
@@ -170,7 +181,9 @@ export default function RestaurantPortal() {
         </div>
       </div>
 
-      <main className="max-w-2xl mx-auto px-4 pb-24">
+      <main className="max-w-6xl mx-auto px-4 lg:px-8 pb-24">
+      <div className="lg:flex lg:gap-8 lg:items-start">
+      <div className="flex-1 lg:max-w-2xl">
 
         {/* ── Info card ──────────────────────────────────────────────────── */}
         <motion.div
@@ -244,8 +257,9 @@ export default function RestaurantPortal() {
         {/* ── Disponibilidad ─────────────────────────────────────────────── */}
         {rest.mesas.length > 0 && (
           <motion.div
+            id="disponibilidad"
             initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-            className="mt-4 bg-white rounded-3xl border border-stone-100 shadow-sm p-5"
+            className="mt-4 bg-white rounded-3xl border border-stone-100 shadow-sm p-5 scroll-mt-20"
           >
             <h3 className="text-sm font-bold text-stone-700 mb-3 flex items-center gap-2">
               <Users size={15} className="text-amber-500" />
@@ -270,8 +284,9 @@ export default function RestaurantPortal() {
         {/* ── Menú ───────────────────────────────────────────────────────── */}
         {categorias.length > 0 && (
           <motion.div
+            id="menu"
             initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-            className="mt-4 bg-white rounded-3xl border border-stone-100 shadow-sm overflow-hidden"
+            className="mt-4 bg-white rounded-3xl border border-stone-100 shadow-sm overflow-hidden scroll-mt-20"
           >
             <div className="px-5 pt-5 pb-1 flex items-center justify-between">
               <h3 className="text-sm font-bold text-stone-800 flex items-center gap-2">
@@ -318,10 +333,48 @@ export default function RestaurantPortal() {
             </div>
           </motion.div>
         )}
+      </div>
+
+      {/* ── Sidebar de reserva (solo desktop) ───────────────────────────── */}
+      <aside className="hidden lg:block lg:w-80 shrink-0 lg:sticky lg:top-24">
+        <div className="bg-white rounded-3xl border border-stone-100 shadow-md p-5">
+          <h3 className="text-sm font-bold text-stone-700 mb-3 flex items-center gap-2">
+            <Calendar size={15} className="text-amber-500" />
+            Reserva tu mesa
+          </h3>
+          {rest.mesas.length > 0 && (
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 text-emerald-700 p-3 text-center">
+                <div className="text-xl font-black">{mesasDisponibles.length}</div>
+                <div className="text-[10px] font-medium opacity-75 leading-tight">Disponibles</div>
+              </div>
+              <div className="rounded-2xl border border-amber-100 bg-amber-50 text-amber-700 p-3 text-center">
+                <div className="text-xl font-black">{capacidadMax}p</div>
+                <div className="text-[10px] font-medium opacity-75 leading-tight">Cap. máx.</div>
+              </div>
+            </div>
+          )}
+          <button
+            onClick={() => { setShowForm(true); setSuccess(null); }}
+            className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 hover:shadow-md transition-all text-white font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 shadow-sm shadow-amber-200"
+          >
+            <Calendar size={16} /> Reservar una mesa
+          </button>
+          <div className="mt-4 pt-4 border-t border-stone-100 space-y-2.5 text-xs text-stone-500">
+            {rest.direccion && (
+              <div className="flex items-start gap-2"><MapPin size={13} className="mt-0.5 shrink-0 text-amber-400" />{rest.direccion}</div>
+            )}
+            {rest.telefono && (
+              <div className="flex items-center gap-2"><Phone size={13} className="shrink-0 text-amber-400" />{rest.telefono}</div>
+            )}
+          </div>
+        </div>
+      </aside>
+      </div>
       </main>
 
-      {/* ── FAB flotante ─────────────────────────────────────────────────── */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30">
+      {/* ── FAB flotante (solo mobile/tablet) ───────────────────────────── */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 lg:hidden">
         <motion.button
           whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
           onClick={() => { setShowForm(true); setSuccess(null); }}

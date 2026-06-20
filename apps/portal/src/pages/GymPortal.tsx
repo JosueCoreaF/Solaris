@@ -148,17 +148,28 @@ export default function GymPortal() {
   return (
     <div className="min-h-screen bg-[#f6fdf8] font-sans">
       {/* ── Nav ─────────────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-emerald-100/60 px-4 py-3 flex items-center gap-3">
-        <Link to="/landing/gym" className="text-stone-400 hover:text-emerald-600 transition-colors">
+      <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-emerald-100/60 px-4 lg:px-8 py-3 flex items-center gap-3">
+        <Link to="/landing/gym"
+          className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-stone-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors">
           <ArrowLeft size={18} />
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-sm font-bold text-stone-800 truncate">{gym.nombre}</h1>
           {gym.ciudad && <p className="text-xs text-stone-400">{gym.ciudad}</p>}
         </div>
+        <div className="hidden lg:flex items-center gap-1 mr-2">
+          {(['planes', 'clases'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                tab === t ? 'bg-emerald-50 text-emerald-700' : 'text-stone-500 hover:text-stone-800 hover:bg-stone-50'
+              }`}>
+              {t === 'planes' ? 'Planes' : 'Clases'}
+            </button>
+          ))}
+        </div>
         <button
           onClick={() => { setPlanSeleccionado(gym.planes[0] ?? null); setShowForm(true); setSuccess(null); setFormError(null); setNombre(''); setCorreo(''); setTelefono(''); setDocumento(''); }}
-          className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 transition-all text-white text-xs font-bold px-4 py-2 rounded-xl shadow-sm shadow-emerald-200"
+          className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 hover:shadow-md hover:-translate-y-0.5 transition-all text-white text-xs lg:text-sm font-bold px-4 lg:px-5 py-2 lg:py-2.5 rounded-xl shadow-sm shadow-emerald-200"
         >
           <Dumbbell size={13} />
           Inscribirme
@@ -178,7 +189,9 @@ export default function GymPortal() {
         </div>
       </div>
 
-      <main className="max-w-2xl mx-auto px-4 pb-24">
+      <main className="max-w-6xl mx-auto px-4 lg:px-8 pb-24">
+      <div className="lg:flex lg:gap-8 lg:items-start">
+      <div className="flex-1 lg:max-w-2xl">
 
         {/* ── Info card ──────────────────────────────────────────────────── */}
         <motion.div
@@ -385,10 +398,42 @@ export default function GymPortal() {
             )}
           </motion.div>
         )}
+      </div>
+
+      {/* ── Sidebar de inscripción (solo desktop) ───────────────────────── */}
+      <aside className="hidden lg:block lg:w-80 shrink-0 lg:sticky lg:top-24">
+        <div className="bg-white rounded-3xl border border-stone-100 shadow-md p-5">
+          {gym.planes.length > 0 && (
+            <>
+              <p className="text-xs font-bold text-stone-400 uppercase tracking-wide mb-1">Desde</p>
+              <div className="text-3xl font-black text-emerald-600">
+                {gym.moneda} {Math.min(...gym.planes.map(p => p.precio)).toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+              </div>
+              <p className="text-xs text-stone-400 mb-4">por el plan más económico</p>
+            </>
+          )}
+          <button
+            onClick={() => { setPlanSeleccionado(gym.planes[0] ?? null); setShowForm(true); setSuccess(null); setFormError(null); setNombre(''); setCorreo(''); setTelefono(''); setDocumento(''); }}
+            className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 hover:shadow-md transition-all text-white font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 shadow-sm shadow-emerald-200"
+          >
+            <Dumbbell size={16} /> Inscribirme ahora
+          </button>
+          <div className="mt-4 pt-4 border-t border-stone-100 space-y-2.5 text-xs text-stone-500">
+            {gym.direccion && (
+              <div className="flex items-start gap-2"><MapPin size={13} className="mt-0.5 shrink-0 text-emerald-400" />{gym.direccion}</div>
+            )}
+            <div className="flex items-center gap-2"><Clock size={13} className="shrink-0 text-emerald-400" />{gym.horaApertura} – {gym.horaCierre}</div>
+            {gym.telefono && (
+              <div className="flex items-center gap-2"><Phone size={13} className="shrink-0 text-emerald-400" />{gym.telefono}</div>
+            )}
+          </div>
+        </div>
+      </aside>
+      </div>
       </main>
 
-      {/* ── FAB flotante ─────────────────────────────────────────────────── */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30">
+      {/* ── FAB flotante (solo mobile/tablet) ───────────────────────────── */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 lg:hidden">
         <motion.button
           whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
           onClick={() => { setPlanSeleccionado(gym.planes[0] ?? null); setShowForm(true); setSuccess(null); setFormError(null); setNombre(''); setCorreo(''); setTelefono(''); setDocumento(''); }}

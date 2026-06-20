@@ -19,7 +19,8 @@ import {
   Phone,
   Mail,
   MapPin,
-  Heart
+  Heart,
+  Tag
 } from 'lucide-react';
 import {
   obtenerConfigHotelera,
@@ -33,6 +34,11 @@ import {
   actualizarServicio,
   eliminarServicio,
   type Servicio,
+  obtenerServiciosAdicionales,
+  crearServicioAdicional,
+  actualizarServicioAdicional,
+  eliminarServicioAdicional,
+  type ServicioAdicional,
   obtenerHoteles,
   actualizarHotel,
 } from '../../api/configService';
@@ -89,7 +95,7 @@ export const Config: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'general' | 'finanzas' | 'operaciones' | 'politicas'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'finanzas' | 'operaciones' | 'politicas' | 'servicios'>('general');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const hasMultimoneda = useHasFeature('multimoneda');
 
@@ -143,6 +149,16 @@ export const Config: React.FC = () => {
   const [svcAcumulable, setSvcAcumulable] = useState(false);
   const [svcCantidad, setSvcCantidad] = useState(0);
   const [svcSaving, setSvcSaving] = useState(false);
+
+  // Estados para Servicios Adicionales (cobrables, seleccionables al crear una reserva)
+  const [serviciosAdicionales, setServiciosAdicionales] = useState<ServicioAdicional[]>([]);
+  const [showSaModal, setShowSaModal] = useState(false);
+  const [editingSa, setEditingSa] = useState<ServicioAdicional | null>(null);
+  const [saNombre, setSaNombre] = useState('');
+  const [saDescripcion, setSaDescripcion] = useState('');
+  const [saPrecio, setSaPrecio] = useState(0);
+  const [saActivo, setSaActivo] = useState(true);
+  const [saSaving, setSaSaving] = useState(false);
 
   // Sistema de Toasts
   const addToast = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -201,10 +217,11 @@ export const Config: React.FC = () => {
       }
 
       // 2. Obtener configuración, tipos de habitación y servicios
-      const [configData, tiposData, serviciosData] = await Promise.all([
+      const [configData, tiposData, serviciosData, serviciosAdicionalesData] = await Promise.all([
         obtenerConfigHotelera(activeId),
         obtenerTiposHabitacion(),
         obtenerServicios(),
+        obtenerServiciosAdicionales(),
       ]);
 
       if (configData) {
@@ -236,6 +253,10 @@ export const Config: React.FC = () => {
 
       if (serviciosData) {
         setServicios(serviciosData);
+      }
+
+      if (serviciosAdicionalesData) {
+        setServiciosAdicionales(serviciosAdicionalesData);
       }
 
     } catch (err: any) {
@@ -435,6 +456,54 @@ export const Config: React.FC = () => {
     }
   };
 
+  // Abrir modal de servicio adicional (crear o editar)
+  const abrirSaModal = (s?: ServicioAdicional) => {
+    setEditingSa(s ?? null);
+    setSaNombre(s?.nombre ?? '');
+    setSaDescripcion(s?.descripcion ?? '');
+    setSaPrecio(s?.precio_defecto ?? 0);
+    setSaActivo(s?.activo ?? true);
+    setShowSaModal(true);
+  };
+
+  // Guardar servicio adicional (crear o editar)
+  const handleGuardarSa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!saNombre.trim()) return;
+    setSaSaving(true);
+    try {
+      const payload = { nombre: saNombre.trim(), descripcion: saDescripcion.trim() || null, precio_defecto: Number(saPrecio) || 0, activo: saActivo };
+      if (editingSa) {
+        const updated = await actualizarServicioAdicional(editingSa.id, payload);
+        setServiciosAdicionales(prev => prev.map(s => s.id === editingSa.id ? { ...s, ...updated } : s));
+        addToast('Servicio actualizado.', 'success');
+      } else {
+        const created = await crearServicioAdicional(payload);
+        setServiciosAdicionales(prev => [...prev, created]);
+        addToast('Servicio creado.', 'success');
+      }
+      setShowSaModal(false);
+    } catch (err: any) {
+      console.error(err);
+      addToast(err?.message || 'Error al guardar el servicio.', 'error');
+    } finally {
+      setSaSaving(false);
+    }
+  };
+
+  // Eliminar servicio adicional
+  const handleEliminarSa = async (id: string) => {
+    if (!window.confirm('¿Eliminar este servicio? Ya no podrá seleccionarse en nuevas reservas.')) return;
+    try {
+      await eliminarServicioAdicional(id);
+      setServiciosAdicionales(prev => prev.filter(s => s.id !== id));
+      addToast('Servicio eliminado.', 'success');
+    } catch (err: any) {
+      console.error(err);
+      addToast(err?.message || 'Error al eliminar el servicio.', 'error');
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh', backgroundColor: '#f8fafc' }}>
@@ -604,6 +673,7 @@ export const Config: React.FC = () => {
                 { id: 'finanzas', label: 'Finanzas e Impuestos', icon: DollarSign, color: '#10b981' },
                 { id: 'operaciones', label: 'Operaciones de Reserva', icon: Clock, color: '#3b82f6' },
                 { id: 'politicas', label: 'Políticas y Descuentos', icon: Shield, color: '#f59e0b' },
+                { id: 'servicios', label: 'Servicios Adicionales', icon: Tag, color: '#ec4899' },
               ].map(tab => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
@@ -1169,9 +1239,61 @@ export const Config: React.FC = () => {
               </div>
             )}
 
+            {/* 5. SERVICIOS ADICIONALES TAB */}
+            {activeTab === 'servicios' && (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 24, borderBottom: '1px solid #f1f5f9', paddingBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Tag size={24} style={{ color: '#ec4899' }} />
+                    <div>
+                      <h3 style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', margin: 0 }}>Servicios Adicionales</h3>
+                      <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>Extras cobrables que el personal y los clientes pueden agregar al crear una reserva (ej. desayuno, tour, transporte).</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => abrirSaModal()}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 12, border: 'none', backgroundColor: '#ec4899', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    <Plus size={15} /> Nuevo servicio
+                  </button>
+                </div>
+
+                {serviciosAdicionales.length === 0 ? (
+                  <div style={{ padding: '40px 20px', textAlign: 'center', backgroundColor: '#f8fafc', borderRadius: 16, border: '1px dashed #e2e8f0' }}>
+                    <Tag size={28} style={{ color: '#cbd5e1', marginBottom: 10 }} />
+                    <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>Aún no has creado servicios adicionales para este hotel.</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {serviciosAdicionales.map(s => (
+                      <div key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '14px 16px', borderRadius: 14, border: '1px solid #e2e8f0', backgroundColor: s.activo ? '#fff' : '#f8fafc', opacity: s.activo ? 1 : 0.6 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <h4 style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', margin: 0 }}>{s.nombre}</h4>
+                            {!s.activo && <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', backgroundColor: '#f1f5f9', padding: '2px 8px', borderRadius: 20 }}>INACTIVO</span>}
+                          </div>
+                          {s.descripcion && <p style={{ fontSize: 12, color: '#64748b', margin: '3px 0 0 0' }}>{s.descripcion}</p>}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#ec4899' }}>L. {Number(s.precio_defecto).toFixed(2)}</span>
+                          <button type="button" onClick={() => abrirSaModal(s)} style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>
+                            <Edit3 size={14} style={{ color: '#475569' }} />
+                          </button>
+                          <button type="button" onClick={() => handleEliminarSa(s.id)} style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, border: '1px solid #fee2e2', backgroundColor: '#fef2f2', cursor: 'pointer' }}>
+                            <Trash2 size={14} style={{ color: '#ef4444' }} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* BUTTONS BAR (Saves config / hotel tabs) */}
-            {(
-              <div style={{ 
+            {activeTab !== 'servicios' && (
+              <div style={{
                 marginTop: 30, 
                 paddingTop: 20, 
                 borderTop: '1px solid #f1f5f9', 
@@ -1244,6 +1366,52 @@ export const Config: React.FC = () => {
 
         </div>
       </div>
+
+      {/* Modal: Crear / Editar Servicio Adicional */}
+      {showSaModal && (
+        <div style={{ position: 'fixed', inset: 0, background: '#0006', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => setShowSaModal(false)}>
+          <form onClick={e => e.stopPropagation()} onSubmit={handleGuardarSa}
+            style={{ background: '#fff', borderRadius: 20, padding: 28, width: 420, maxWidth: '100%', boxShadow: '0 20px 60px #0004' }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>
+              {editingSa ? 'Editar servicio' : 'Nuevo servicio adicional'}
+            </h3>
+            <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 18px' }}>Este servicio podrá seleccionarse al crear o editar una reserva, tanto desde el calendario interno como desde el portal del cliente.</p>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>Nombre</label>
+              <input type="text" required value={saNombre} onChange={e => setSaNombre(e.target.value)} placeholder="Ej. Desayuno buffet" style={inputStyle} autoFocus />
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>Descripción (opcional)</label>
+              <textarea value={saDescripcion} onChange={e => setSaDescripcion(e.target.value)} placeholder="Breve detalle visible para el cliente" rows={2}
+                style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>Precio</label>
+              <input type="number" min="0" step="0.01" required value={saPrecio} onChange={e => setSaPrecio(parseFloat(e.target.value) || 0)} style={inputStyle} />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>Servicio activo</span>
+              {renderiOSSwitch(saActivo, setSaActivo)}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={() => setShowSaModal(false)}
+                style={{ flex: 1, padding: '10px', background: '#f1f5f9', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#64748b' }}>
+                Cancelar
+              </button>
+              <button type="submit" disabled={saSaving}
+                style={{ flex: 2, padding: '10px', background: '#ec4899', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#fff' }}>
+                {saSaving ? 'Guardando…' : editingSa ? 'Guardar cambios' : 'Crear servicio'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };

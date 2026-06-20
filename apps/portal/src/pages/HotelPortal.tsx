@@ -472,6 +472,7 @@ const FORM_INIT: ReservaForm = {
   nombre: '', correo: '', telefono: '', dni: '',
   checkIn: '', checkOut: '', adultos: 2, ninos: 0,
   observaciones: '', camaExtra: false, limpiezaDiaria: false, neverita: false, plancha: false,
+  serviciosPersonalizados: [],
 };
 
 const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
@@ -991,6 +992,35 @@ const BookingModal = ({ hab, hotel, checkIn, checkOut, onClose }: {
                     })}
                   </div>
                 </div>
+
+                {/* Servicios personalizados del hotel */}
+                {!!hotel.serviciosAdicionales?.length && (
+                  <div>
+                    <p className={lbl}>Extras de {hotel.nombre}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {hotel.serviciosAdicionales.map(s => {
+                        const checked = form.serviciosPersonalizados.includes(s.nombre);
+                        return (
+                          <label key={s.id} className={`flex items-center gap-2.5 cursor-pointer p-3 rounded-2xl border transition-all ${checked ? 'bg-stone-900 border-stone-900 text-white' : 'bg-stone-50 border-stone-100 text-stone-600'}`}>
+                            <input type="checkbox" checked={checked} className="sr-only"
+                              onChange={e => setForm(f => ({
+                                ...f,
+                                serviciosPersonalizados: e.target.checked
+                                  ? [...f.serviciosPersonalizados, s.nombre]
+                                  : f.serviciosPersonalizados.filter(n => n !== s.nombre),
+                              }))} />
+                            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${checked ? 'border-white bg-white' : 'border-stone-300'}`}>
+                              {checked && <div className="w-2 h-2 rounded-full bg-stone-900" />}
+                            </div>
+                            <span className="text-xs font-semibold">
+                              {s.nombre}{s.precio > 0 ? ` · ${formatMoneda(s.precio, hotel.moneda)}` : ''}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Observaciones */}
                 <div>

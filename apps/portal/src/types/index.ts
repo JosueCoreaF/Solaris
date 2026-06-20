@@ -19,6 +19,14 @@ export interface Hotel {
   horaCheckin: string;
   horaCheckout: string;
   cargoPersonaExtra: number; // cargo por noche por persona adicional sobre la capacidad
+  serviciosAdicionales?: ServicioAdicional[];
+}
+
+export interface ServicioAdicional {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  precio: number;
 }
 
 export interface Habitacion {
@@ -53,4 +61,5 @@ export interface ReservaForm {
   limpiezaDiaria: boolean;
   neverita: boolean;
   plancha: boolean;
+  serviciosPersonalizados: string[];
 }

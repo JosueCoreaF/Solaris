@@ -437,6 +437,93 @@ router.delete('/servicios/:id', async (req: Request, res: Response) => {
   }
 });
 
+// ── Servicios adicionales (cobrables, seleccionables al crear una reserva) ──────
+
+// GET - Listar servicios adicionales del hotel
+router.get('/servicios-adicionales', async (req: Request, res: Response) => {
+  try {
+    const hotelId = req.headers['x-hotel-id'];
+    if (!hotelId || hotelId === 'all')
+      return res.status(400).json({ error: 'x-hotel-id es requerido' });
+    const { data, error } = await supabaseAdmin
+      .from('servicios_adicionales')
+      .select('id_servicio, nombre, descripcion, precio_defecto, activo')
+      .eq('id_hotel', hotelId)
+      .order('nombre');
+    if (error) return res.status(500).json({ error: error.message });
+    const mapped = (data || []).map((s: any) => ({
+      id: s.id_servicio,
+      nombre: s.nombre,
+      descripcion: s.descripcion,
+      precio_defecto: Number(s.precio_defecto ?? 0),
+      activo: s.activo,
+    }));
+    return res.json({ data: mapped });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST - Crear servicio adicional
+router.post('/servicios-adicionales', async (req: Request, res: Response) => {
+  try {
+    const hotelId = req.headers['x-hotel-id'] as string;
+    if (!hotelId || hotelId === 'all')
+      return res.status(400).json({ error: 'x-hotel-id es requerido' });
+    const { nombre, descripcion, precio_defecto, activo } = req.body;
+    if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es obligatorio' });
+    const { data, error } = await supabaseAdmin
+      .from('servicios_adicionales')
+      .insert({
+        id_hotel: hotelId,
+        nombre: nombre.trim(),
+        descripcion: descripcion || null,
+        precio_defecto: precio_defecto ?? 0,
+        activo: activo ?? true,
+      })
+      .select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(201).json({
+      data: { id: data.id_servicio, nombre: data.nombre, descripcion: data.descripcion, precio_defecto: Number(data.precio_defecto), activo: data.activo },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT - Actualizar servicio adicional
+router.put('/servicios-adicionales/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, precio_defecto, activo } = req.body;
+    const updates: any = {};
+    if (nombre         !== undefined) updates.nombre         = nombre;
+    if (descripcion    !== undefined) updates.descripcion    = descripcion;
+    if (precio_defecto !== undefined) updates.precio_defecto = precio_defecto;
+    if (activo         !== undefined) updates.activo         = activo;
+    const { data, error } = await supabaseAdmin
+      .from('servicios_adicionales').update(updates).eq('id_servicio', id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({
+      data: data ? { id: data.id_servicio, nombre: data.nombre, descripcion: data.descripcion, precio_defecto: Number(data.precio_defecto), activo: data.activo } : null,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE - Eliminar servicio adicional
+router.delete('/servicios-adicionales/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { error } = await supabaseAdmin.from('servicios_adicionales').delete().eq('id_servicio', id);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT - Actualizar parametros de reserva
 router.put('/parametros-reserva', async (req: Request, res: Response) => {
   try {

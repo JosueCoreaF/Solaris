@@ -96,6 +96,7 @@ export interface Reserva {
   limpieza_diaria?: boolean;
   neverita?: boolean;
   plancha?: boolean;
+  servicios_personalizados?: string[];
   origen_reserva?: 'web' | 'recepcion' | 'telefono' | 'agencia' | 'ia';
   tipo_reserva?: 'noche' | 'hora' | 'pasadia';
   // Computed
@@ -343,6 +344,7 @@ export async function createReserva(params: {
   limpieza_diaria?: boolean;
   neverita?: boolean;
   plancha?: boolean;
+  servicios_personalizados?: string[];
   origen_reserva?: 'web' | 'recepcion' | 'telefono' | 'agencia' | 'ia';
   tipo_reserva?: 'noche' | 'hora' | 'pasadia';
 }): Promise<Reserva> {
